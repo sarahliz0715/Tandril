@@ -6,9 +6,9 @@ AI agent tool for automating workflows and multiplatform e-commerce management
 
 ## How to run
 1. Clone the repo.
-2. Install dependencies: 'pip install -r requirements.txt'
-3. Run 'python main.py'
-   
+2. Install dependencies: `npm install`
+3. Run `npm run dev`
+
 ## Files
 - 'main.py': Core script.
 - etc.
