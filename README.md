@@ -1,20 +1,16 @@
-# Base44 App
+# Tandril
+My awesome project from Replit!
 
+## What it does
+AI agent tool for automating workflows and multiplatform e-commerce management
 
-This app was created automatically by Base44.
-It's a Vite+React app that communicates with the Base44 API.
-
-## Running the app
-
-```bash
-npm install
-npm run dev
-```
-
-## Building the app
-
-```bash
-npm run build
-```
-
+## How to run
+1. Clone the repo.
+2. Install dependencies: 'pip install -r requirements.txt'
+3. Run 'python main.py'
+   
+## Files
+- 'main.py': Core script.
+- etc.
+  
 For more information and support, please contact Base44 support at app@base44.com.
