@@ -1,5 +1,5 @@
 # Tandril
-My awesome project from Replit!
+My awesome project on Base44
 
 ## What it does
 AI agent tool for automating workflows and multiplatform e-commerce management
