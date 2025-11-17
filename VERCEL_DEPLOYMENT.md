@@ -2,6 +2,24 @@
 
 This guide will help you deploy Tandril to Vercel as an alternative to Base44 hosting.
 
+## 🎯 Two Deployment Modes
+
+Tandril can run in two modes:
+
+### 1. **Standalone Mode** (Recommended for Vercel)
+- ✅ No Base44 authentication required
+- ✅ Uses mock/demo data
+- ✅ Perfect for demos, testing, or standalone deployment
+- ✅ Set `VITE_STANDALONE_MODE=true`
+
+### 2. **Base44 Connected Mode**
+- 🔐 Requires Base44 authentication
+- 📊 Uses real Base44 data and API
+- 🔗 Full platform integration
+- 🔧 Set `VITE_STANDALONE_MODE=false` (or omit the variable)
+
+**For Vercel deployment, we recommend Standalone Mode to avoid authentication redirects.**
+
 ## Prerequisites
 
 - A [Vercel account](https://vercel.com/signup) (free tier available)
@@ -34,15 +52,24 @@ Vercel will auto-detect the Vite framework. Verify these settings:
 - **Output Directory**: `dist`
 - **Install Command**: `npm install`
 
-### Step 4: Environment Variables (if needed)
+### Step 4: Environment Variables (**REQUIRED for Standalone Mode**)
 
-If your app requires environment variables:
+**IMPORTANT:** To run Tandril on Vercel without Base44 authentication, you MUST set this environment variable:
 
 1. Go to **Project Settings** → **Environment Variables**
-2. Add any required variables (see `.env.example` for reference):
-   - `VITE_API_BASE_URL` (if using custom API endpoint)
-   - `VITE_BASE44_API_KEY` (if needed for Base44 SDK)
-   - Any other custom variables
+2. Click **Add New**
+3. Add the following variable:
+   - **Name**: `VITE_STANDALONE_MODE`
+   - **Value**: `true`
+   - **Environment**: Production (and Preview if you want)
+
+This enables demo/standalone mode with mock data instead of requiring Base44 login.
+
+**Optional variables** (only needed if connecting to Base44):
+   - `VITE_API_BASE_URL` - Base44 API endpoint
+   - `VITE_BASE44_API_KEY` - Base44 API key
+
+See `.env.example` for all available variables.
 
 ### Step 5: Deploy
 
@@ -66,7 +93,15 @@ npm install -g vercel
 vercel login
 ```
 
-### Step 3: Deploy
+### Step 3: Set Environment Variables
+
+Create a `.env.production` file in your project root:
+
+```bash
+echo "VITE_STANDALONE_MODE=true" > .env.production
+```
+
+### Step 4: Deploy
 
 For the first deployment:
 
@@ -90,6 +125,8 @@ vercel
 # Deploy to production
 vercel --prod
 ```
+
+**Note:** After the first deployment, go to the Vercel dashboard and add the `VITE_STANDALONE_MODE=true` environment variable to ensure it persists across deployments.
 
 ## Configuration Files Included
 
