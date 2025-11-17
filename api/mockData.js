@@ -89,6 +89,93 @@ const mockAuth = {
   }
 };
 
+// Mock function that returns a success message
+const createMockFunction = (name) => async (...args) => {
+  console.log(`🎭 Mock function called: ${name}`, args);
+  return {
+    success: true,
+    message: `Mock function ${name} executed in standalone mode`,
+    data: {}
+  };
+};
+
+// Create mock functions object
+export const createMockFunctions = () => ({
+  initiateShopifyAuth: createMockFunction('initiateShopifyAuth'),
+  handleShopifyCallback: createMockFunction('handleShopifyCallback'),
+  connectShopifyCustomApp: createMockFunction('connectShopifyCustomApp'),
+  executeShopifyCommand: createMockFunction('executeShopifyCommand'),
+  initiateEtsyAuth: createMockFunction('initiateEtsyAuth'),
+  handleEtsyCallback: createMockFunction('handleEtsyCallback'),
+  getShopifyProducts: createMockFunction('getShopifyProducts'),
+  interpretCommand: createMockFunction('interpretCommand'),
+  createCheckoutSession: createMockFunction('createCheckoutSession'),
+  stripeWebhook: createMockFunction('stripeWebhook'),
+  createBillingPortalSession: createMockFunction('createBillingPortalSession'),
+  executeWorkflow: createMockFunction('executeWorkflow'),
+  vacationModeScheduler: createMockFunction('vacationModeScheduler'),
+  generateMarketIntelligence: createMockFunction('generateMarketIntelligence'),
+  checkPlatformConnection: createMockFunction('checkPlatformConnection'),
+  connectPrintful: createMockFunction('connectPrintful'),
+  syncPrintfulProducts: createMockFunction('syncPrintfulProducts'),
+  syncOrders: createMockFunction('syncOrders'),
+  generateSmartAlerts: createMockFunction('generateSmartAlerts'),
+  masterStrategist: createMockFunction('masterStrategist'),
+  performanceOptimizer: createMockFunction('performanceOptimizer'),
+  shopifyExecutor: createMockFunction('shopifyExecutor'),
+  facebookAdsExecutor: createMockFunction('facebookAdsExecutor'),
+  workflowOptimizer: createMockFunction('workflowOptimizer'),
+  proactiveProfitFinder: createMockFunction('proactiveProfitFinder'),
+  automatedTrendSpotter: createMockFunction('automatedTrendSpotter'),
+  adSpendGuardian: createMockFunction('adSpendGuardian'),
+  syncShopifyProducts: createMockFunction('syncShopifyProducts'),
+  syncEtsyProducts: createMockFunction('syncEtsyProducts'),
+  sendBusinessEmail: createMockFunction('sendBusinessEmail'),
+  sendDailyReport: createMockFunction('sendDailyReport'),
+  scheduledDailyReports: createMockFunction('scheduledDailyReports'),
+  scheduleWeeklyReports: createMockFunction('scheduleWeeklyReports'),
+  sendCriticalAlert: createMockFunction('sendCriticalAlert'),
+  monitorCriticalEvents: createMockFunction('monitorCriticalEvents'),
+  connectTeePublic: createMockFunction('connectTeePublic'),
+  connectRedbubble: createMockFunction('connectRedbubble'),
+  revertShopifyCommand: createMockFunction('revertShopifyCommand'),
+  enhancedBusinessAdvisor: createMockFunction('enhancedBusinessAdvisor'),
+  initiateFacebookAuth: createMockFunction('initiateFacebookAuth'),
+  handleFacebookCallback: createMockFunction('handleFacebookCallback'),
+  generateSmartAd: createMockFunction('generateSmartAd'),
+  createFacebookCampaign: createMockFunction('createFacebookCampaign'),
+  diagnosticTest: createMockFunction('diagnosticTest'),
+  workflowScheduler: createMockFunction('workflowScheduler'),
+  testShopifyConnection: createMockFunction('testShopifyConnection'),
+  updateUserMemory: createMockFunction('updateUserMemory'),
+  generateDemoData: createMockFunction('generateDemoData'),
+  generateQAPDF: createMockFunction('generateQAPDF'),
+  ebayMarketplaceDeletion: createMockFunction('ebayMarketplaceDeletion'),
+  clearDemoData: createMockFunction('clearDemoData'),
+  notifySurveySubmission: createMockFunction('notifySurveySubmission'),
+  submitSurvey: createMockFunction('submitSurvey'),
+  dedalusAI: createMockFunction('dedalusAI'),
+  sendBetaInvite: createMockFunction('sendBetaInvite'),
+  sendSupportRequest: createMockFunction('sendSupportRequest'),
+  initiateEbayAuth: createMockFunction('initiateEbayAuth'),
+  handleEbayCallback: createMockFunction('handleEbayCallback'),
+  ebayWebhook: createMockFunction('ebayWebhook'),
+  syncEbayInventory: createMockFunction('syncEbayInventory'),
+  checkEbayConfig: createMockFunction('checkEbayConfig'),
+  debugEbayAuth: createMockFunction('debugEbayAuth'),
+  executeScheduledAutomations: createMockFunction('executeScheduledAutomations'),
+  sendWeeklyReport: createMockFunction('sendWeeklyReport'),
+  testAutomation: createMockFunction('testAutomation'),
+  retryAutomation: createMockFunction('retryAutomation'),
+  executeAutomationAction: createMockFunction('executeAutomationAction'),
+  evaluateTriggers: createMockFunction('evaluateTriggers'),
+  monitorAutomationTriggers: createMockFunction('monitorAutomationTriggers'),
+  executeAutomation: createMockFunction('executeAutomation'),
+  generateAIResponse: createMockFunction('generateAIResponse'),
+  saveResponseFeedback: createMockFunction('saveResponseFeedback'),
+  evaluateCustomAlerts: createMockFunction('evaluateCustomAlerts'),
+});
+
 // Create mock entities
 export const createMockEntities = () => ({
   Platform: MockEntity,
