@@ -26,8 +26,8 @@ import AIListingGenerator from '../components/listings/AIListingGenerator';
 import ListingStatusTable from '../components/listings/ListingStatusTable';
 import BulkListingActions from '../components/listings/BulkListingActions';
 import BetaGate from '../components/common/BetaGate';
-import { handleAuthError } from '../components/utils/authHelpers';
-import { useConfirmDialog, ConfirmDialog } from '../components/hooks/useConfirmDialog';
+import { handleAuthError } from '@/utils/authHelpers';
+import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 import { NoDataEmptyState, NoResultsEmptyState } from '../components/common/EmptyState';
 
 export default function Listings() {

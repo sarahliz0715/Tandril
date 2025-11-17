@@ -25,8 +25,8 @@ import {
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import CommandDetailsModal from '../components/history/CommandDetailsModal';
-import { handleAuthError } from '../components/utils/authHelpers';
-import { useConfirmDialog, ConfirmDialog } from '../components/hooks/useConfirmDialog';
+import { handleAuthError } from '@/utils/authHelpers';
+import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 import { NoDataEmptyState, NoResultsEmptyState } from '../components/common/EmptyState';
 
 // Helper function to format command log messages

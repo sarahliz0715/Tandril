@@ -28,8 +28,8 @@ import TrendingProductsCard from '../components/intelligence/TrendingProductsCar
 import NicheAnalysisCard from '../components/intelligence/NicheAnalysisCard';
 import CompetitorInsightsCard from '../components/intelligence/CompetitorInsightsCard';
 import KeywordOpportunitiesCard from '../components/intelligence/KeywordOpportunitiesCard';
-import { handleAuthError } from '../components/utils/authHelpers';
-import { useConfirmDialog, ConfirmDialog } from '../components/hooks/useConfirmDialog';
+import { handleAuthError } from '@/utils/authHelpers';
+import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 import { NoDataEmptyState } from '../components/common/EmptyState';
 
 export default function Intelligence() {

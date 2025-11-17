@@ -9,19 +9,19 @@ import {
   TrendingUp, BarChart3, Package, Users, FileText, LifeBuoy,
   DollarSign, Command, Repeat, ShoppingCart, History, GripVertical, CreditCard, Bell
 } from 'lucide-react';
-import TandrilLogo from './components/logos/TandrilLogo';
+import TandrilLogo from '@/components/logos/TandrilLogo';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import InactivityManager from "./components/auth/InactivityManager";
-import ActivityTracker from "./components/auth/ActivityTracker";
+import InactivityManager from "@/components/auth/InactivityManager";
+import ActivityTracker from "@/components/auth/ActivityTracker";
 import { User } from '@/api/entities';
-import GlobalCommandBar from "./components/commands/GlobalCommandBar";
+import GlobalCommandBar from "@/components/commands/GlobalCommandBar";
 import { Toaster } from "@/components/ui/toaster";
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { toast } from 'sonner';
 import { createPageUrl } from '@/utils';
-import ErrorBoundary from "./components/ErrorBoundary";
-import { useBetaAccess } from "./components/common/BetaGate";
-import SupportModal from './components/support/SupportModal';
+import ErrorBoundary from "@/ErrorBoundary";
+import { useBetaAccess } from "@/components/common/BetaGate";
+import SupportModal from '@/components/support/SupportModal';
 
 const defaultNavigationItems = [
     { name: 'Dashboard', href: 'Dashboard', icon: LayoutDashboard, color: 'text-blue-600' },

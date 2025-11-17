@@ -26,7 +26,7 @@ import PlatformBreakdown from '../components/analytics/PlatformBreakdown';
 import TopPerformingProducts from '../components/analytics/TopPerformingProducts';
 import KeyMetrics from '../components/analytics/KeyMetrics';
 import { DateRangePicker } from '../components/ui/date-range-picker';
-import { handleAuthError } from '../components/utils/authHelpers';
+import { handleAuthError } from '@/utils/authHelpers';
 import { NoDataEmptyState } from '../components/common/EmptyState';
 
 export default function Analytics() {

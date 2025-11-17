@@ -25,8 +25,8 @@ import { toast } from 'sonner';
 import WorkflowCard from '../components/workflows/WorkflowCard';
 import WorkflowTemplateCard from '../components/workflows/WorkflowTemplateCard';
 import CreateWorkflowModal from '../components/workflows/CreateWorkflowModal';
-import { handleAuthError } from '../components/utils/authHelpers';
-import { useConfirmDialog, ConfirmDialog } from '../components/hooks/useConfirmDialog';
+import { handleAuthError } from '@/utils/authHelpers';
+import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 import { NoDataEmptyState } from '../components/common/EmptyState';
 
 export default function Workflows() {

@@ -26,8 +26,8 @@ import {
   BarChart3
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { handleAuthError } from '../components/utils/authHelpers';
-import { useConfirmDialog, ConfirmDialog } from '../components/hooks/useConfirmDialog';
+import { handleAuthError } from '@/utils/authHelpers';
+import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 import { NoDataEmptyState } from '../components/common/EmptyState';
 
 export default function MasterStrategist() {

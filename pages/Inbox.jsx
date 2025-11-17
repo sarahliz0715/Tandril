@@ -26,8 +26,8 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import MessageCard from '../components/inbox/MessageCard';
 import SmartAlertsPanel from '../components/alerts/SmartAlertsPanel';
-import { handleAuthError } from '../components/utils/authHelpers';
-import { useConfirmDialog, ConfirmDialog } from '../components/hooks/useConfirmDialog';
+import { handleAuthError } from '@/utils/authHelpers';
+import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 import { NoDataEmptyState, NoResultsEmptyState } from '../components/common/EmptyState';
 
 export default function Inbox() {

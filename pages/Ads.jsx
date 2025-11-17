@@ -28,8 +28,8 @@ import AdTemplateCard from '../components/ads/AdTemplateCard';
 import CreateCampaignModal from '../components/ads/CreateCampaignModal';
 import CreateAdModal from '../components/ads/CreateAdModal';
 import ProductAdGenerator from '../components/ads/ProductAdGenerator';
-import { handleAuthError } from '../components/utils/authHelpers';
-import { useConfirmDialog, ConfirmDialog } from '../components/hooks/useConfirmDialog';
+import { handleAuthError } from '@/utils/authHelpers';
+import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 import { NoDataEmptyState } from '../components/common/EmptyState';
 
 export default function Ads() {

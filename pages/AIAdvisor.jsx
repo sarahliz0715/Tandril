@@ -4,11 +4,11 @@ import { createPageUrl } from '@/utils';
 import { User } from '@/api/entities';
 import ChatInterface from '../components/advisor/ChatInterface';
 import AIAvatar from '../components/advisor/AIAvatar';
-import { useAIAdvisorConversations } from '@/components/hooks/useAIAdvisorConversations';
+import { useAIAdvisorConversations } from '@/hooks/useAIAdvisorConversations';
 import DashboardAdvisor from '../components/dashboard/DashboardAdvisor';
 import { agentSDK } from "@/agents";
-import { handleAuthError } from '../components/utils/authHelpers';
-import { useConfirmDialog, ConfirmDialog } from '../components/hooks/useConfirmDialog';
+import { handleAuthError } from '@/utils/authHelpers';
+import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 import { NoDataEmptyState } from '../components/common/EmptyState';
 
 // shadcn/ui components

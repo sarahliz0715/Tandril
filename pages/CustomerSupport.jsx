@@ -16,7 +16,7 @@ import ReviewManager from '../components/support/ReviewManager';
 import TicketManager from '../components/support/TicketManager';
 import SupportAnalytics from '../components/support/SupportAnalytics';
 import AutoResponseSettings from '../components/support/AutoResponseSettings';
-import { handleAuthError } from '../components/utils/authHelpers';
+import { handleAuthError } from '@/utils/authHelpers';
 
 export default function CustomerSupport() {
     const navigate = useNavigate();
