@@ -33,8 +33,8 @@ import RequestPlatformModal from '../components/platforms/RequestPlatformModal';
 import EtsyConnectionWarning from '../components/platforms/EtsyConnectionWarning';
 import DemoModeToggle from '../components/platforms/DemoModeToggle';
 import BetaGate from '../components/common/BetaGate';
-import { handleAuthError } from '../components/utils/authHelpers';
-import { useConfirmDialog, ConfirmDialog } from '../components/hooks/useConfirmDialog';
+import { handleAuthError } from '@/utils/authHelpers';
+import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 import { NoDataEmptyState } from '../components/common/EmptyState';
 import EbayConfigChecker from '../components/platforms/EbayConfigChecker';
 

@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Zap, Search, Star, Clock, TrendingUp, Filter, Sparkles, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import CreateFromTemplateModal from '../components/automations/CreateFromTemplateModal';
-import { handleAuthError } from '../components/utils/authHelpers';
+import { handleAuthError } from '@/utils/authHelpers';
 
 export default function AutomationMarketplace() {
     const navigate = useNavigate();

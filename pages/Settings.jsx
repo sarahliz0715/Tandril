@@ -14,7 +14,7 @@ import NotificationSettings from '../components/settings/NotificationSettings';
 import AppearanceSettings from '../components/settings/AppearanceSettings';
 import SubscriptionSettings from '../components/settings/SubscriptionSettings';
 import ResourcesSettings from '../components/settings/ResourcesSettings';
-import { handleAuthError } from '../components/utils/authHelpers';
+import { handleAuthError } from '@/utils/authHelpers';
 import BetaAccessManager from '../components/settings/BetaAccessManager';
 
 export default function Settings() {

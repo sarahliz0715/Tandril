@@ -27,8 +27,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import CreateCustomAlertModal from '../components/alerts/CreateCustomAlertModal';
-import { handleAuthError } from '../components/utils/authHelpers';
-import { useConfirmDialog, ConfirmDialog } from '../components/hooks/useConfirmDialog';
+import { handleAuthError } from '@/utils/authHelpers';
+import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 
 const triggerIcons = {
     inventory_low: Package,

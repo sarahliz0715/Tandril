@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Calendar as CalendarIcon, Loader2, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths } from 'date-fns';
-import { handleAuthError } from '../components/utils/authHelpers';
+import { handleAuthError } from '@/utils/authHelpers';
 import { NoDataEmptyState } from '../components/common/EmptyState';
 
 export default function Calendar() {

@@ -18,8 +18,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import BulkUploadInterface from '../components/bulk/BulkUploadInterface';
-import { handleAuthError } from '../components/utils/authHelpers';
-import { useConfirmDialog, ConfirmDialog } from '../components/hooks/useConfirmDialog';
+import { handleAuthError } from '@/utils/authHelpers';
+import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 
 export default function BulkUploadPage() {
   const [currentUser, setCurrentUser] = useState(null);

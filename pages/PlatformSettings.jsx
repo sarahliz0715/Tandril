@@ -9,8 +9,8 @@ import { Loader2, ArrowLeft, Settings, Trash2, AlertCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { handleAuthError } from '../components/utils/authHelpers';
-import { useConfirmDialog, ConfirmDialog } from '../components/hooks/useConfirmDialog';
+import { handleAuthError } from '@/utils/authHelpers';
+import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 
 export default function PlatformSettings() {
     const location = useLocation();

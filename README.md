@@ -10,7 +10,9 @@ AI agent tool for automating workflows and multiplatform e-commerce management
 3. Run `npm run dev`
 
 ## Files
-- 'main.py': Core script.
-- etc.
+- 'main.jsx': Application entry point.
+- 'App.jsx': Main application component.
+- 'pages/': Page components and routing.
+- 'components/': Reusable UI and feature components.
   
 For more information and support, please contact Base44 support at app@base44.com.
