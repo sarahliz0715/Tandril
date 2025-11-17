@@ -2,8 +2,12 @@ import { base44 } from './base44Client';
 import { createMockEntities, mockAuth } from './mockData';
 
 // Check if running in standalone mode
-const isStandaloneMode = import.meta.env.VITE_STANDALONE_MODE === 'true';
+// Default to standalone mode (true) unless explicitly set to false
+const standaloneEnv = import.meta.env.VITE_STANDALONE_MODE;
+const isStandaloneMode = standaloneEnv !== 'false' && standaloneEnv !== false;
 const mockEntities = isStandaloneMode ? createMockEntities() : null;
+
+console.log('🗄️ Tandril Entities Mode:', { isStandaloneMode, usingMocks: !!mockEntities });
 
 // Export entities - use mock data in standalone mode, otherwise use Base44 SDK
 export const Platform = isStandaloneMode ? mockEntities.Platform : base44.entities.Platform;
