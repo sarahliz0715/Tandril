@@ -20,6 +20,7 @@ import commandsRouter from './routes/commands.js';
 import adsRouter from './routes/ads.js';
 import alertsRouter from './routes/alerts.js';
 import platformsRouter from './routes/platforms.js';
+import shopifyRouter from './routes/shopify.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -58,6 +59,7 @@ app.use('/api/commands', commandsRouter);
 app.use('/api/ads', adsRouter);
 app.use('/api/alerts', alertsRouter);
 app.use('/api/platforms', platformsRouter);
+app.use('/api/shopify', shopifyRouter);
 
 // 404 handler
 app.use((req, res) => {

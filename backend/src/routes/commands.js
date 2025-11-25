@@ -1,6 +1,7 @@
 import express from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import prisma from '../utils/prisma.js';
+import DiffService from '../services/DiffService.js';
 
 const router = express.Router();
 
@@ -73,6 +74,142 @@ router.post('/', requireAuth, async (req, res) => {
     success: true,
     data: command,
   });
+});
+
+/**
+ * POST /api/commands/preview - Preview command changes before execution
+ */
+router.post('/preview', requireAuth, async (req, res) => {
+  const { commandText, interpretation, productIds } = req.body;
+
+  try {
+    const preview = await DiffService.previewCommand(
+      commandText,
+      interpretation,
+      productIds || []
+    );
+
+    res.json({
+      success: true,
+      data: preview,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * POST /api/commands/preview/price - Preview price update
+ */
+router.post('/preview/price', requireAuth, async (req, res) => {
+  const { productIds, updateType, value } = req.body;
+
+  // Verify product ownership
+  const products = await prisma.product.findMany({
+    where: {
+      id: { in: productIds },
+      userId: req.user.id,
+    },
+    select: { id: true },
+  });
+
+  if (products.length !== productIds.length) {
+    return res.status(403).json({
+      success: false,
+      error: 'Some products not found or not owned by user',
+    });
+  }
+
+  try {
+    const preview = await DiffService.previewPriceUpdate(productIds, updateType, value);
+
+    res.json({
+      success: true,
+      data: preview,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * POST /api/commands/preview/inventory - Preview inventory update
+ */
+router.post('/preview/inventory', requireAuth, async (req, res) => {
+  const { inventoryItemIds, operation, quantity } = req.body;
+
+  // Verify ownership through inventory items
+  const items = await prisma.inventoryItem.findMany({
+    where: {
+      id: { in: inventoryItemIds },
+      product: { userId: req.user.id },
+    },
+    select: { id: true },
+  });
+
+  if (items.length !== inventoryItemIds.length) {
+    return res.status(403).json({
+      success: false,
+      error: 'Some inventory items not found or not owned by user',
+    });
+  }
+
+  try {
+    const preview = await DiffService.previewInventoryUpdate(inventoryItemIds, operation, quantity);
+
+    res.json({
+      success: true,
+      data: preview,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * POST /api/commands/preview/listing - Preview listing update
+ */
+router.post('/preview/listing', requireAuth, async (req, res) => {
+  const { listingIds, updates } = req.body;
+
+  // Verify ownership
+  const listings = await prisma.listing.findMany({
+    where: {
+      id: { in: listingIds },
+      product: { userId: req.user.id },
+    },
+    select: { id: true },
+  });
+
+  if (listings.length !== listingIds.length) {
+    return res.status(403).json({
+      success: false,
+      error: 'Some listings not found or not owned by user',
+    });
+  }
+
+  try {
+    const preview = await DiffService.previewListingUpdate(listingIds, updates);
+
+    res.json({
+      success: true,
+      data: preview,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
 });
 
 /**
