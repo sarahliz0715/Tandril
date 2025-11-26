@@ -5,7 +5,9 @@ const mockUser = {
   name: 'Demo User',
   createdAt: new Date().toISOString(),
   subscription: 'free',
-  betaAccess: true
+  betaAccess: true,
+  isAdmin: false, // Set to false for demo users - admins will need real auth
+  role: 'user' // Can be 'user', 'admin', or 'owner'
 };
 
 const mockPlatforms = [

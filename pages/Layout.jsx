@@ -51,9 +51,9 @@ const secondaryNavigation = [
     { name: 'Settings', href: 'Settings', icon: Settings, betaHidden: false },
     { name: 'Resources', href: 'Capabilities', icon: FileText, betaHidden: true },
     { name: 'Seller Card', href: 'SellerCard', icon: CreditCard, betaHidden: true },
-    { name: 'Executive Summary', href: 'ExecutiveSummary', icon: FileText, betaHidden: true },
-    { name: 'Revenue Model', href: 'RevenueModel', icon: FileText, betaHidden: true },
-    { name: 'Business Plan', href: 'BusinessPlan', icon: FileText, betaHidden: true },
+    { name: 'Executive Summary', href: 'ExecutiveSummary', icon: FileText, betaHidden: true, adminOnly: true },
+    { name: 'Revenue Model', href: 'RevenueModel', icon: FileText, betaHidden: true, adminOnly: true },
+    { name: 'Business Plan', href: 'BusinessPlan', icon: FileText, betaHidden: true, adminOnly: true },
     { name: 'Support', href: 'support', icon: LifeBuoy, isModal: true },
 ];
 
@@ -74,16 +74,28 @@ export default function Layout({ children, currentPageName }) {
             try {
                 const currentUser = await User.me();
                 setUser(currentUser);
-                
+
                 const excludedPages = ['Onboarding', 'Home', 'ShopifyCallback', 'TermsOfService', 'PrivacyPolicy', 'Pricing', 'EmailSignups', 'Survey'];
-                
+
                 if (currentUser && !currentUser.onboarding_completed && !excludedPages.includes(currentPageName)) {
                     console.log('User needs to complete onboarding, redirecting...');
                     navigate(createPageUrl('Onboarding'));
                 }
+
+                // Protect admin-only pages
+                const adminOnlyPages = ['ExecutiveSummary', 'RevenueModel', 'BusinessPlan'];
+                const isAdmin = currentUser?.isAdmin || currentUser?.role === 'admin' || currentUser?.role === 'owner';
+
+                if (adminOnlyPages.includes(currentPageName) && !isAdmin) {
+                    console.log(`Redirecting from ${currentPageName} - admin access required`);
+                    toast.error('Access Denied', {
+                        description: 'This page is only accessible to administrators.'
+                    });
+                    navigate(createPageUrl('Dashboard'));
+                }
             } catch (error) {
                 console.log('User not authenticated in layout');
-                
+
                 const publicPages = ['Home', 'Pricing', 'TermsOfService', 'PrivacyPolicy', 'EmailSignups', 'Survey'];
                 if (!publicPages.includes(currentPageName)) {
                     console.log(`Redirecting from ${currentPageName} to Home due to authentication failure`);
@@ -277,7 +289,13 @@ export default function Layout({ children, currentPageName }) {
 
                                         <div className="mt-6 pt-6 border-t border-slate-200 space-y-1">
                                             {secondaryNavigation
-                                                .filter(item => !(hasBetaAccess && item.betaHidden))
+                                                .filter(item => {
+                                                    // Hide beta-only items for beta users
+                                                    if (hasBetaAccess && item.betaHidden) return false;
+                                                    // Hide admin-only items for non-admin users
+                                                    if (item.adminOnly && !user?.isAdmin && user?.role !== 'admin' && user?.role !== 'owner') return false;
+                                                    return true;
+                                                })
                                                 .map((item) => {
                                                     if (item.isModal) {
                                                         return (
