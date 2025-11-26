@@ -1,5 +1,5 @@
 import { createClient } from '@base44/sdk';
-import { mockFunctions, mockAuth } from './mockData';
+import { mockFunctions, mockAuth, createMockEntities } from './mockData';
 // import { getAccessToken } from '@base44/sdk/utils/auth-utils';
 
 // Check if running in standalone mode (e.g., Vercel without Base44 auth)
@@ -20,7 +20,7 @@ const client = createClient({
   requiresAuth: !isStandaloneMode // Only require auth if NOT in standalone mode
 });
 
-// In standalone mode, ensure functions and auth are available with mock implementations
+// In standalone mode, ensure functions, auth, and entities are available with mock implementations
 if (isStandaloneMode) {
   // Mock functions
   if (!client.functions) {
@@ -40,6 +40,16 @@ if (isStandaloneMode) {
     // Override auth methods with mocks
     client.auth = { ...client.auth, ...mockAuth };
     console.log('✅ Mock auth methods merged with base44.auth');
+  }
+
+  // Mock entities
+  if (!client.entities) {
+    client.entities = createMockEntities();
+    console.log('✅ Mock entities attached to base44 client');
+  } else {
+    // Merge mock entities with existing
+    client.entities = { ...client.entities, ...createMockEntities() };
+    console.log('✅ Mock entities merged with base44.entities');
   }
 }
 
