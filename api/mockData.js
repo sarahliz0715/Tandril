@@ -86,6 +86,19 @@ const mockAuth = {
   async signIn(credentials) {
     console.log('Sign in in demo mode');
     return mockUser;
+  },
+  async isAuthenticated() {
+    // In standalone/demo mode, user is always "not authenticated" to avoid auth flows
+    return false;
+  },
+  async updateMe(updates) {
+    console.log('Update user in demo mode:', updates);
+    return { ...mockUser, ...updates };
+  },
+  redirectToLogin(redirectUrl) {
+    // In standalone mode, redirect to onboarding instead of login
+    console.log('Demo mode: Redirecting to', redirectUrl || '/Onboarding');
+    window.location.href = redirectUrl || '/Onboarding';
   }
 };
 
