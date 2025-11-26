@@ -112,6 +112,10 @@ import CustomerSupport from "./CustomerSupport";
 
 import CustomAlerts from "./CustomAlerts";
 
+import Login from "./Login";
+
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
+
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 
 const PAGES = {
@@ -227,7 +231,9 @@ const PAGES = {
     CustomerSupport: CustomerSupport,
     
     CustomAlerts: CustomAlerts,
-    
+
+    Login: Login,
+
 }
 
 function _getCurrentPage(url) {
@@ -247,11 +253,47 @@ function _getCurrentPage(url) {
 function PagesContent() {
     const location = useLocation();
     const currentPage = _getCurrentPage(location.pathname);
-    
+
+    // Public routes (no authentication required)
+    const publicRoutes = [
+        '/Login',
+        '/TermsOfService',
+        '/PrivacyPolicy',
+        '/Home',
+        '/Pricing',
+        '/Capabilities',
+        '/BetaCapabilities',
+        '/SellbriteComparison',
+        '/PrintableComparison',
+    ];
+
+    const isPublicRoute = publicRoutes.some(route =>
+        location.pathname === route
+    );
+
+    // Render public routes without authentication
+    if (isPublicRoute) {
+        return (
+            <Routes>
+                <Route path="/Login" element={<Login />} />
+                <Route path="/TermsOfService" element={<TermsOfService />} />
+                <Route path="/PrivacyPolicy" element={<PrivacyPolicy />} />
+                <Route path="/Home" element={<Home />} />
+                <Route path="/Pricing" element={<Pricing />} />
+                <Route path="/Capabilities" element={<Capabilities />} />
+                <Route path="/BetaCapabilities" element={<BetaCapabilities />} />
+                <Route path="/SellbriteComparison" element={<SellbriteComparison />} />
+                <Route path="/PrintableComparison" element={<PrintableComparison />} />
+            </Routes>
+        );
+    }
+
+    // Protected routes (require authentication)
     return (
-        <Layout currentPageName={currentPage}>
-            <Routes>            
-                
+        <ProtectedRoute>
+            <Layout currentPageName={currentPage}>
+                <Routes>
+
                     <Route path="/" element={<Dashboard />} />
                 
                 
@@ -366,9 +408,10 @@ function PagesContent() {
                 <Route path="/CustomerSupport" element={<CustomerSupport />} />
                 
                 <Route path="/CustomAlerts" element={<CustomAlerts />} />
-                
+
             </Routes>
-        </Layout>
+            </Layout>
+        </ProtectedRoute>
     );
 }
 

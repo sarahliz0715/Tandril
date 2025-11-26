@@ -1,7 +1,7 @@
 import { createClient } from '@base44/sdk';
-// import { getAccessToken } from '@base44/sdk/utils/auth-utils';
+import apiClient from './apiClient.js';
 
-// Check if running in standalone mode (e.g., Vercel without Base44 auth)
+// Check if running in standalone mode (uses Tandril backend)
 // Default to standalone mode (true) unless explicitly set to false
 const standaloneEnv = import.meta.env.VITE_STANDALONE_MODE;
 const isStandaloneMode = standaloneEnv !== 'false' && standaloneEnv !== false;
@@ -10,11 +10,14 @@ const isStandaloneMode = standaloneEnv !== 'false' && standaloneEnv !== false;
 console.log('🔍 Tandril Mode Check:', {
   env: standaloneEnv,
   isStandaloneMode,
-  requiresAuth: !isStandaloneMode
+  mode: isStandaloneMode ? 'Standalone Backend' : 'Base44 SDK',
+  backendUrl: import.meta.env.VITE_API_BASE_URL,
 });
 
-// Create a client with conditional authentication
-export const base44 = createClient({
-  appId: "68a3236e6b961b3c35fd1bbc",
-  requiresAuth: !isStandaloneMode // Only require auth if NOT in standalone mode
-});
+// Export the appropriate client based on mode
+export const base44 = isStandaloneMode
+  ? apiClient // Use our standalone backend
+  : createClient({ // Use Base44 SDK (legacy)
+      appId: "68a3236e6b961b3c35fd1bbc",
+      requiresAuth: true
+    });

@@ -1,0 +1,729 @@
+// Tandril Backend - Prisma Schema
+// 15 Core Entities for Standalone E-commerce Automation
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// 1. USER - Authentication & User Management
+// ============================================================================
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String?
+  supabaseId    String   @unique @map("supabase_id")
+
+  // User settings
+  timezone      String   @default("America/New_York")
+  currency      String   @default("USD")
+
+  // Subscription & limits
+  plan          Plan     @default(FREE)
+  monthlyCommandLimit Int @default(100) @map("monthly_command_limit")
+  commandsUsed  Int      @default(0) @map("commands_used")
+
+  // Relations
+  platforms     Platform[]
+  products      Product[]
+  automations   Automation[]
+  commands      AICommand[]
+  alerts        Alert[]
+
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+enum Plan {
+  FREE
+  STARTER
+  PROFESSIONAL
+  AGENCY
+}
+
+// ============================================================================
+// 2. PLATFORM - Connected Sales Channels
+// ============================================================================
+model Platform {
+  id              String            @id @default(cuid())
+  userId          String            @map("user_id")
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name            String            // "My Shopify Store"
+  type            PlatformType
+  status          PlatformStatus    @default(DISCONNECTED)
+
+  // Connection details
+  shopUrl         String?           @map("shop_url") // For Shopify: mystore.myshopify.com
+  lastSyncAt      DateTime?         @map("last_sync_at")
+  syncEnabled     Boolean           @default(true) @map("sync_enabled")
+
+  // Relations
+  listings        Listing[]
+  credentials     IntegrationCredential[]
+  inventoryItems  InventoryItem[]
+
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  @@unique([userId, shopUrl])
+  @@index([userId, status])
+  @@map("platforms")
+}
+
+enum PlatformType {
+  SHOPIFY
+  ETSY
+  EBAY
+  AMAZON
+  FACEBOOK_MARKETPLACE
+  TIKTOK_SHOP
+}
+
+enum PlatformStatus {
+  CONNECTED
+  DISCONNECTED
+  ERROR
+  SYNCING
+}
+
+// ============================================================================
+// 3. PRODUCT - Master Product Catalog
+// ============================================================================
+model Product {
+  id              String      @id @default(cuid())
+  userId          String      @map("user_id")
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Core product data
+  sku             String
+  name            String
+  description     String?     @db.Text
+  brand           String?
+  category        String?
+
+  // Pricing
+  cost            Decimal?    @db.Decimal(10, 2)
+  price           Decimal     @db.Decimal(10, 2)
+  compareAtPrice  Decimal?    @db.Decimal(10, 2) @map("compare_at_price")
+  mapPrice        Decimal?    @db.Decimal(10, 2) @map("map_price") // Minimum Advertised Price
+
+  // Media
+  images          String[]    // URLs
+  primaryImage    String?     @map("primary_image")
+
+  // Variants/Options
+  hasVariants     Boolean     @default(false) @map("has_variants")
+  variants        Json?       // Color, Size, etc.
+
+  // SEO
+  seoTitle        String?     @map("seo_title")
+  seoDescription  String?     @map("seo_description")
+  tags            String[]
+
+  // Relations
+  listings        Listing[]
+  inventoryItems  InventoryItem[]
+  purchaseOrders  PurchaseOrder[]
+
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  @@unique([userId, sku])
+  @@index([userId, sku])
+  @@index([userId, category])
+  @@map("products")
+}
+
+// ============================================================================
+// 4. LISTING - Platform-Specific Product Listings
+// ============================================================================
+model Listing {
+  id              String              @id @default(cuid())
+  productId       String              @map("product_id")
+  product         Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  platformId      String              @map("platform_id")
+  platform        Platform            @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  // Platform-specific IDs
+  externalId      String?             @map("external_id") // Shopify product ID, etc.
+  externalUrl     String?             @map("external_url")
+
+  // Status
+  status          ListingStatus       @default(DRAFT)
+  isActive        Boolean             @default(false) @map("is_active")
+
+  // Platform-specific overrides
+  title           String?             // Can override product name
+  description     String?             @db.Text
+  price           Decimal?            @db.Decimal(10, 2)
+
+  // Health tracking
+  healthScore     Int                 @default(100) @map("health_score") // 0-100
+  lastHealthCheck DateTime?           @map("last_health_check")
+
+  // Relations
+  healthIssues    ListingHealthIssue[]
+
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+  publishedAt     DateTime?           @map("published_at")
+
+  @@unique([productId, platformId])
+  @@index([platformId, status])
+  @@index([healthScore])
+  @@map("listings")
+}
+
+enum ListingStatus {
+  DRAFT
+  ACTIVE
+  SUPPRESSED
+  STRANDED
+  OUT_OF_STOCK
+  ARCHIVED
+}
+
+// ============================================================================
+// 5. LISTING HEALTH ISSUE ⭐ NEW - Suppression Detection
+// ============================================================================
+model ListingHealthIssue {
+  id              String              @id @default(cuid())
+  listingId       String              @map("listing_id")
+  listing         Listing             @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  // Issue details
+  type            HealthIssueType
+  severity        IssueSeverity
+  title           String              // "Image too small"
+  description     String              @db.Text // Details about the issue
+
+  // Current vs Required
+  currentValue    String?             @map("current_value") // e.g., "500x500"
+  requiredValue   String?             @map("required_value") // e.g., "1000x1000"
+
+  // Auto-fix capability
+  canAutoFix      Boolean             @default(false) @map("can_auto_fix")
+  autoFixAction   String?             @map("auto_fix_action") // JSON action config
+
+  // Status
+  status          IssueStatus         @default(OPEN)
+  resolvedAt      DateTime?           @map("resolved_at")
+  resolution      String?             // How it was fixed
+
+  // Escalation
+  needsHumanReview Boolean            @default(false) @map("needs_human_review")
+  escalatedAt     DateTime?           @map("escalated_at")
+
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+
+  @@index([listingId, status])
+  @@index([type, severity])
+  @@map("listing_health_issues")
+}
+
+enum HealthIssueType {
+  IMAGE_SIZE_TOO_SMALL
+  IMAGE_SIZE_TOO_LARGE
+  IMAGE_FORMAT_INVALID
+  TITLE_TOO_LONG
+  TITLE_TOO_SHORT
+  MISSING_BRAND
+  MISSING_CATEGORY
+  MISSING_DESCRIPTION
+  MISSING_IMAGES
+  PRICE_BELOW_MINIMUM
+  PRICE_ABOVE_MAP
+  MISSING_REQUIRED_ATTRIBUTE
+  VARIATION_ERROR
+  DUPLICATE_SKU
+  POLICY_VIOLATION
+  OUT_OF_STOCK
+}
+
+enum IssueSeverity {
+  CRITICAL  // Listing suppressed
+  HIGH      // Will be suppressed soon
+  MEDIUM    // Needs attention
+  LOW       // Best practice
+}
+
+enum IssueStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  IGNORED
+}
+
+// ============================================================================
+// 6. INVENTORY ITEM - Stock Levels Across Platforms
+// ============================================================================
+model InventoryItem {
+  id              String      @id @default(cuid())
+  productId       String      @map("product_id")
+  product         Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  platformId      String?     @map("platform_id")
+  platform        Platform?   @relation(fields: [platformId], references: [id], onDelete: SetNull)
+
+  // Location
+  location        String      // "FBA", "Warehouse A", "3PL XYZ"
+  locationType    LocationType @default(WAREHOUSE) @map("location_type")
+
+  // Stock levels
+  quantity        Int         @default(0)
+  reserved        Int         @default(0) // Reserved for orders
+  available       Int         @default(0) // quantity - reserved
+  reorderPoint    Int         @default(10) @map("reorder_point")
+  reorderQuantity Int         @default(50) @map("reorder_quantity")
+
+  // Lead times ⭐ NEW for Phase 2
+  leadTimeDays    Int?        @map("lead_time_days")
+  supplierName    String?     @map("supplier_name")
+  supplierSku     String?     @map("supplier_sku")
+
+  // Cost tracking
+  unitCost        Decimal?    @db.Decimal(10, 2) @map("unit_cost")
+
+  lastSyncAt      DateTime?   @map("last_sync_at")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  @@unique([productId, platformId, location])
+  @@index([productId])
+  @@index([available])
+  @@map("inventory_items")
+}
+
+enum LocationType {
+  WAREHOUSE
+  FBA
+  THIRD_PARTY_LOGISTICS
+  DROPSHIP
+  RETAIL
+}
+
+// ============================================================================
+// 7. PURCHASE ORDER ⭐ NEW - Reorder Management
+// ============================================================================
+model PurchaseOrder {
+  id              String      @id @default(cuid())
+  productId       String      @map("product_id")
+  product         Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  poNumber        String      @unique @map("po_number")
+  status          POStatus    @default(DRAFT)
+
+  // Supplier details
+  supplierName    String      @map("supplier_name")
+  supplierEmail   String?     @map("supplier_email")
+
+  // Order details
+  quantity        Int
+  unitCost        Decimal     @db.Decimal(10, 2) @map("unit_cost")
+  totalCost       Decimal     @db.Decimal(10, 2) @map("total_cost")
+
+  // Dates
+  orderDate       DateTime?   @map("order_date")
+  expectedDate    DateTime?   @map("expected_date")
+  receivedDate    DateTime?   @map("received_date")
+
+  // Auto-generated flag
+  autoGenerated   Boolean     @default(false) @map("auto_generated")
+  triggerReason   String?     @map("trigger_reason") // "Low stock alert"
+
+  notes           String?     @db.Text
+
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([productId, status])
+  @@map("purchase_orders")
+}
+
+enum POStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  ORDERED
+  IN_TRANSIT
+  RECEIVED
+  CANCELLED
+}
+
+// ============================================================================
+// 8. AUTOMATION - Workflow Automation Rules
+// ============================================================================
+model Automation {
+  id              String          @id @default(cuid())
+  userId          String          @map("user_id")
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name            String
+  description     String?         @db.Text
+
+  // Configuration
+  triggers        Json            // Array of trigger configs
+  actions         Json            // Array of action configs
+  conditions      Json?           // If/then logic
+
+  // Status
+  isActive        Boolean         @default(true) @map("is_active")
+
+  // Schedule
+  schedule        String?         // Cron expression
+  lastRunAt       DateTime?       @map("last_run_at")
+  nextRunAt       DateTime?       @map("next_run_at")
+
+  // Stats
+  runCount        Int             @default(0) @map("run_count")
+  successCount    Int             @default(0) @map("success_count")
+  failureCount    Int             @default(0) @map("failure_count")
+
+  // Relations
+  runs            AutomationRun[]
+
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  @@index([userId, isActive])
+  @@map("automations")
+}
+
+// ============================================================================
+// 9. AUTOMATION RUN - Execution History
+// ============================================================================
+model AutomationRun {
+  id              String          @id @default(cuid())
+  automationId    String          @map("automation_id")
+  automation      Automation      @relation(fields: [automationId], references: [id], onDelete: Cascade)
+
+  status          RunStatus       @default(RUNNING)
+
+  // Execution details
+  startedAt       DateTime        @default(now()) @map("started_at")
+  completedAt     DateTime?       @map("completed_at")
+  duration        Int?            // milliseconds
+
+  // Results
+  itemsProcessed  Int             @default(0) @map("items_processed")
+  itemsSucceeded  Int             @default(0) @map("items_succeeded")
+  itemsFailed     Int             @default(0) @map("items_failed")
+
+  error           String?         @db.Text
+  logs            Json[]          // Array of log entries
+
+  @@index([automationId, status])
+  @@index([startedAt])
+  @@map("automation_runs")
+}
+
+enum RunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// ============================================================================
+// 10. AI COMMAND - Command History & Undo Tracking
+// ============================================================================
+model AICommand {
+  id              String          @id @default(cuid())
+  userId          String          @map("user_id")
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Command details
+  commandText     String          @db.Text @map("command_text")
+  interpretation  Json            // AI's parsed intent
+
+  // Risk assessment
+  riskLevel       RiskLevel       @default(LOW) @map("risk_level")
+  riskWarning     String?         @db.Text @map("risk_warning")
+
+  // Execution
+  status          CommandStatus   @default(PENDING)
+  platformTargets String[]        @map("platform_targets")
+
+  // Before state (for undo) ⭐ CRITICAL for audit/undo
+  beforeState     Json?           @map("before_state")
+  afterState      Json?           @map("after_state")
+
+  // Results
+  itemsAffected   Int             @default(0) @map("items_affected")
+  successCount    Int             @default(0) @map("success_count")
+  failureCount    Int             @default(0) @map("failure_count")
+  executionTime   Int?            @map("execution_time") // seconds
+
+  // Undo tracking
+  canUndo         Boolean         @default(true) @map("can_undo")
+  undoneAt        DateTime?       @map("undone_at")
+  undoneBy        String?         @map("undone_by")
+
+  error           String?         @db.Text
+  logs            Json[]
+
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  @@index([userId, status])
+  @@index([createdAt])
+  @@map("ai_commands")
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum CommandStatus {
+  PENDING
+  APPROVED
+  EXECUTING
+  COMPLETED
+  FAILED
+  CANCELLED
+  UNDONE
+}
+
+// ============================================================================
+// 11. AD CAMPAIGN - Facebook/Google Ads Management
+// ============================================================================
+model AdCampaign {
+  id              String          @id @default(cuid())
+  userId          String          @map("user_id")
+
+  // Campaign details
+  name            String
+  platform        AdPlatform
+  externalId      String?         @map("external_id") // Platform campaign ID
+
+  status          CampaignStatus  @default(DRAFT)
+
+  // Budget
+  dailyBudget     Decimal?        @db.Decimal(10, 2) @map("daily_budget")
+  totalBudget     Decimal?        @db.Decimal(10, 2) @map("total_budget")
+
+  // Current spend
+  currentSpend    Decimal         @default(0) @db.Decimal(10, 2) @map("current_spend")
+  todaySpend      Decimal         @default(0) @db.Decimal(10, 2) @map("today_spend")
+
+  // Performance
+  impressions     Int             @default(0)
+  clicks          Int             @default(0)
+  conversions     Int             @default(0)
+  revenue         Decimal         @default(0) @db.Decimal(10, 2)
+
+  // Calculated metrics
+  ctr             Decimal?        @db.Decimal(5, 2) // Click-through rate
+  cpc             Decimal?        @db.Decimal(10, 2) // Cost per click
+  acos            Decimal?        @db.Decimal(5, 2) // Advertising Cost of Sale
+  roas            Decimal?        @db.Decimal(5, 2) // Return on Ad Spend
+
+  // Relations
+  spendGuards     AdSpendGuard[]
+
+  lastSyncAt      DateTime?       @map("last_sync_at")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  @@index([userId, status])
+  @@map("ad_campaigns")
+}
+
+enum AdPlatform {
+  FACEBOOK
+  GOOGLE
+  TIKTOK
+  PINTEREST
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+// ============================================================================
+// 12. AD SPEND GUARD ⭐ NEW - Budget Caps & Performance Monitoring
+// ============================================================================
+model AdSpendGuard {
+  id              String          @id @default(cuid())
+  campaignId      String          @map("campaign_id")
+  campaign        AdCampaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  // Guard type
+  type            GuardType
+
+  // Thresholds
+  dailyCapAmount  Decimal?        @db.Decimal(10, 2) @map("daily_cap_amount")
+  monthlyCapAmount Decimal?       @db.Decimal(10, 2) @map("monthly_cap_amount")
+  acosThreshold   Decimal?        @db.Decimal(5, 2) @map("acos_threshold") // Pause if ACoS > this
+  roasThreshold   Decimal?        @db.Decimal(5, 2) @map("roas_threshold") // Pause if ROAS < this
+
+  // Actions
+  autoAction      GuardAction     @default(ALERT) @map("auto_action")
+
+  // Status
+  isActive        Boolean         @default(true) @map("is_active")
+  lastTriggered   DateTime?       @map("last_triggered")
+  triggerCount    Int             @default(0) @map("trigger_count")
+
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  @@index([campaignId, isActive])
+  @@map("ad_spend_guards")
+}
+
+enum GuardType {
+  DAILY_BUDGET_CAP
+  MONTHLY_BUDGET_CAP
+  ACOS_THRESHOLD
+  ROAS_THRESHOLD
+  CPC_THRESHOLD
+}
+
+enum GuardAction {
+  ALERT           // Just send alert
+  PAUSE_CAMPAIGN  // Auto-pause the campaign
+  REDUCE_BID      // Reduce bids by X%
+  REVERT_CHANGES  // Revert to previous settings
+}
+
+// ============================================================================
+// 13. ALERT - Smart Alerts & Notifications
+// ============================================================================
+model Alert {
+  id              String          @id @default(cuid())
+  userId          String          @map("user_id")
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Alert details
+  type            AlertType
+  severity        AlertSeverity
+  title           String
+  message         String          @db.Text
+
+  // Context
+  entityType      String?         @map("entity_type") // "Product", "Campaign", etc.
+  entityId        String?         @map("entity_id")
+  metadata        Json?
+
+  // Status
+  isRead          Boolean         @default(false) @map("is_read")
+  isDismissed     Boolean         @default(false) @map("is_dismissed")
+
+  // Actions
+  actionRequired  Boolean         @default(false) @map("action_required")
+  actionUrl       String?         @map("action_url")
+  actionLabel     String?         @map("action_label")
+
+  readAt          DateTime?       @map("read_at")
+  dismissedAt     DateTime?       @map("dismissed_at")
+
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("alerts")
+}
+
+enum AlertType {
+  INVENTORY_LOW
+  INVENTORY_OUT
+  LISTING_SUPPRESSED
+  AD_BUDGET_WARNING
+  AD_BUDGET_EXCEEDED
+  AUTOMATION_FAILED
+  SYNC_ERROR
+  PRICE_WAR
+  BUY_BOX_LOST
+  PERFORMANCE_DECLINE
+  SYSTEM
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+// ============================================================================
+// 14. INTEGRATION CREDENTIAL - Secure API Key Storage
+// ============================================================================
+model IntegrationCredential {
+  id              String          @id @default(cuid())
+  platformId      String          @map("platform_id")
+  platform        Platform        @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  // Credential type
+  type            CredentialType
+
+  // Encrypted credentials (use crypto.encrypt before storing)
+  accessToken     String?         @db.Text @map("access_token")
+  refreshToken    String?         @db.Text @map("refresh_token")
+  apiKey          String?         @db.Text @map("api_key")
+  apiSecret       String?         @db.Text @map("api_secret")
+
+  // OAuth details
+  expiresAt       DateTime?       @map("expires_at")
+  scope           String[]
+
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  @@unique([platformId, type])
+  @@map("integration_credentials")
+}
+
+enum CredentialType {
+  OAUTH
+  API_KEY
+  BASIC_AUTH
+}
+
+// ============================================================================
+// 15. AUDIT LOG - Immutable Audit Trail
+// ============================================================================
+model AuditLog {
+  id              String          @id @default(cuid())
+  userId          String?         @map("user_id")
+
+  // Action details
+  action          String          // "product.update", "listing.create"
+  entityType      String          @map("entity_type")
+  entityId        String          @map("entity_id")
+
+  // Changes (before/after)
+  changes         Json            // { field: { before: x, after: y } }
+
+  // Context
+  ipAddress       String?         @map("ip_address")
+  userAgent       String?         @map("user_agent")
+  source          String?         // "web", "api", "automation"
+
+  // Immutability hash ⭐ For compliance
+  previousHash    String?         @map("previous_hash")
+  currentHash     String          @map("current_hash") // SHA256 of this record
+
+  timestamp       DateTime        @default(now())
+
+  @@index([userId, timestamp])
+  @@index([entityType, entityId])
+  @@index([timestamp])
+  @@map("audit_logs")
+}
