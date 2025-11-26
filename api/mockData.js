@@ -134,4 +134,131 @@ export const createMockEntities = () => ({
   CustomAlert: MockEntity,
 });
 
-export { mockAuth };
+// Mock functions for standalone mode
+const mockFunctions = {
+  async invoke(functionName, params) {
+    console.log(`🎭 [Mock Functions] Calling ${functionName} with params:`, params);
+
+    // Return mock responses based on function name
+    switch (functionName) {
+      case 'initiateShopifyAuth':
+        console.warn('⚠️ Shopify authentication is not available in standalone mode');
+        return {
+          data: null,
+          error: 'Shopify authentication is not available in standalone mode. This is a demo environment.'
+        };
+
+      case 'initiateEbayAuth':
+        console.warn('⚠️ eBay authentication is not available in standalone mode');
+        return {
+          data: null,
+          error: 'eBay authentication is not available in standalone mode. This is a demo environment.'
+        };
+
+      case 'initiateFacebookAuth':
+        console.warn('⚠️ Facebook authentication is not available in standalone mode');
+        return {
+          data: null,
+          error: 'Facebook authentication is not available in standalone mode. This is a demo environment.'
+        };
+
+      case 'handleShopifyCallback':
+      case 'handleEbayCallback':
+      case 'handleFacebookCallback':
+        return {
+          data: { success: false, message: 'Platform callbacks are not available in standalone mode' }
+        };
+
+      case 'interpretCommand':
+        return {
+          data: {
+            interpretation: 'This is a mock interpretation. In standalone mode, commands are simulated.',
+            actions: []
+          }
+        };
+
+      case 'generateMarketIntelligence':
+        return {
+          data: {
+            insights: ['Mock insight 1', 'Mock insight 2'],
+            trends: ['Mock trend 1', 'Mock trend 2']
+          }
+        };
+
+      case 'masterStrategist':
+        return {
+          data: {
+            strategy: 'This is a mock strategy response. In standalone mode, AI responses are simulated.',
+            recommendations: []
+          }
+        };
+
+      case 'generateAIResponse':
+        return {
+          data: {
+            response: 'This is a mock AI response. Real AI responses require authentication.',
+            confidence: 0.85
+          }
+        };
+
+      case 'executeWorkflow':
+      case 'executeAutomation':
+        return {
+          data: {
+            success: true,
+            message: 'Workflow execution simulated in standalone mode',
+            results: []
+          }
+        };
+
+      case 'testAutomation':
+        return {
+          data: {
+            success: true,
+            message: 'Test completed in standalone mode',
+            logs: ['Mock log entry 1', 'Mock log entry 2']
+          }
+        };
+
+      case 'evaluateTriggers':
+        return {
+          data: {
+            triggered: false,
+            message: 'Trigger evaluation is simulated in standalone mode'
+          }
+        };
+
+      case 'sendSupportRequest':
+      case 'sendBetaInvite':
+      case 'saveResponseFeedback':
+        return {
+          data: {
+            success: true,
+            message: 'Request recorded (simulated in standalone mode)'
+          }
+        };
+
+      case 'checkEbayConfig':
+      case 'debugEbayAuth':
+      case 'checkPlatformConnection':
+        return {
+          data: {
+            configured: false,
+            message: 'Platform configuration is not available in standalone mode'
+          }
+        };
+
+      default:
+        console.warn(`⚠️ No mock implementation for function: ${functionName}`);
+        return {
+          data: {
+            success: false,
+            message: `Function '${functionName}' is not available in standalone mode. This is a demo environment.`
+          },
+          error: `Function not available in standalone mode`
+        };
+    }
+  }
+};
+
+export { mockAuth, mockFunctions };

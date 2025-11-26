@@ -25,20 +25,35 @@ export default function ShopifyConnectButton({ onConnectionSuccess }) {
         
         try {
             console.log('🔵 [Shopify] Starting connection for store:', storeName.trim());
-            
+
             const response = await base44.functions.invoke('initiateShopifyAuth', {
                 store_name: storeName.trim().replace('.myshopify.com', '')
             });
 
             console.log('🔵 [Shopify] Response received:', response);
 
+            // Check if this is a standalone mode error
+            if (response.error && response.error.includes('standalone mode')) {
+                const error = "Demo Mode Active";
+                console.warn('⚠️ [Shopify] Standalone mode - platform connections not available');
+
+                setErrorDetails({
+                    message: "Shopify connection is not available in demo mode",
+                    details: "This is a demo/preview environment. Platform connections require authentication.\n\nTo enable platform connections:\n1. Deploy with Base44 authentication enabled\n2. Set VITE_STANDALONE_MODE=false in your environment variables\n3. Configure your Shopify API credentials"
+                });
+                toast.error("Demo Mode Active", {
+                    description: "Platform connections are not available in demo mode"
+                });
+                return;
+            }
+
             if (response.data?.authorization_url) {
                 console.log('🔵 [Shopify] Redirecting to:', response.data.authorization_url);
-                
+
                 toast.success("Redirecting to Shopify...", {
                     description: "Please authorize Tandril in the next window"
                 });
-                
+
                 // Add a small delay to show the toast
                 setTimeout(() => {
                     window.location.href = response.data.authorization_url;
@@ -47,7 +62,7 @@ export default function ShopifyConnectButton({ onConnectionSuccess }) {
                 const error = "No authorization URL received from server";
                 console.error('🔴 [Shopify] Error:', error);
                 console.error('🔴 [Shopify] Full response:', response);
-                
+
                 setErrorDetails({
                     message: error,
                     details: JSON.stringify(response.data || response, null, 2)
@@ -56,16 +71,16 @@ export default function ShopifyConnectButton({ onConnectionSuccess }) {
             }
         } catch (error) {
             console.error('🔴 [Shopify] Connection error:', error);
-            
+
             const errorMessage = error.response?.data?.details || error.response?.data?.error || error.message;
             const fullError = error.response?.data || error;
-            
+
             setErrorDetails({
                 message: errorMessage,
                 details: JSON.stringify(fullError, null, 2),
                 status: error.response?.status
             });
-            
+
             toast.error("Connection Failed", {
                 description: errorMessage || "Failed to connect to Shopify. Check the error details below."
             });
