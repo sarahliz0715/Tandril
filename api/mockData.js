@@ -3,11 +3,19 @@ const mockUser = {
   id: 'demo-user-123',
   email: 'demo@tandril.app',
   name: 'Demo User',
+  full_name: 'Demo User',
   createdAt: new Date().toISOString(),
   subscription: 'free',
   betaAccess: true,
   isAdmin: false, // Set to false for demo users - admins will need real auth
-  role: 'user' // Can be 'user', 'admin', or 'owner'
+  role: 'user', // Can be 'user', 'admin', or 'owner'
+  onboarding_completed: true, // Demo users are considered onboarded
+  total_session_seconds: 0, // Track session time
+  menu_order: [], // Custom menu order
+  user_mode: 'standard', // User experience mode
+  shopify_beta_access: false,
+  layout_reminder_dismissed: false,
+  vacation_mode_enabled: false
 };
 
 const mockPlatforms = [
@@ -48,7 +56,7 @@ class MockEntity {
     this.name = name;
   }
 
-  static async findMany() {
+  static async findMany(options = {}) {
     switch (this.name) {
       case 'Platform':
         return mockPlatforms;
@@ -57,6 +65,18 @@ class MockEntity {
       default:
         return [];
     }
+  }
+
+  static async list(options = {}) {
+    // Alias for findMany - Base44 SDK uses both
+    return this.findMany(options);
+  }
+
+  static async filter(filterParams = {}) {
+    // Alias for findMany with filtering - Base44 SDK pattern
+    const items = await this.findMany();
+    // In mock mode, just return all items (filtering not implemented)
+    return items;
   }
 
   static async findOne(id) {
@@ -75,6 +95,11 @@ class MockEntity {
   static async delete(id) {
     return { success: true };
   }
+
+  static async count(filterParams = {}) {
+    const items = await this.findMany();
+    return items.length;
+  }
 }
 
 // Mock auth object
@@ -84,6 +109,11 @@ const mockAuth = {
   },
   async signOut() {
     console.log('Sign out in demo mode');
+  },
+  async logout() {
+    // Alias for signOut - some code uses logout instead
+    console.log('Logout in demo mode');
+    return { success: true };
   },
   async signIn(credentials) {
     console.log('Sign in in demo mode');
@@ -95,6 +125,11 @@ const mockAuth = {
   },
   async updateMe(updates) {
     console.log('Update user in demo mode:', updates);
+    return { ...mockUser, ...updates };
+  },
+  async updateMyUserData(updates) {
+    // Alias for updateMe - some code uses this method name
+    console.log('Update user data in demo mode:', updates);
     return { ...mockUser, ...updates };
   },
   redirectToLogin(redirectUrl) {
