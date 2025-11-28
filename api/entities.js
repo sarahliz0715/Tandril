@@ -2,33 +2,36 @@ import { base44 } from './base44Client';
 import { createMockEntities, mockAuth } from './mockData';
 import { supabaseAuthService } from './supabaseAuth';
 import { isSupabaseConfigured } from './supabaseClient';
+import { createSupabaseEntities } from './supabaseEntities';
 
 // Check if running in standalone mode
 // Default to standalone mode (true) unless explicitly set to false
 const standaloneEnv = import.meta.env.VITE_STANDALONE_MODE;
 const isStandaloneMode = standaloneEnv !== 'false' && standaloneEnv !== false;
 const hasSupabase = isSupabaseConfigured();
-const mockEntities = isStandaloneMode ? createMockEntities() : null;
+const mockEntities = isStandaloneMode && !hasSupabase ? createMockEntities() : null;
+const supabaseEntities = hasSupabase ? createSupabaseEntities() : null;
 
 console.log('🗄️ Tandril Entities Mode:', {
   isStandaloneMode,
   hasSupabase,
   usingMocks: !hasSupabase && isStandaloneMode,
+  usingSupabase: hasSupabase,
   authProvider: hasSupabase ? 'Supabase' : isStandaloneMode ? 'Mock' : 'Base44'
 });
 
-// Export entities - use mock data in standalone mode, otherwise use Base44 SDK
-export const Platform = isStandaloneMode ? mockEntities.Platform : base44.entities.Platform;
+// Export entities - use Supabase if configured, otherwise mock data in standalone mode, or Base44 SDK
+export const Platform = hasSupabase ? supabaseEntities.Platform : (isStandaloneMode ? mockEntities.Platform : base44.entities.Platform);
 
-export const AICommand = isStandaloneMode ? mockEntities.AICommand : base44.entities.AICommand;
+export const AICommand = hasSupabase ? supabaseEntities.AICommand : (isStandaloneMode ? mockEntities.AICommand : base44.entities.AICommand);
 
-export const SavedCommand = isStandaloneMode ? mockEntities.SavedCommand : base44.entities.SavedCommand;
+export const SavedCommand = hasSupabase ? supabaseEntities.SavedCommand : (isStandaloneMode ? mockEntities.SavedCommand : base44.entities.SavedCommand);
 
 export const PlatformType = isStandaloneMode ? mockEntities.PlatformType : base44.entities.PlatformType;
 
 export const MockProduct = isStandaloneMode ? mockEntities.MockProduct : base44.entities.MockProduct;
 
-export const AIWorkflow = isStandaloneMode ? mockEntities.AIWorkflow : base44.entities.AIWorkflow;
+export const AIWorkflow = hasSupabase ? supabaseEntities.AIWorkflow : (isStandaloneMode ? mockEntities.AIWorkflow : base44.entities.AIWorkflow);
 
 export const SecurityAudit = isStandaloneMode ? mockEntities.SecurityAudit : base44.entities.SecurityAudit;
 
@@ -66,7 +69,7 @@ export const Order = isStandaloneMode ? mockEntities.Order : base44.entities.Ord
 
 export const CommandQueue = isStandaloneMode ? mockEntities.CommandQueue : base44.entities.CommandQueue;
 
-export const WorkflowTemplate = isStandaloneMode ? mockEntities.WorkflowTemplate : base44.entities.WorkflowTemplate;
+export const WorkflowTemplate = hasSupabase ? supabaseEntities.WorkflowTemplate : (isStandaloneMode ? mockEntities.WorkflowTemplate : base44.entities.WorkflowTemplate);
 
 export const PlatformRequest = isStandaloneMode ? mockEntities.PlatformRequest : base44.entities.PlatformRequest;
 
