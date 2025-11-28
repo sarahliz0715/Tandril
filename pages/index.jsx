@@ -112,6 +112,10 @@ import CustomerSupport from "./CustomerSupport";
 
 import CustomAlerts from "./CustomAlerts";
 
+import Login from "./Login";
+
+import Signup from "./Signup";
+
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 
 const PAGES = {
@@ -225,9 +229,13 @@ const PAGES = {
     MobileAutomations: MobileAutomations,
     
     CustomerSupport: CustomerSupport,
-    
+
     CustomAlerts: CustomAlerts,
-    
+
+    Login: Login,
+
+    Signup: Signup,
+
 }
 
 function _getCurrentPage(url) {
@@ -364,9 +372,13 @@ function PagesContent() {
                 <Route path="/MobileAutomations" element={<MobileAutomations />} />
                 
                 <Route path="/CustomerSupport" element={<CustomerSupport />} />
-                
+
                 <Route path="/CustomAlerts" element={<CustomAlerts />} />
-                
+
+                <Route path="/Login" element={<Login />} />
+
+                <Route path="/Signup" element={<Signup />} />
+
             </Routes>
         </Layout>
     );

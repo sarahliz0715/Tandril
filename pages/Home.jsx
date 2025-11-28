@@ -9,6 +9,7 @@ import EmailCapture from '../components/landing/EmailCapture';
 import { CheckCircle, Zap, TrendingUp, Bot, Package, Briefcase, BarChart, Shield, Users, Sparkles, MessageSquare, ArrowRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { base44 } from '@/api/base44Client';
+import { isSupabaseConfigured } from '@/api/supabaseClient';
 import { toast } from 'sonner';
 
 const FeatureCard = ({ icon: Icon, title, description }) => (
@@ -67,21 +68,28 @@ export default function Home() {
     }, [navigate]);
 
     const handleGetStarted = async () => {
+        // If Supabase is configured, redirect to signup page
+        if (isSupabaseConfigured()) {
+            navigate(createPageUrl('Signup'));
+            return;
+        }
+
+        // Otherwise, use the existing flow (mock or Base44)
         try {
             const isAuth = await base44.auth.isAuthenticated();
             if (isAuth) {
                 const user = await base44.auth.me();
-                
+
                 // Check for invite token in URL
                 const urlParams = new URLSearchParams(window.location.search);
                 const inviteToken = urlParams.get('invite_token');
-                
+
                 if (inviteToken) {
                     // Validate and redeem the invite token
                     try {
                         const invites = await base44.entities.BetaInvite.filter({ token: inviteToken });
                         const invite = invites[0]; // Assuming token is unique and filter returns an array
-                        
+
                         if (invite && !invite.is_redeemed) {
                             // Check if not expired
                             const expiresAt = new Date(invite.expires_at);
@@ -92,7 +100,7 @@ export default function Home() {
                                     is_redeemed: true,
                                     redeemed_at: new Date().toISOString()
                                 });
-                                
+
                                 toast.success("Welcome to Tandril Beta!", {
                                     description: "You now have exclusive beta access!"
                                 });
@@ -120,7 +128,7 @@ export default function Home() {
                         });
                     }
                 }
-                
+
                 // Continue with redirection based on user onboarding status
                 if (!user.onboarding_completed) {
                     navigate(createPageUrl('Onboarding'));
