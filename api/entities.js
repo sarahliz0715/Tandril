@@ -1,13 +1,21 @@
 import { base44 } from './base44Client';
 import { createMockEntities, mockAuth } from './mockData';
+import { supabaseAuthService } from './supabaseAuth';
+import { isSupabaseConfigured } from './supabaseClient';
 
 // Check if running in standalone mode
 // Default to standalone mode (true) unless explicitly set to false
 const standaloneEnv = import.meta.env.VITE_STANDALONE_MODE;
 const isStandaloneMode = standaloneEnv !== 'false' && standaloneEnv !== false;
+const hasSupabase = isSupabaseConfigured();
 const mockEntities = isStandaloneMode ? createMockEntities() : null;
 
-console.log('🗄️ Tandril Entities Mode:', { isStandaloneMode, usingMocks: !!mockEntities });
+console.log('🗄️ Tandril Entities Mode:', {
+  isStandaloneMode,
+  hasSupabase,
+  usingMocks: !hasSupabase && isStandaloneMode,
+  authProvider: hasSupabase ? 'Supabase' : isStandaloneMode ? 'Mock' : 'Base44'
+});
 
 // Export entities - use mock data in standalone mode, otherwise use Base44 SDK
 export const Platform = isStandaloneMode ? mockEntities.Platform : base44.entities.Platform;
@@ -94,5 +102,5 @@ export const CustomAlert = isStandaloneMode ? mockEntities.CustomAlert : base44.
 
 
 
-// auth sdk - use mock auth in standalone mode
-export const User = isStandaloneMode ? mockAuth : base44.auth;
+// auth sdk - use Supabase if configured, otherwise use mock auth in standalone mode, or Base44 auth
+export const User = hasSupabase ? supabaseAuthService : (isStandaloneMode ? mockAuth : base44.auth);
