@@ -216,7 +216,14 @@ export const supabaseAuthService = {
    * Redirect to login page
    */
   redirectToLogin(redirectUrl) {
-    window.location.href = `/login?redirect=${encodeURIComponent(redirectUrl || '/Dashboard')}`;
+    window.location.href = `/Login?redirect=${encodeURIComponent(redirectUrl || '/Dashboard')}`;
+  },
+
+  /**
+   * Login alias for signIn
+   */
+  async login(email, password) {
+    return await this.signIn(email, password);
   },
 
   /**
