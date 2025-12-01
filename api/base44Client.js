@@ -2,6 +2,8 @@ import { createClient } from '@base44/sdk';
 import { mockFunctions, mockAuth, createMockEntities } from './mockData';
 import { isSupabaseConfigured } from './supabaseClient';
 import { supabaseFunctions } from './supabaseFunctions';
+import { createSupabaseEntities } from './supabaseEntities';
+import { supabaseAuthService } from './supabaseAuth';
 // import { getAccessToken } from '@base44/sdk/utils/auth-utils';
 
 // Check if running in standalone mode (e.g., Vercel without Base44 auth)
@@ -29,10 +31,11 @@ if (hasSupabase) {
   // This prevents the 404 error from base44 trying to connect
   client = {
     functions: supabaseFunctions,
-    auth: null, // Will be set by entities.js
-    entities: null // Will be set by entities.js
+    auth: supabaseAuthService,
+    entities: createSupabaseEntities()
   };
   console.log('✅ Supabase Edge Functions attached to base44 client');
+  console.log('✅ Supabase entities attached to base44 client');
 } else if (isStandaloneMode) {
   // In standalone mode, create base44 client but override with mocks
   client = createClient({
