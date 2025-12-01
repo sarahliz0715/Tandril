@@ -29,10 +29,46 @@ let client;
 if (hasSupabase) {
   // When using Supabase, create a minimal client object without calling base44 SDK
   // This prevents the 404 error from base44 trying to connect
+
+  // Create mock integrations for Supabase mode
+  const mockIntegrations = {
+    Core: {
+      InvokeLLM: async (params) => {
+        console.warn('[Supabase Mode] InvokeLLM not implemented yet');
+        return { data: { response: 'Mock LLM response' } };
+      },
+      SendEmail: async (params) => {
+        console.warn('[Supabase Mode] SendEmail not implemented yet');
+        return { data: { success: true } };
+      },
+      UploadFile: async (file) => {
+        console.warn('[Supabase Mode] UploadFile not implemented yet');
+        return { data: { url: 'mock-file-url' } };
+      },
+      GenerateImage: async (params) => {
+        console.warn('[Supabase Mode] GenerateImage not implemented yet');
+        return { data: { url: 'mock-image-url' } };
+      },
+      ExtractDataFromUploadedFile: async (params) => {
+        console.warn('[Supabase Mode] ExtractDataFromUploadedFile not implemented yet');
+        return { data: {} };
+      },
+      CreateFileSignedUrl: async (params) => {
+        console.warn('[Supabase Mode] CreateFileSignedUrl not implemented yet');
+        return { data: { url: 'mock-signed-url' } };
+      },
+      UploadPrivateFile: async (file) => {
+        console.warn('[Supabase Mode] UploadPrivateFile not implemented yet');
+        return { data: { url: 'mock-private-file-url' } };
+      },
+    }
+  };
+
   client = {
     functions: supabaseFunctions,
     auth: supabaseAuthService,
-    entities: createSupabaseEntities()
+    entities: createSupabaseEntities(),
+    integrations: mockIntegrations
   };
   console.log('✅ Supabase Edge Functions attached to base44 client');
   console.log('✅ Supabase entities attached to base44 client');
