@@ -96,7 +96,7 @@ export default function Layout({ children, currentPageName }) {
             } catch (error) {
                 console.log('User not authenticated in layout');
 
-                const publicPages = ['Home', 'Pricing', 'TermsOfService', 'PrivacyPolicy', 'EmailSignups', 'Survey'];
+                const publicPages = ['Home', 'Pricing', 'TermsOfService', 'PrivacyPolicy', 'EmailSignups', 'Survey', 'Login', 'Signup'];
                 if (!publicPages.includes(currentPageName)) {
                     console.log(`Redirecting from ${currentPageName} to Home due to authentication failure`);
                     navigate(createPageUrl('Home'));
