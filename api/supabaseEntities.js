@@ -2,6 +2,7 @@
 // Database wrappers for accessing Supabase tables with a similar API to Base44 entities
 
 import { supabase } from './supabaseClient';
+import { createMockEntities } from './mockData';
 
 /**
  * Create a generic entity wrapper for Supabase tables
@@ -226,12 +227,55 @@ export const supabaseAIWorkflow = createSupabaseEntity('ai_workflows');
 export const supabaseWorkflowTemplate = createSupabaseEntity('workflow_templates');
 export const supabaseWorkflowRun = createSupabaseEntity('workflow_runs');
 
-// Export all Supabase entities
-export const createSupabaseEntities = () => ({
-  Platform: supabasePlatform,
-  AICommand: supabaseAICommand,
-  SavedCommand: supabaseSavedCommand,
-  AIWorkflow: supabaseAIWorkflow,
-  WorkflowTemplate: supabaseWorkflowTemplate,
-  WorkflowRun: supabaseWorkflowRun,
-});
+// Export all Supabase entities, with mock entities as fallback for entities without Supabase tables
+export const createSupabaseEntities = () => {
+  const mockEntities = createMockEntities();
+
+  return {
+    // Supabase-backed entities (real database tables)
+    Platform: supabasePlatform,
+    AICommand: supabaseAICommand,
+    SavedCommand: supabaseSavedCommand,
+    AIWorkflow: supabaseAIWorkflow,
+    WorkflowTemplate: supabaseWorkflowTemplate,
+    WorkflowRun: supabaseWorkflowRun,
+
+    // Mock entities (no Supabase tables yet - using mocks as fallback)
+    PlatformType: mockEntities.PlatformType,
+    MockProduct: mockEntities.MockProduct,
+    SecurityAudit: mockEntities.SecurityAudit,
+    MarketIntelligence: mockEntities.MarketIntelligence,
+    AdCampaign: mockEntities.AdCampaign,
+    AdCreative: mockEntities.AdCreative,
+    AdTemplate: mockEntities.AdTemplate,
+    CustomerMessage: mockEntities.CustomerMessage,
+    CustomerProfile: mockEntities.CustomerProfile,
+    AIRecommendation: mockEntities.AIRecommendation,
+    InventoryItem: mockEntities.InventoryItem,
+    BulkUpload: mockEntities.BulkUpload,
+    SmartAlert: mockEntities.SmartAlert,
+    CalendarEvent: mockEntities.CalendarEvent,
+    ScratchpadNote: mockEntities.ScratchpadNote,
+    EmailSignup: mockEntities.EmailSignup,
+    Subscription: mockEntities.Subscription,
+    OrderItem: mockEntities.OrderItem,
+    Order: mockEntities.Order,
+    CommandQueue: mockEntities.CommandQueue,
+    PlatformRequest: mockEntities.PlatformRequest,
+    PrintfulProduct: mockEntities.PrintfulProduct,
+    PrintfulStore: mockEntities.PrintfulStore,
+    BusinessStrategy: mockEntities.BusinessStrategy,
+    PerformanceMonitor: mockEntities.PerformanceMonitor,
+    EmailLog: mockEntities.EmailLog,
+    SurveyResponse: mockEntities.SurveyResponse,
+    BetaInvite: mockEntities.BetaInvite,
+    SupportTicket: mockEntities.SupportTicket,
+    AutomationTrigger: mockEntities.AutomationTrigger,
+    AutomationAction: mockEntities.AutomationAction,
+    Automation: mockEntities.Automation,
+    AutomationTemplate: mockEntities.AutomationTemplate,
+    Review: mockEntities.Review,
+    AIResponseFeedback: mockEntities.AIResponseFeedback,
+    CustomAlert: mockEntities.CustomAlert,
+  };
+};
