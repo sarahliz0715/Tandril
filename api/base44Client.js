@@ -21,18 +21,24 @@ console.log('🔍 Tandril Mode Check:', {
   requiresAuth: !isStandaloneMode
 });
 
-// Create a client with conditional authentication
-const client = createClient({
-  appId: "68a3236e6b961b3c35fd1bbc",
-  requiresAuth: !isStandaloneMode // Only require auth if NOT in standalone mode
-});
+// Create client based on configuration
+let client;
 
-// Configure functions based on available backend
 if (hasSupabase) {
-  // Use Supabase Edge Functions when Supabase is configured
-  client.functions = supabaseFunctions;
+  // When using Supabase, create a minimal client object without calling base44 SDK
+  // This prevents the 404 error from base44 trying to connect
+  client = {
+    functions: supabaseFunctions,
+    auth: null, // Will be set by entities.js
+    entities: null // Will be set by entities.js
+  };
   console.log('✅ Supabase Edge Functions attached to base44 client');
 } else if (isStandaloneMode) {
+  // In standalone mode, create base44 client but override with mocks
+  client = createClient({
+    appId: "68a3236e6b961b3c35fd1bbc",
+    requiresAuth: false
+  });
   // Use mock functions in standalone mode without Supabase
   if (!client.functions) {
     client.functions = mockFunctions;
@@ -59,6 +65,13 @@ if (hasSupabase) {
     client.entities = { ...client.entities, ...createMockEntities() };
     console.log('✅ Mock entities merged with base44.entities');
   }
+} else {
+  // Real Base44 mode
+  client = createClient({
+    appId: "68a3236e6b961b3c35fd1bbc",
+    requiresAuth: true
+  });
+  console.log('✅ Using Base44 backend');
 }
 
 export const base44 = client;
