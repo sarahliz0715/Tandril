@@ -229,7 +229,9 @@ export default function Signup() {
               </p>
             </form>
 
-            {/* Divider */}
+            {/* OAuth providers disabled until configured in Supabase */}
+            {/* Uncomment when Google/GitHub OAuth is enabled in Supabase Authentication > Providers */}
+            {/*
             <div className="relative my-6">
               <div className="absolute inset-0 flex items-center">
                 <span className="w-full border-t" />
@@ -239,7 +241,6 @@ export default function Signup() {
               </div>
             </div>
 
-            {/* Social Signup */}
             <div className="grid grid-cols-2 gap-4">
               <Button
                 type="button"
@@ -260,6 +261,7 @@ export default function Signup() {
                 GitHub
               </Button>
             </div>
+            */}
           </CardContent>
 
           <CardFooter className="flex justify-center">
