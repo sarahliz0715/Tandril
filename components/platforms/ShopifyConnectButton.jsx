@@ -26,9 +26,9 @@ export default function ShopifyConnectButton({ onConnectionSuccess }) {
         try {
             console.log('🔵 [Shopify] Starting connection for store:', storeName.trim());
 
-            const response = await base44.functions.invoke('initiateShopifyAuth', {
-                store_name: storeName.trim().replace('.myshopify.com', '')
-            });
+            const response = await base44.functions.initiateShopifyAuth(
+                storeName.trim().replace('.myshopify.com', '')
+            );
 
             console.log('🔵 [Shopify] Response received:', response);
 
