@@ -171,6 +171,9 @@ export default function Home() {
                             <Link to={createPageUrl('Pricing')} className="text-sm font-medium text-slate-600 hover:text-slate-900">
                                 Pricing
                             </Link>
+                            <Link to={createPageUrl('Login')}>
+                                <Button variant="outline">Log In</Button>
+                            </Link>
                             <Button onClick={handleGetStarted}>Get Started Free</Button>
                         </div>
                     </div>
