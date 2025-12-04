@@ -47,8 +47,8 @@ export default function ShopifyConnectButton({ onConnectionSuccess }) {
                 return;
             }
 
-            if (response.data?.authorization_url) {
-                console.log('🔵 [Shopify] Redirecting to:', response.data.authorization_url);
+            if (response.authorization_url) {
+                console.log('🔵 [Shopify] Redirecting to:', response.authorization_url);
 
                 toast.success("Redirecting to Shopify...", {
                     description: "Please authorize Tandril in the next window"
@@ -56,7 +56,7 @@ export default function ShopifyConnectButton({ onConnectionSuccess }) {
 
                 // Add a small delay to show the toast
                 setTimeout(() => {
-                    window.location.href = response.data.authorization_url;
+                    window.location.href = response.authorization_url;
                 }, 500);
             } else {
                 const error = "No authorization URL received from server";
@@ -65,7 +65,7 @@ export default function ShopifyConnectButton({ onConnectionSuccess }) {
 
                 setErrorDetails({
                     message: error,
-                    details: JSON.stringify(response.data || response, null, 2)
+                    details: JSON.stringify(response, null, 2)
                 });
                 toast.error("Connection Failed", { description: error });
             }
