@@ -112,6 +112,50 @@ serve(async (req) => {
       throw new Error('Failed to store platform credentials');
     }
 
+    // Register mandatory GDPR compliance webhooks
+    const baseUrl = Deno.env.get('SUPABASE_URL')?.replace('//', '//biksocozipayckfuzzul.') || '';
+    const gdprWebhooks = [
+      {
+        topic: 'customers/data_request',
+        address: `${baseUrl}/functions/v1/shopify-webhook-gdpr-data-request`,
+        format: 'json',
+      },
+      {
+        topic: 'customers/redact',
+        address: `${baseUrl}/functions/v1/shopify-webhook-gdpr-redact`,
+        format: 'json',
+      },
+      {
+        topic: 'shop/redact',
+        address: `${baseUrl}/functions/v1/shopify-webhook-shop-redact`,
+        format: 'json',
+      },
+    ];
+
+    // Register each GDPR webhook
+    for (const webhook of gdprWebhooks) {
+      try {
+        const webhookResponse = await fetch(`https://${shop}/admin/api/2025-10/webhooks.json`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Shopify-Access-Token': access_token,
+          },
+          body: JSON.stringify({ webhook }),
+        });
+
+        if (webhookResponse.ok) {
+          console.log(`[Shopify Callback] Registered webhook: ${webhook.topic}`);
+        } else {
+          const errorData = await webhookResponse.json();
+          console.warn(`[Shopify Callback] Failed to register ${webhook.topic}:`, errorData);
+        }
+      } catch (webhookError) {
+        console.error(`[Shopify Callback] Error registering ${webhook.topic}:`, webhookError);
+        // Don't fail the whole install if webhook registration fails
+      }
+    }
+
     // Delete the used OAuth state
     if (oauthState) {
       await supabaseClient
