@@ -63,9 +63,21 @@ export default function CreateWorkflowModal({ onClose, onSuccess }) {
         setIsSubmitting(true);
 
         try {
+            // Convert commands to actions format for database
+            const actions = validCommands.map(command => ({
+                type: 'execute_command',
+                config: {
+                    command_text: command
+                }
+            }));
+
             await base44.entities.AIWorkflow.create({
-                ...workflow,
-                commands: validCommands
+                name: workflow.name,
+                description: workflow.description,
+                trigger_type: workflow.trigger_type,
+                trigger_config: workflow.trigger_config,
+                actions: actions,
+                is_active: workflow.is_active
             });
 
             toast.success("Workflow created successfully!");
