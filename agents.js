@@ -1,4 +1,8 @@
 // Placeholder for agent SDK
 export const agentSDK = {
-  // Add agent SDK methods here as needed
+  // Placeholder for WhatsApp integration (not yet implemented)
+  getWhatsAppConnectURL: (agentType) => {
+    // Return a placeholder URL for now
+    return '#'; // WhatsApp integration not yet available
+  }
 };
