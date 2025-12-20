@@ -231,6 +231,7 @@ export const supabaseCalendarEvent = createSupabaseEntity('calendar_events');
 export const supabaseCustomAlert = createSupabaseEntity('custom_alerts');
 export const supabaseAlertHistory = createSupabaseEntity('alert_history');
 export const supabaseNotification = createSupabaseEntity('notifications');
+export const supabaseBulkUpload = createSupabaseEntity('bulk_uploads');
 
 // Export all Supabase entities, with mock entities as fallback for entities without Supabase tables
 export const createSupabaseEntities = () => {
@@ -249,6 +250,7 @@ export const createSupabaseEntities = () => {
     CustomAlert: supabaseCustomAlert,
     AlertHistory: supabaseAlertHistory,
     Notification: supabaseNotification,
+    BulkUpload: supabaseBulkUpload,
 
     // Mock entities (no Supabase tables yet - using mocks as fallback)
     MockProduct: mockEntities.MockProduct,
@@ -261,7 +263,6 @@ export const createSupabaseEntities = () => {
     CustomerProfile: mockEntities.CustomerProfile,
     AIRecommendation: mockEntities.AIRecommendation,
     InventoryItem: mockEntities.InventoryItem,
-    BulkUpload: mockEntities.BulkUpload,
     ScratchpadNote: mockEntities.ScratchpadNote,
     EmailSignup: mockEntities.EmailSignup,
     Subscription: mockEntities.Subscription,

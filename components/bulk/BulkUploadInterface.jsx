@@ -7,7 +7,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Upload, FileText, Image, Package, Users, Zap, CheckCircle, AlertTriangle, X } from 'lucide-react';
 import { BulkUpload, Platform } from '@/api/entities';
-import { UploadFile, ExtractDataFromUploadedFile } from '@/api/integrations';
+import { base44 } from '@/api/base44Client';
+import { toast } from 'sonner';
 
 const FILE_TYPES = [
   {
@@ -114,58 +115,97 @@ export default function BulkUploadInterface({ onUploadComplete }) {
     setUploadProgress(10);
 
     try {
-      // Step 1: Upload file
-      const { file_url } = await UploadFile({ file });
+      // Step 1: Upload file to storage
+      const formData = new FormData();
+      formData.append('file', file);
+
+      // Upload to Supabase Storage
+      const { data: uploadData, error: uploadError } = await base44.storage
+        .from('uploads')
+        .upload(`${Date.now()}-${file.name}`, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) {
+        throw new Error(`Upload failed: ${uploadError.message}`);
+      }
+
+      // Get public URL
+      const { data: urlData } = base44.storage
+        .from('uploads')
+        .getPublicUrl(uploadData.path);
+
+      const file_url = urlData.publicUrl;
       setUploadProgress(30);
 
       // Step 2: Create bulk upload record
       const bulkUpload = await BulkUpload.create({
         file_name: file.name,
         file_url,
+        file_size: file.size,
         file_type: selectedFileType,
         target_platforms: selectedPlatforms,
         processing_options: processingOptions,
-        processing_status: 'processing'
+        processing_status: 'pending'
       });
       setCurrentUpload(bulkUpload);
       setUploadProgress(50);
 
-      // Step 3: AI Analysis and Processing
-      if (selectedFileType === 'product_csv' || selectedFileType === 'order_spreadsheet' || selectedFileType === 'supplier_catalog') {
-        // Extract structured data from file
-        const extractionSchema = getExtractionSchema(selectedFileType);
-        const extractionResult = await ExtractDataFromUploadedFile({
-          file_url,
-          json_schema: extractionSchema
+      // Step 3: Process via edge function
+      if (selectedFileType === 'product_csv') {
+        toast.info('Processing CSV file...', {
+          description: 'Creating products in your Shopify store(s)'
+        });
+
+        const { data, error } = await base44.functions.invoke('process-bulk-upload', {
+          upload_id: bulkUpload.id
         });
 
         setUploadProgress(80);
 
-        if (extractionResult.status === 'success') {
-          // Update with AI analysis and results
-          const analysisResults = analyzeExtractedData(extractionResult.output, selectedFileType);
-          
-          await BulkUpload.update(bulkUpload.id, {
-            processing_status: 'completed',
-            ai_analysis: analysisResults.analysis,
-            processing_results: analysisResults.results
-          });
-        } else {
-          await BulkUpload.update(bulkUpload.id, {
-            processing_status: 'failed',
-            processing_results: { errors: [extractionResult.details] }
-          });
+        if (error) {
+          throw new Error(error);
+        }
+
+        if (data && data.results) {
+          const results = data.results;
+
+          if (results.failed_records > 0) {
+            toast.warning(`Completed with ${results.failed_records} errors`, {
+              description: `${results.created_products} products created successfully`
+            });
+          } else {
+            toast.success('Upload completed successfully!', {
+              description: `${results.created_products} products created`
+            });
+          }
         }
       } else {
-        // For images, simulate AI image analysis
-        await simulateImageAnalysis(bulkUpload.id, file.name);
+        // For other file types, show message
+        toast.info('File uploaded', {
+          description: 'Processing for this file type is coming soon'
+        });
+
+        await BulkUpload.update(bulkUpload.id, {
+          processing_status: 'completed',
+          processing_results: {
+            total_records: 1,
+            successful_records: 1,
+            message: 'File uploaded successfully. Processing for this file type is coming soon.'
+          }
+        });
       }
 
       setUploadProgress(100);
       onUploadComplete?.(bulkUpload);
-      
+
     } catch (error) {
       console.error('Error processing file:', error);
+      toast.error('Upload failed', {
+        description: error.message
+      });
+
       if (currentUpload) {
         await BulkUpload.update(currentUpload.id, {
           processing_status: 'failed',
@@ -179,122 +219,6 @@ export default function BulkUploadInterface({ onUploadComplete }) {
         setCurrentUpload(null);
       }, 2000);
     }
-  };
-
-  const getExtractionSchema = (fileType) => {
-    switch (fileType) {
-      case 'product_csv':
-        return {
-          type: "object",
-          properties: {
-            products: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  name: { type: "string" },
-                  description: { type: "string" },
-                  price: { type: "number" },
-                  sku: { type: "string" },
-                  category: { type: "string" },
-                  inventory: { type: "number" },
-                  images: { type: "array", items: { type: "string" } }
-                }
-              }
-            }
-          }
-        };
-      case 'order_spreadsheet':
-        return {
-          type: "object",
-          properties: {
-            orders: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  order_id: { type: "string" },
-                  customer_email: { type: "string" },
-                  status: { type: "string" },
-                  total: { type: "number" },
-                  tracking_number: { type: "string" }
-                }
-              }
-            }
-          }
-        };
-      case 'supplier_catalog':
-        return {
-          type: "object",
-          properties: {
-            catalog_items: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  item_name: { type: "string" },
-                  wholesale_price: { type: "number" },
-                  minimum_order: { type: "number" },
-                  category: { type: "string" },
-                  description: { type: "string" }
-                }
-              }
-            }
-          }
-        };
-      default:
-        return { type: "object", properties: {} };
-    }
-  };
-
-  const analyzeExtractedData = (data, fileType) => {
-    // Simulate AI analysis
-    const dataCount = Array.isArray(data?.products) ? data.products.length :
-                     Array.isArray(data?.orders) ? data.orders.length :
-                     Array.isArray(data?.catalog_items) ? data.catalog_items.length : 0;
-
-    return {
-      analysis: {
-        detected_format: 'CSV',
-        row_count: dataCount,
-        data_quality_score: 85,
-        recommendations: [
-          'Data format looks good',
-          'Consider adding more detailed descriptions',
-          'Price ranges appear competitive'
-        ]
-      },
-      results: {
-        total_records: dataCount,
-        successful_records: Math.floor(dataCount * 0.9),
-        failed_records: Math.ceil(dataCount * 0.1),
-        created_products: fileType === 'product_csv' ? Math.floor(dataCount * 0.8) : 0,
-        updated_products: fileType === 'product_csv' ? Math.floor(dataCount * 0.2) : 0
-      }
-    };
-  };
-
-  const simulateImageAnalysis = async (uploadId, fileName) => {
-    // Simulate AI image processing
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    await BulkUpload.update(uploadId, {
-      processing_status: 'completed',
-      ai_analysis: {
-        detected_format: 'Image',
-        recommendations: [
-          'High-quality product image detected',
-          'AI generated description and tags',
-          'Suggested category: Electronics'
-        ]
-      },
-      processing_results: {
-        total_records: 1,
-        successful_records: 1,
-        failed_records: 0,
-        created_products: 1
-      }
-    });
   };
 
   return (
