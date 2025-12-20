@@ -76,7 +76,7 @@ export default function WorkflowCard({ workflow, onEdit, onToggle, onDelete }) {
                         <span>{formatTrigger()}</span>
                     </div>
                     <span className="text-gray-500">
-                        {workflow.commands?.length || 0} command{(workflow.commands?.length || 0) !== 1 ? 's' : ''}
+                        {workflow.actions?.length || 0} action{(workflow.actions?.length || 0) !== 1 ? 's' : ''}
                     </span>
                 </div>
                 {workflow.last_run && (

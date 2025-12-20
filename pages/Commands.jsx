@@ -55,6 +55,7 @@ export default function Commands() {
   const [platforms, setPlatforms] = useState([]);
   const [attachments, setAttachments] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [isLoadingData, setIsLoadingData] = useState(true);
   const { isOpen, config, confirm, cancel } = useConfirmDialog();
   const [selectedPlatforms, setSelectedPlatforms] = useState([]);
 
@@ -97,14 +98,16 @@ export default function Commands() {
       ]);
 
       setCurrentUser(user);
-      setPlatforms(platformsData);
+      setPlatforms(platformsData || []);
 
-      if (platformsData.length > 0) {
+      if (platformsData && platformsData.length > 0) {
         setSelectedPlatforms([platformsData[0].id]);
       }
     } catch (error) {
       console.error('Error loading data:', error);
       handleAuthError(error, navigate);
+    } finally {
+      setIsLoadingData(false);
     }
   };
 
@@ -290,6 +293,17 @@ export default function Commands() {
       toast.error('Failed to save as automation');
     }
   };
+
+  if (isLoadingData) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+          <p className="text-slate-600">Loading commands...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
