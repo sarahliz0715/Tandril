@@ -1,4 +1,3 @@
-// pages/index.jsx
 import React from "react";
 import InfoSections from "@/components/InfoSections";
 
@@ -12,7 +11,6 @@ export default function Home() {
 
       {/* Main content */}
       <main className="py-12">
-        {/* InfoSections includes What is Tandril, Pricing, Terms, Privacy */}
         <InfoSections />
       </main>
 
