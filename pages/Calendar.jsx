@@ -1,27 +1,27 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { CalendarEvent } from '@/api/entities';
 import { AIWorkflow } from '@/api/entities';
-import { AdCampaign } from '@/api/entities';
 import { User } from '@/api/entities';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Calendar as CalendarIcon, Loader2, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar as CalendarIcon, Loader2, Plus, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths } from 'date-fns';
 import { handleAuthError } from '@/utils/authHelpers';
-import { NoDataEmptyState } from '../components/common/EmptyState';
+import { base44 } from '@/api/base44Client';
+import CreateEventModal from '../components/calendar/CreateEventModal';
 
 export default function Calendar() {
   const [events, setEvents] = useState([]);
   const [workflows, setWorkflows] = useState([]);
-  const [campaigns, setCampaigns] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const navigate = useNavigate();
 
   // Memoize beta access check
@@ -33,7 +33,7 @@ export default function Calendar() {
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [user, eventsData, workflowsData, campaignsData] = await Promise.all([
+      const [user, eventsData, workflowsData] = await Promise.all([
         User.me(),
         CalendarEvent.list().catch(err => {
           console.error('Error fetching events:', err);
@@ -42,51 +42,108 @@ export default function Calendar() {
         AIWorkflow.list().catch(err => {
           console.error('Error fetching workflows:', err);
           return [];
-        }),
-        AdCampaign.list().catch(err => {
-          console.error('Error fetching campaigns:', err);
-          return [];
         })
       ]);
 
       setCurrentUser(user);
-      
+
       // Filter valid data
-      const validEvents = eventsData.filter(e => 
+      const validEvents = eventsData.filter(e =>
         e && typeof e === 'object' && e.id
       );
-      const validWorkflows = workflowsData.filter(w => 
+      const validWorkflows = workflowsData.filter(w =>
         w && typeof w === 'object' && w.id
       );
-      const validCampaigns = campaignsData.filter(c => 
-        c && typeof c === 'object' && c.id
-      );
-      
+
       setEvents(validEvents);
       setWorkflows(validWorkflows);
-      setCampaigns(validCampaigns);
+
+      // Generate calendar events from scheduled workflows
+      generateWorkflowEvents(validWorkflows);
     } catch (error) {
       console.error('Failed to load calendar:', error);
-      
+
       if (handleAuthError(error, navigate, { showToast: true })) {
         return;
       }
-      
+
       toast.error("Failed to load calendar", {
         description: "Please try refreshing the page."
       });
-      
+
       setEvents([]);
       setWorkflows([]);
-      setCampaigns([]);
     } finally {
       setIsLoading(false);
     }
   }, [navigate]);
 
+  // Generate calendar events from workflow schedules
+  const generateWorkflowEvents = (workflowsList) => {
+    const workflowEvents = [];
+    const monthStart = startOfMonth(currentMonth);
+    const monthEnd = endOfMonth(currentMonth);
+
+    workflowsList.forEach(workflow => {
+      if (!workflow.is_active || workflow.trigger_type !== 'schedule') return;
+
+      const triggerConfig = workflow.trigger_config || {};
+      const frequency = triggerConfig.frequency || 'daily';
+      const hour = triggerConfig.hour || 9;
+
+      // Generate events for the current month based on frequency
+      let currentDate = new Date(monthStart);
+
+      while (currentDate <= monthEnd) {
+        let shouldCreateEvent = false;
+
+        if (frequency === 'daily') {
+          shouldCreateEvent = true;
+        } else if (frequency === 'weekly') {
+          // Run on the same day of week as next_run_at
+          const dayOfWeek = workflow.next_run_at ? new Date(workflow.next_run_at).getDay() : 1;
+          shouldCreateEvent = currentDate.getDay() === dayOfWeek;
+        } else if (frequency === 'monthly') {
+          // Run on the same day of month as next_run_at
+          const dayOfMonth = workflow.next_run_at ? new Date(workflow.next_run_at).getDate() : 1;
+          shouldCreateEvent = currentDate.getDate() === dayOfMonth;
+        }
+
+        if (shouldCreateEvent) {
+          const eventDate = new Date(currentDate);
+          eventDate.setHours(hour, 0, 0, 0);
+
+          workflowEvents.push({
+            id: `workflow-${workflow.id}-${eventDate.toISOString()}`,
+            title: workflow.name,
+            description: workflow.description || 'Scheduled workflow run',
+            start_date: eventDate.toISOString(),
+            end_date: eventDate.toISOString(),
+            event_type: 'workflow_run',
+            workflow_id: workflow.id,
+            workflow: workflow
+          });
+        }
+
+        // Move to next day
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+    });
+
+    // Merge workflow events with manual events
+    setEvents(prev => [...prev, ...workflowEvents]);
+  };
+
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Reload when month changes to regenerate workflow events
+  useEffect(() => {
+    if (workflows.length > 0) {
+      generateWorkflowEvents(workflows);
+    }
+  }, [currentMonth]);
 
   // Generate calendar days
   const calendarDays = useMemo(() => {
@@ -153,10 +210,19 @@ export default function Calendar() {
             </p>
           </div>
 
-          <Button onClick={() => toast.info("Create event feature coming soon!")}>
-            <Plus className="w-4 h-4 mr-2" />
-            Add Event
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => navigate(createPageUrl('Workflows'))}
+            >
+              <ExternalLink className="w-4 h-4 mr-2" />
+              Manage Workflows
+            </Button>
+            <Button onClick={() => setShowCreateModal(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Add Event
+            </Button>
+          </div>
         </div>
 
         {/* Calendar Navigation */}
@@ -251,6 +317,15 @@ export default function Calendar() {
                         {event.description && (
                           <p className="text-sm text-slate-600 mt-1">{event.description}</p>
                         )}
+                        {event.workflow_id && (
+                          <Button
+                            variant="link"
+                            className="p-0 h-auto text-xs mt-1"
+                            onClick={() => navigate(createPageUrl('Workflows'))}
+                          >
+                            View Workflow
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -277,6 +352,19 @@ export default function Calendar() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Create Event Modal */}
+        {showCreateModal && (
+          <CreateEventModal
+            isOpen={showCreateModal}
+            onClose={() => setShowCreateModal(false)}
+            onSuccess={() => {
+              setShowCreateModal(false);
+              loadData();
+            }}
+            preselectedDate={selectedDate}
+          />
+        )}
       </div>
     </div>
   );

@@ -227,6 +227,7 @@ export const supabaseSavedCommand = createSupabaseEntity('saved_commands');
 export const supabaseAIWorkflow = createSupabaseEntity('ai_workflows');
 export const supabaseWorkflowTemplate = createSupabaseEntity('workflow_templates');
 export const supabaseWorkflowRun = createSupabaseEntity('workflow_runs');
+export const supabaseCalendarEvent = createSupabaseEntity('calendar_events');
 
 // Export all Supabase entities, with mock entities as fallback for entities without Supabase tables
 export const createSupabaseEntities = () => {
@@ -241,6 +242,7 @@ export const createSupabaseEntities = () => {
     AIWorkflow: supabaseAIWorkflow,
     WorkflowTemplate: supabaseWorkflowTemplate,
     WorkflowRun: supabaseWorkflowRun,
+    CalendarEvent: supabaseCalendarEvent,
 
     // Mock entities (no Supabase tables yet - using mocks as fallback)
     MockProduct: mockEntities.MockProduct,
@@ -255,7 +257,6 @@ export const createSupabaseEntities = () => {
     InventoryItem: mockEntities.InventoryItem,
     BulkUpload: mockEntities.BulkUpload,
     SmartAlert: mockEntities.SmartAlert,
-    CalendarEvent: mockEntities.CalendarEvent,
     ScratchpadNote: mockEntities.ScratchpadNote,
     EmailSignup: mockEntities.EmailSignup,
     Subscription: mockEntities.Subscription,
