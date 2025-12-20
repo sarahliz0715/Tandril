@@ -199,43 +199,138 @@
 
 ---
 
+### ✅ 7. Inventory Management
+**Status:** Fully Implemented ✅
+**Location:** `pages/Inventory.jsx`, `supabase/functions/sync-shopify-inventory`, `supabase/functions/update-shopify-inventory`
+
+- **Real-time Shopify Sync:** Fetches products and inventory from all connected Shopify stores
+- **Update Inventory:** Directly update inventory quantities in Shopify
+- **Multi-Store Support:** Works across multiple connected Shopify stores
+- **Low Stock Detection:** Automatically identifies low stock and out-of-stock items
+- **Export to CSV:** Export inventory data for external use
+- **Search and Filter:** Filter by status (in stock, low stock, out of stock)
+- **Statistics Dashboard:** Total items, low stock count, out of stock count, total value
+
+**Edge Functions:**
+- `sync-shopify-inventory` - Fetches products and inventory from Shopify
+- `update-shopify-inventory` - Updates inventory levels in Shopify
+
+**Files:**
+- `pages/Inventory.jsx` - Inventory management page with sync button
+- `components/inventory/InventoryItemFormModal.jsx` - Edit inventory quantities
+- `components/inventory/InventoryTable.jsx` - Inventory display table
+
+**Features:**
+✅ Real-time sync from Shopify
+✅ Update quantities directly to Shopify
+✅ Multi-store support
+✅ Low stock alerts
+✅ Export to CSV
+✅ Search and filter
+
+---
+
+### ✅ 8. Order Management
+**Status:** Fully Implemented ✅
+**Location:** `pages/Orders.jsx`, `supabase/functions/sync-shopify-orders`
+
+- **Real-time Shopify Sync:** Fetches orders from all connected Shopify stores
+- **Complete Order Details:** Line items, customer info, addresses, tracking numbers
+- **Status Filtering:** Filter by pending, processing, shipped, delivered, cancelled
+- **Export to CSV:** Export order data for external use
+- **Search:** Search by order ID, customer name, or email
+- **Revenue Statistics:** Total orders, revenue tracking, fulfillment status
+
+**Edge Functions:**
+- `sync-shopify-orders` - Fetches orders from Shopify with full details
+
+**Files:**
+- `pages/Orders.jsx` - Order management page with sync button
+- `components/orders/OrderList.jsx` - Order display list
+- `components/orders/OrderDetails.jsx` - Order detail modal
+
+**Features:**
+✅ Real-time sync from Shopify
+✅ Complete order details with line items
+✅ Customer information
+✅ Shipping/billing addresses
+✅ Tracking numbers
+✅ Export to CSV
+✅ Search and filter
+
+---
+
+### ✅ 9. Calendar & Scheduling
+**Status:** Fully Implemented ✅
+**Location:** `pages/Calendar.jsx`, `supabase/migrations/003_create_calendar_events.sql`
+
+- **Workflow Integration:** Automatically shows when scheduled workflows will run
+- **Manual Events:** Create reminders, sales events, marketing campaigns
+- **Smart Scheduling:** Supports daily, weekly, monthly workflow frequencies
+- **Visual Calendar:** Month-by-month navigation with color-coded events
+- **Event Creation:** Modal to create custom calendar events
+- **Quick Actions:** Link directly to workflow management
+
+**Database Tables:**
+- `calendar_events` - Calendar events with RLS policies
+
+**Edge Functions:**
+- None required - uses direct database queries
+
+**Files:**
+- `pages/Calendar.jsx` - Calendar view with workflow integration
+- `components/calendar/CreateEventModal.jsx` - Event creation modal
+
+**Features:**
+✅ Workflow schedule visualization
+✅ Create manual events/reminders
+✅ Month-by-month navigation
+✅ Event type color coding
+✅ Integration with workflow system
+✅ Quick navigation to workflows
+
+---
+
+### ✅ 10. Custom Alerts
+**Status:** Fully Implemented ✅
+**Location:** `pages/CustomAlerts.jsx`, `supabase/functions/evaluate-alerts`, `supabase/migrations/004_create_custom_alerts.sql`
+
+- **Alert Configuration:** Create custom alerts with flexible conditions
+- **Multiple Trigger Types:** Inventory, sales, orders, reviews, metrics
+- **Condition Builder:** Flexible conditions with operators (equals, greater than, less than, etc.)
+- **Notification Channels:** In-app, email (template ready), SMS (template ready)
+- **Priority Levels:** Low, medium, high, urgent
+- **Alert Engine:** Server-side evaluation of alert conditions
+- **Alert History:** Track when alerts fire with trigger data
+- **In-App Notifications:** Notification system for user alerts
+- **Cooldown Periods:** Prevent notification spam
+
+**Database Tables:**
+- `custom_alerts` - Alert configuration
+- `alert_history` - Alert trigger history
+- `notifications` - In-app notifications
+
+**Edge Functions:**
+- `evaluate-alerts` - Evaluates alert conditions and triggers notifications
+
+**Files:**
+- `pages/CustomAlerts.jsx` - Alert management page
+- `components/alerts/CreateCustomAlertModal.jsx` - Comprehensive 4-tab alert builder
+
+**Features:**
+✅ Flexible alert conditions
+✅ Multiple trigger types
+✅ In-app notifications
+✅ Alert history tracking
+✅ Toggle alerts on/off
+✅ Alert statistics
+✅ Cooldown periods
+
+---
+
 ## Core Features - Partially Implemented
 
-### ⚠️ 7. Inventory Management
-**Status:** Partial - UI exists, Shopify API integration needed
-**Location:** `pages/Inventory.jsx`
-
-**What Works:**
-- Inventory list view with mock data
-- Filter and search UI
-- Bulk actions UI
-
-**What's Missing:**
-- Real Shopify inventory sync
-- Inventory update/edit functionality
-- Low stock alerts
-- Inventory forecasting
-
----
-
-### ⚠️ 8. Order Management
-**Status:** Partial - UI exists, Shopify API integration needed
-**Location:** `pages/Orders.jsx`
-
-**What Works:**
-- Order list view with mock data
-- Order status filters
-- Order detail view
-
-**What's Missing:**
-- Real Shopify order sync
-- Order fulfillment automation
-- Return/refund processing
-- Order export functionality
-
----
-
-### ⚠️ 9. Bulk Upload
+### ⚠️ 11. Bulk Upload
 **Status:** Partial - UI exists, processing logic incomplete
 **Location:** `pages/BulkUpload.jsx`
 
@@ -248,38 +343,6 @@
 - Bulk product creation
 - Error reporting for failed rows
 - Template download for CSV format
-
----
-
-### ⚠️ 10. Calendar & Scheduling
-**Status:** Partial - UI exists, integration incomplete
-**Location:** `pages/Calendar.jsx`
-
-**What Works:**
-- Calendar view interface
-- Mock events display
-
-**What's Missing:**
-- Integration with workflow schedules
-- Event creation/editing
-- Reminders and notifications
-- Export to external calendars
-
----
-
-### ⚠️ 11. Custom Alerts
-**Status:** Partial - UI exists, alert engine incomplete
-**Location:** `pages/CustomAlerts.jsx`
-
-**What Works:**
-- Alert configuration UI
-- Alert list view
-
-**What's Missing:**
-- Real-time monitoring system
-- Email/SMS notifications
-- Alert condition evaluation engine
-- Alert history and acknowledgment
 
 ---
 
