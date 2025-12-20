@@ -1,0 +1,10 @@
+import InfoSections from "@/components/InfoSections";
+
+export default function Home() {
+  return (
+    <div>
+      {/* Existing homepage content */}
+      <InfoSections />
+    </div>
+  );
+}
