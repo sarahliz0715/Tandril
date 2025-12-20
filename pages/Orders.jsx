@@ -9,16 +9,17 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Loader2, 
-  Search, 
+import {
+  Loader2,
+  Search,
   Filter,
   ShoppingCart,
   TrendingUp,
   Package,
   DollarSign,
   Download,
-  Eye
+  Eye,
+  RefreshCw
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -43,14 +44,38 @@ export default function Orders() {
     loadOrders();
   }, []);
 
-  const loadOrders = async () => {
+  const loadOrders = async (showLoadingToast = false) => {
     setIsLoading(true);
+    if (showLoadingToast) {
+      toast.info('Syncing orders from Shopify...');
+    }
+
     try {
-      const data = await base44.entities.Order.list('-order_date');
-      setOrders(data);
+      // Fetch real orders from Shopify via edge function
+      const { data, error } = await base44.functions.invoke('sync-shopify-orders', {
+        status: 'any', // Can be 'open', 'closed', 'cancelled', or 'any'
+        limit: 250
+      });
+
+      if (error) {
+        throw new Error(error);
+      }
+
+      if (data && data.orders) {
+        setOrders(data.orders);
+
+        if (showLoadingToast) {
+          toast.success(`Synced ${data.orders.length} orders from ${data.platforms_synced} store(s)`);
+        }
+      } else {
+        setOrders([]);
+      }
     } catch (error) {
       console.error('Error loading orders:', error);
       handleAuthError(error, navigate);
+      toast.error('Failed to sync orders', {
+        description: error.message
+      });
     } finally {
       setIsLoading(false);
     }
@@ -173,14 +198,24 @@ export default function Orders() {
           <h1 className="text-3xl font-bold text-slate-900">Orders</h1>
           <p className="text-slate-600 mt-1">Manage and track your orders</p>
         </div>
-        <Button
-          variant="outline"
-          onClick={handleExport}
-          disabled={filteredOrders.length === 0}
-        >
-          <Download className="w-4 h-4 mr-2" />
-          Export
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => loadOrders(true)}
+            disabled={isLoading}
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            Sync from Shopify
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleExport}
+            disabled={filteredOrders.length === 0}
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Export
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
