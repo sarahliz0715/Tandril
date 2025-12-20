@@ -1,8 +1,10 @@
 # Tandril
-My awesome project on Base44
+AI-Powered Workflow Automation for E-commerce
 
 ## What it does
 AI agent tool for automating workflows and multiplatform e-commerce management
+
+**📚 [Complete Feature Documentation](./FEATURES.md)** - Comprehensive overview of implemented, partial, and planned features
 
 ## How to run locally
 1. Clone the repo.
