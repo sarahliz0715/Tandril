@@ -1,5 +1,3 @@
-src/components/InfoSections.jsx
-// src/components/InfoSections.jsx
 import React from "react";
 
 export default function InfoSections() {
