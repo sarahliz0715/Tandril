@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 
-export default function InventoryItemFormModal({ item, onClose, onSaveSuccess }) {
+export default function InventoryItemFormModal({ item, onClose, onSave, isOpen }) {
     const [formData, setFormData] = useState(item || {
         product_name: '',
         sku: '',
@@ -20,25 +20,31 @@ export default function InventoryItemFormModal({ item, onClose, onSaveSuccess })
     });
     const [isSaving, setIsSaving] = useState(false);
 
+    // Check if this is a Shopify product (has platform_id)
+    const isShopifyProduct = item && item.platform_id;
+
     const handleChange = (key, value) => {
         setFormData(prev => ({ ...prev, [key]: value }));
     };
 
     const handleSave = async () => {
-        // Basic validation
-        if (!formData.product_name || !formData.sku) {
-            toast.error("Validation Error", { description: "Product Name and SKU are required." });
-            return;
+        // For Shopify products, only validate stock quantity
+        if (isShopifyProduct) {
+            if (formData.total_stock === undefined || formData.total_stock < 0) {
+                toast.error("Validation Error", { description: "Stock quantity must be 0 or greater." });
+                return;
+            }
+        } else {
+            // For non-Shopify products (if any), validate all fields
+            if (!formData.product_name || !formData.sku) {
+                toast.error("Validation Error", { description: "Product Name and SKU are required." });
+                return;
+            }
         }
 
         setIsSaving(true);
         try {
-            if (formData.id) {
-                await InventoryItem.update(formData.id, formData);
-            } else {
-                await InventoryItem.create(formData);
-            }
-            onSaveSuccess();
+            await onSave(formData);
         } catch (error) {
             toast.error("Save Failed", { description: `Could not save the item. ${error.message}` });
             console.error('Failed to save inventory item', error);
@@ -48,54 +54,76 @@ export default function InventoryItemFormModal({ item, onClose, onSaveSuccess })
     };
 
     return (
-        <Dialog open={true} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-[425px]">
+        <Dialog open={isOpen} onOpenChange={onClose}>
+            <DialogContent className="sm:max-w-[500px]">
                 <DialogHeader>
-                    <DialogTitle>{formData.id ? 'Edit' : 'Add New'} Product</DialogTitle>
+                    <DialogTitle>
+                        {isShopifyProduct ? 'Update Inventory Quantity' : formData.id ? 'Edit Product' : 'Add New Product'}
+                    </DialogTitle>
                     <DialogDescription>
-                        {formData.id ? `Update details for ${formData.product_name}.` : 'Add a new product to your master inventory.'}
+                        {isShopifyProduct
+                            ? `Adjust stock quantity for ${formData.product_name || 'this product'}. Other product details must be updated in Shopify.`
+                            : formData.id
+                                ? `Update details for ${formData.product_name}.`
+                                : 'Add a new product to your master inventory.'}
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="product_name" className="text-right">Name</Label>
-                        <Input id="product_name" value={formData.product_name} onChange={e => handleChange('product_name', e.target.value)} className="col-span-3" />
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="sku" className="text-right">SKU</Label>
-                        <Input id="sku" value={formData.sku} onChange={e => handleChange('sku', e.target.value)} className="col-span-3" />
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="description" className="text-right">Description</Label>
-                        <Textarea id="description" value={formData.description} onChange={e => handleChange('description', e.target.value)} className="col-span-3" />
-                    </div>
-                     <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="base_price" className="text-right">Base Price</Label>
-                        <Input id="base_price" type="number" value={formData.base_price} onChange={e => handleChange('base_price', parseFloat(e.target.value) || 0)} className="col-span-3" />
-                    </div>
-                     <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="total_stock" className="text-right">Total Stock</Label>
-                        <Input id="total_stock" type="number" value={formData.total_stock} onChange={e => handleChange('total_stock', parseInt(e.target.value, 10) || 0)} className="col-span-3" />
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="status" className="text-right">Status</Label>
-                         <Select value={formData.status} onValueChange={value => handleChange('status', value)}>
-                            <SelectTrigger className="col-span-3">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="active">Active</SelectItem>
-                                <SelectItem value="low_stock">Low Stock</SelectItem>
-                                <SelectItem value="out_of_stock">Out of Stock</SelectItem>
-                                <SelectItem value="discontinued">Discontinued</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
+                    {isShopifyProduct ? (
+                        <>
+                            {/* Shopify product - show read-only details and editable stock */}
+                            <div className="space-y-2 p-3 bg-slate-50 rounded-lg">
+                                <div className="text-sm">
+                                    <span className="font-medium text-slate-700">Product:</span>{' '}
+                                    <span className="text-slate-900">{formData.product_name}</span>
+                                    {formData.variant_name && (
+                                        <span className="text-slate-600"> - {formData.variant_name}</span>
+                                    )}
+                                </div>
+                                <div className="text-sm">
+                                    <span className="font-medium text-slate-700">SKU:</span>{' '}
+                                    <span className="text-slate-900">{formData.sku || 'N/A'}</span>
+                                </div>
+                                <div className="text-sm">
+                                    <span className="font-medium text-slate-700">Store:</span>{' '}
+                                    <span className="text-slate-900">{formData.platform_name}</span>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-4 items-center gap-4">
+                                <Label htmlFor="total_stock" className="text-right font-semibold">Stock Quantity</Label>
+                                <Input
+                                    id="total_stock"
+                                    type="number"
+                                    min="0"
+                                    value={formData.total_stock}
+                                    onChange={e => handleChange('total_stock', parseInt(e.target.value, 10) || 0)}
+                                    className="col-span-3"
+                                    autoFocus
+                                />
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            {/* Non-Shopify product - show all editable fields */}
+                            <div className="grid grid-cols-4 items-center gap-4">
+                                <Label htmlFor="product_name" className="text-right">Name</Label>
+                                <Input id="product_name" value={formData.product_name} onChange={e => handleChange('product_name', e.target.value)} className="col-span-3" />
+                            </div>
+                            <div className="grid grid-cols-4 items-center gap-4">
+                                <Label htmlFor="sku" className="text-right">SKU</Label>
+                                <Input id="sku" value={formData.sku} onChange={e => handleChange('sku', e.target.value)} className="col-span-3" />
+                            </div>
+                            <div className="grid grid-cols-4 items-center gap-4">
+                                <Label htmlFor="total_stock" className="text-right">Total Stock</Label>
+                                <Input id="total_stock" type="number" value={formData.total_stock} onChange={e => handleChange('total_stock', parseInt(e.target.value, 10) || 0)} className="col-span-3" />
+                            </div>
+                        </>
+                    )}
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={onClose} disabled={isSaving}>Cancel</Button>
                     <Button onClick={handleSave} disabled={isSaving}>
-                        {isSaving ? 'Saving...' : 'Save Changes'}
+                        {isSaving ? 'Updating...' : isShopifyProduct ? 'Update Shopify Inventory' : 'Save Changes'}
                     </Button>
                 </DialogFooter>
             </DialogContent>

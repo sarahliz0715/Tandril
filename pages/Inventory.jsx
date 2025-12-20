@@ -8,17 +8,18 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Loader2, 
-  Plus, 
-  Search, 
+import {
+  Loader2,
+  Plus,
+  Search,
   Filter,
   Package,
   AlertTriangle,
   TrendingDown,
   Download,
   Upload,
-  Sparkles
+  Sparkles,
+  RefreshCw
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { base44 } from '@/api/base44Client';
@@ -45,19 +46,38 @@ export default function Inventory() {
     loadInventory();
   }, []);
 
-  const loadInventory = async () => {
+  const loadInventory = async (showLoadingToast = false) => {
     setIsLoading(true);
+    if (showLoadingToast) {
+      toast.info('Syncing inventory from Shopify...');
+    }
+
     try {
-      const [user, items] = await Promise.all([
-        base44.auth.me(),
-        base44.entities.InventoryItem.list('-updated_date')
-      ]);
-      
+      const user = await base44.auth.me();
       setCurrentUser(user);
-      setInventory(items);
+
+      // Fetch real inventory from Shopify via edge function
+      const { data, error } = await base44.functions.invoke('sync-shopify-inventory', {});
+
+      if (error) {
+        throw new Error(error);
+      }
+
+      if (data && data.inventory) {
+        setInventory(data.inventory);
+
+        if (showLoadingToast) {
+          toast.success(`Synced ${data.inventory.length} items from ${data.platforms_synced} store(s)`);
+        }
+      } else {
+        setInventory([]);
+      }
     } catch (error) {
       console.error('Error loading inventory:', error);
       handleAuthError(error, navigate);
+      toast.error('Failed to sync inventory', {
+        description: error.message
+      });
     } finally {
       setIsLoading(false);
     }
@@ -146,18 +166,36 @@ export default function Inventory() {
   const handleSaveItem = async (itemData) => {
     try {
       if (editingItem) {
-        await base44.entities.InventoryItem.update(editingItem.id, itemData);
-        toast.success('Item updated successfully');
+        // Update inventory in Shopify
+        const { data, error } = await base44.functions.invoke('update-shopify-inventory', {
+          platform_id: editingItem.platform_id,
+          inventory_item_id: editingItem.inventory_item_id,
+          location_id: editingItem.location_id,
+          quantity: itemData.total_stock
+        });
+
+        if (error) {
+          throw new Error(error);
+        }
+
+        toast.success('Inventory updated in Shopify');
       } else {
-        await base44.entities.InventoryItem.create(itemData);
-        toast.success('Item added successfully');
+        // For new items, we can't create them here - they must be created in Shopify first
+        toast.error('New products must be created in Shopify', {
+          description: 'Please create the product in your Shopify admin, then sync inventory.'
+        });
+        return;
       }
+
+      // Reload inventory to reflect changes
       loadInventory();
       setShowAddModal(false);
       setEditingItem(null);
     } catch (error) {
       console.error('Error saving item:', error);
-      toast.error('Failed to save item');
+      toast.error('Failed to update inventory', {
+        description: error.message
+      });
     }
   };
 
@@ -167,23 +205,11 @@ export default function Inventory() {
   };
 
   const handleDeleteItem = async (item) => {
-    const confirmed = await confirm({
-      title: 'Delete Item',
-      message: `Are you sure you want to delete ${item.product_name}?`,
-      confirmLabel: 'Delete',
-      variant: 'destructive'
+    // Products cannot be deleted from inventory management
+    // They must be deleted in Shopify admin
+    toast.error('Cannot delete products from here', {
+      description: 'Please delete the product in your Shopify admin, then sync inventory.'
     });
-
-    if (confirmed) {
-      try {
-        await base44.entities.InventoryItem.delete(item.id);
-        toast.success('Item deleted');
-        loadInventory();
-      } catch (error) {
-        console.error('Error deleting item:', error);
-        toast.error('Failed to delete item');
-      }
-    }
   };
 
   const handleExport = () => {
@@ -227,21 +253,19 @@ export default function Inventory() {
         <div className="flex gap-2">
           <Button
             variant="outline"
+            onClick={() => loadInventory(true)}
+            disabled={isLoading}
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            Sync from Shopify
+          </Button>
+          <Button
+            variant="outline"
             onClick={handleExport}
             disabled={filteredInventory.length === 0}
           >
             <Download className="w-4 h-4 mr-2" />
             Export
-          </Button>
-          <Button
-            onClick={() => {
-              setEditingItem(null);
-              setShowAddModal(true);
-            }}
-            className="bg-indigo-600 hover:bg-indigo-700"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Add Item
           </Button>
         </div>
       </div>
@@ -361,15 +385,17 @@ export default function Inventory() {
         </>
       )}
 
-      <InventoryItemFormModal
-        isOpen={showAddModal}
-        onClose={() => {
-          setShowAddModal(false);
-          setEditingItem(null);
-        }}
-        onSave={handleSaveItem}
-        item={editingItem}
-      />
+      {showAddModal && (
+        <InventoryItemFormModal
+          isOpen={showAddModal}
+          onClose={() => {
+            setShowAddModal(false);
+            setEditingItem(null);
+          }}
+          onSave={handleSaveItem}
+          item={editingItem}
+        />
+      )}
 
       <ConfirmDialog
         isOpen={isOpen}
