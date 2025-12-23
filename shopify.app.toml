@@ -23,13 +23,13 @@ api_version = "2025-10"
 # Mandatory GDPR/Privacy Compliance Webhooks
 # Required for all apps on the Shopify App Store
 [[webhooks.subscriptions]]
-topics = ["customers/data_request"]
+compliance_topics = ["customers/data_request"]
 uri = "https://biksocozipayckfuzzul.supabase.co/functions/v1/customers-data-request"
 
 [[webhooks.subscriptions]]
-topics = ["customers/redact"]
+compliance_topics = ["customers/redact"]
 uri = "https://biksocozipayckfuzzul.supabase.co/functions/v1/customers-redact"
 
 [[webhooks.subscriptions]]
-topics = ["shop/redact"]
+compliance_topics = ["shop/redact"]
 uri = "https://biksocozipayckfuzzul.supabase.co/functions/v1/shop-redact"
