@@ -258,9 +258,9 @@ function PagesContent() {
     
     return (
         <Layout currentPageName={currentPage}>
-            <Routes>            
-                
-                    <Route path="/" element={<Dashboard />} />
+            <Routes>
+
+                    <Route path="/" element={<Pricing />} />
                 
                 
                 <Route path="/Dashboard" element={<Dashboard />} />
