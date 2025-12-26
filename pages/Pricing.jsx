@@ -180,7 +180,7 @@ export default function Pricing() {
                 if (!user) {
                     console.log('No user found, redirecting to login');
                     toast.info("Redirecting to sign in...");
-                    await User.login();
+                    User.redirectToLogin(window.location.pathname);
                     return;
                 }
 
@@ -207,8 +207,8 @@ export default function Pricing() {
 
             // For paid plans - redirect directly to Stripe checkout
             if (!user) {
-                toast.error("Please sign in to continue with a paid plan.");
-                await User.login();
+                toast.info("Please sign in to upgrade to a paid plan.");
+                User.redirectToLogin(window.location.pathname);
                 return;
             }
 
