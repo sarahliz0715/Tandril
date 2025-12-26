@@ -266,13 +266,67 @@ If you want to enable Google and GitHub login:
 - `workflow_templates` - Pre-built workflow templates
 - `oauth_states` - Temporary OAuth state storage for security
 
+## Step 7: Configure Mandatory Compliance Webhooks
+
+**IMPORTANT:** These webhooks are required for all apps listed on the Shopify App Store. They handle GDPR and privacy law compliance.
+
+1. **Deploy the compliance webhook Edge Functions:**
+
+   ```bash
+   supabase functions deploy customers-data-request
+   supabase functions deploy customers-redact
+   supabase functions deploy shop-redact
+   ```
+
+2. **Run the compliance database migration:**
+   - Go to the SQL Editor in Supabase
+   - Copy the contents of `supabase/migrations/002_create_compliance_requests.sql`
+   - Paste and click "Run"
+   - This creates the `compliance_requests` table for tracking webhook requests
+
+3. **Configure webhooks in your Shopify app:**
+   - Go to https://partners.shopify.com
+   - Open your app
+   - Navigate to "Configuration" > "Webhooks"
+   - Add the following three mandatory webhooks:
+
+   **customers/data_request:**
+   - Event version: `2024-07` (or latest)
+   - URL: `https://YOUR_PROJECT_REF.supabase.co/functions/v1/customers-data-request`
+   - Format: JSON
+
+   **customers/redact:**
+   - Event version: `2024-07` (or latest)
+   - URL: `https://YOUR_PROJECT_REF.supabase.co/functions/v1/customers-redact`
+   - Format: JSON
+
+   **shop/redact:**
+   - Event version: `2024-07` (or latest)
+   - URL: `https://YOUR_PROJECT_REF.supabase.co/functions/v1/shop-redact`
+   - Format: JSON
+
+   Replace `YOUR_PROJECT_REF` with your actual Supabase project reference.
+
+4. **Verify webhook setup:**
+   - Shopify will automatically verify the endpoints
+   - Check Supabase Edge Function logs to confirm webhooks are being received
+   - The webhooks will verify HMAC signatures and return 401 for invalid requests
+
+### How the compliance webhooks work:
+
+- **customers/data_request**: When a customer requests their data, Shopify sends this webhook. You must provide the customer's data to the store owner within 30 days.
+- **customers/redact**: When a store owner requests customer data deletion, Shopify sends this webhook. You must delete/anonymize the customer's data within 30 days.
+- **shop/redact**: 48 hours after a store uninstalls your app, Shopify sends this webhook. You must delete all shop data.
+
+All webhook requests are logged in the `compliance_requests` table for audit purposes.
+
 ## Next Steps
 
 - Set up email templates in Supabase for email verification
-- Add webhook handling for Shopify events
 - Implement workflow scheduler (cron jobs)
 - Add payment processing for subscriptions
 - Monitor usage and set rate limits
+- Customize compliance webhook logic based on your data storage needs
 
 ## Support
 

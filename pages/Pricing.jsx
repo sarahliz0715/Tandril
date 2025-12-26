@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { createCheckoutSession } from '@/api/functions';
 import { User } from '@/api/entities';
 import { CheckCircle, ArrowRight, Star, Sparkles, Loader2, Heart, Shield, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -13,6 +12,7 @@ const plans = [
     {
         name: 'Just Free',
         priceId: null,
+        checkoutUrl: null,
         price: 0,
         description: 'Perfect for getting started with AI automation.',
         features: [
@@ -26,9 +26,10 @@ const plans = [
         isFree: true,
     },
     {
-        name: 'Professional',
-        priceId: 'price_1PgTrtBw5kF5D3c4g8x2qYjZ',
-        price: 49,
+        name: 'Starter',
+        priceId: 'starter',
+        checkoutUrl: 'https://buy.stripe.com/aFacN5aeQ7nggFL6lI4wM00',
+        price: 39.99,
         description: 'For growing businesses who need to automate and scale.',
         features: [
             'Unlimited AI commands',
@@ -43,18 +44,39 @@ const plans = [
         isFree: false,
     },
     {
-        name: 'Enterprise',
-        priceId: 'price_1PgTstBw5kF5D3c4L8Y1zWbA',
-        price: 99,
-        description: 'For established brands requiring unlimited scale.',
+        name: 'Professional',
+        priceId: 'professional',
+        checkoutUrl: 'https://buy.stripe.com/3cI9ATev6ePIahn5hE4wM04',
+        price: 129.99,
+        description: 'For established businesses requiring advanced features.',
         features: [
-            'Everything in Professional',
-            'Custom AI model fine-tuning', 
-            'Dedicated success manager',
+            'Everything in Starter',
+            'Custom AI model fine-tuning',
+            'Dedicated account manager',
             'Custom integrations',
-            'White-label options',
+            'Advanced analytics & reporting',
             'Priority AI processing',
             'Advanced security features',
+            'API access',
+        ],
+        isPopular: false,
+        isFree: false,
+    },
+    {
+        name: 'Enterprise',
+        priceId: 'enterprise',
+        checkoutUrl: 'https://buy.stripe.com/aFa14n0EgePI4X36lI4wM05',
+        price: 299.99,
+        description: 'For large-scale operations requiring unlimited power.',
+        features: [
+            'Everything in Professional',
+            'Unlimited automation workflows',
+            'White-label options',
+            'Custom SLA guarantees',
+            'Dedicated infrastructure',
+            'On-premise deployment options',
+            '24/7 priority support',
+            'Custom training & onboarding',
         ],
         isPopular: false,
         isFree: false,
@@ -163,17 +185,17 @@ export default function Pricing() {
                 }
 
                 console.log('User found, updating to free tier:', user.id);
-                
+
                 // Update user to free tier
                 await User.updateMyUserData({
                     subscription_tier: 'free',
                     api_usage_limit: 50,
                     platforms_limit: 2
                 });
-                
+
                 console.log('Free tier setup complete');
                 toast.success("🎉 Welcome to Tandril! Your free account is ready.");
-                
+
                 // Redirect to onboarding if not completed, otherwise dashboard
                 if (!user.onboarding_completed) {
                     window.location.href = createPageUrl('Onboarding');
@@ -183,29 +205,25 @@ export default function Pricing() {
                 return;
             }
 
-            // For paid plans
+            // For paid plans - redirect directly to Stripe checkout
             if (!user) {
                 toast.error("Please sign in to continue with a paid plan.");
                 await User.login();
                 return;
             }
 
-            console.log('Creating checkout session for paid plan');
-            const baseUrl = window.location.origin;
-            const response = await createCheckoutSession({
-                priceId: plan.priceId,
-                successUrl: `${baseUrl}${createPageUrl('Dashboard')}?subscription=success`,
-                cancelUrl: `${baseUrl}${createPageUrl('Pricing')}?subscription=cancelled`,
-            });
-            
-            if (response?.data?.checkoutUrl) {
-                window.location.href = response.data.checkoutUrl;
+            console.log('Redirecting to Stripe checkout for:', plan.name);
+
+            // Redirect directly to Stripe checkout URL
+            if (plan.checkoutUrl) {
+                toast.success(`Redirecting to checkout for ${plan.name}...`);
+                window.location.href = plan.checkoutUrl;
             } else {
-                throw new Error(response?.data?.error || "Could not retrieve a checkout URL from the server.");
+                throw new Error("Checkout URL not configured for this plan.");
             }
         } catch (error) {
             console.error("Plan selection error:", error);
-            
+
             let errorMessage = "Something went wrong. Please try again.";
             let errorDescription = error.message;
 
@@ -266,7 +284,7 @@ export default function Pricing() {
                     </div>
                 </div>
 
-                <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+                <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-8 max-w-7xl mx-auto">
                     {plans.map(plan => (
                         <PlanCard
                             key={plan.name}

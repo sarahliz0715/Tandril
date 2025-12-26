@@ -1,0 +1,35 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "41641b42c46bc650c3f4472682f3b6d9"
+name = "Tandril Beta"
+application_url = "https://tandril-mvp.vercel.app"
+embedded = false
+
+[build]
+automatically_update_urls_on_dev = true
+dev_store_url = "https://tandril-mvp.vercel.app"
+
+[access_scopes]
+scopes = "read_customers,write_price_rules,write_discounts,write_inventory,read_inventory,read_orders,read_product_listings,write_product_listings,read_products,write_products"
+
+[auth]
+redirect_urls = [
+  "https://biksocozipayckfuzzul.supabase.co/functions/v1/shopify-auth-callback"
+]
+
+[webhooks]
+api_version = "2025-10"
+
+# Mandatory GDPR/Privacy Compliance Webhooks
+# Required for all apps on the Shopify App Store
+[[webhooks.subscriptions]]
+compliance_topics = ["customers/data_request"]
+uri = "https://biksocozipayckfuzzul.supabase.co/functions/v1/customers-data-request"
+
+[[webhooks.subscriptions]]
+compliance_topics = ["customers/redact"]
+uri = "https://biksocozipayckfuzzul.supabase.co/functions/v1/customers-redact"
+
+[[webhooks.subscriptions]]
+compliance_topics = ["shop/redact"]
+uri = "https://biksocozipayckfuzzul.supabase.co/functions/v1/shop-redact"
