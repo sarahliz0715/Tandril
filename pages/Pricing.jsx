@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { User } from '@/api/entities';
 import { CheckCircle, ArrowRight, Star, Sparkles, Loader2, Heart, Shield, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -256,57 +257,80 @@ export default function Pricing() {
     }
 
     return (
-        <div className="bg-gradient-to-br from-slate-50 via-white to-blue-50 py-12 sm:py-20">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div className="text-center mb-12">
-                    <TandrilLogo className="h-12 w-12 mx-auto mb-4" />
-                    <h1 className="text-4xl sm:text-5xl font-extrabold text-slate-900">
-                        Honest, Transparent Pricing
-                    </h1>
-                    <p className="mt-4 text-lg text-slate-600 max-w-2xl mx-auto">
-                        Start free, upgrade when you're ready. No hidden fees, no sneaky charges.
-                    </p>
-                </div>
-
-                {/* Trust indicators */}
-                <div className="flex flex-wrap justify-center items-center gap-x-8 gap-y-4 mb-12">
-                    <div className="flex items-center gap-2 text-slate-600">
-                        <Shield className="w-5 h-5 text-green-500" />
-                        <span className="text-sm">No Credit Card For Free Tier</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-slate-600">
-                        <Heart className="w-5 h-5 text-red-500" />
-                        <span className="text-sm">Cancel Anytime</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-slate-600">
-                        <Zap className="w-5 h-5 text-blue-500" />
-                        <span className="text-sm">Instant Activation</span>
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50">
+            {/* Header */}
+            <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-lg border-b border-slate-200">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div className="flex justify-between items-center h-16">
+                        <div className="flex items-center gap-3">
+                            <TandrilLogo className="h-8 w-auto" />
+                            <span className="text-xl font-bold text-slate-800 hidden sm:block">Tandril</span>
+                        </div>
+                        <div className="flex items-center gap-4">
+                            <Link to={createPageUrl('Pricing')} className="text-sm font-medium text-slate-600 hover:text-slate-900">
+                                Pricing
+                            </Link>
+                            <Link to={createPageUrl('Login')} className="text-sm font-medium text-slate-600 hover:text-slate-900">
+                                Log In
+                            </Link>
+                            <Button onClick={() => window.location.href = createPageUrl('Signup')}>Get Started Free</Button>
+                        </div>
                     </div>
                 </div>
+            </header>
 
-                <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-8 max-w-7xl mx-auto">
-                    {plans.map(plan => (
-                        <PlanCard
-                            key={plan.name}
-                            plan={plan}
-                            onSelect={handlePlanSelect}
-                            isLoading={loadingPlan === (plan.isFree ? 'free' : plan.priceId)}
-                            currentTier={user?.subscription_tier}
-                        />
-                    ))}
-                </div>
-
-                <div className="text-center mt-12 space-y-4">
-                    <div className="bg-green-50 border border-green-200 rounded-xl p-6 max-w-2xl mx-auto">
-                        <h3 className="font-bold text-green-900 mb-2">Our Promise to You</h3>
-                        <p className="text-green-800 text-sm">
-                            We believe in ethical business practices. That's why our free tier is genuinely free. 
-                            No tricks, no gotchas, no forgotten subscriptions. You'll only pay when you choose to upgrade.
+            {/* Main Content */}
+            <div className="py-12 sm:py-20">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div className="text-center mb-12">
+                        <h1 className="text-4xl sm:text-5xl font-extrabold text-slate-900">
+                            Honest, Transparent Pricing
+                        </h1>
+                        <p className="mt-4 text-lg text-slate-600 max-w-2xl mx-auto">
+                            Start free, upgrade when you're ready. No hidden fees, no sneaky charges.
                         </p>
                     </div>
-                    <p className="text-slate-500 text-sm">
-                        Need help choosing? <a href="mailto:support@tandril.com" className="text-indigo-600 hover:underline">Contact our team</a>
-                    </p>
+
+                    {/* Trust indicators */}
+                    <div className="flex flex-wrap justify-center items-center gap-x-8 gap-y-4 mb-12">
+                        <div className="flex items-center gap-2 text-slate-600">
+                            <Shield className="w-5 h-5 text-green-500" />
+                            <span className="text-sm">No Credit Card For Free Tier</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-slate-600">
+                            <Heart className="w-5 h-5 text-red-500" />
+                            <span className="text-sm">Cancel Anytime</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-slate-600">
+                            <Zap className="w-5 h-5 text-blue-500" />
+                            <span className="text-sm">Instant Activation</span>
+                        </div>
+                    </div>
+
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-8 max-w-7xl mx-auto">
+                        {plans.map(plan => (
+                            <PlanCard
+                                key={plan.name}
+                                plan={plan}
+                                onSelect={handlePlanSelect}
+                                isLoading={loadingPlan === (plan.isFree ? 'free' : plan.priceId)}
+                                currentTier={user?.subscription_tier}
+                            />
+                        ))}
+                    </div>
+
+                    <div className="text-center mt-12 space-y-4">
+                        <div className="bg-green-50 border border-green-200 rounded-xl p-6 max-w-2xl mx-auto">
+                            <h3 className="font-bold text-green-900 mb-2">Our Promise to You</h3>
+                            <p className="text-green-800 text-sm">
+                                We believe in ethical business practices. That's why our free tier is genuinely free.
+                                No tricks, no gotchas, no forgotten subscriptions. You'll only pay when you choose to upgrade.
+                            </p>
+                        </div>
+                        <p className="text-slate-500 text-sm">
+                            Need help choosing? <a href="mailto:support@tandril.com" className="text-indigo-600 hover:underline">Contact our team</a>
+                        </p>
+                    </div>
                 </div>
             </div>
         </div>
