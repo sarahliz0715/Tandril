@@ -221,6 +221,7 @@ function createSupabaseEntity(tableName) {
 
 // Create entity wrappers for Supabase tables
 export const supabasePlatform = createSupabaseEntity('platforms');
+export const supabasePlatformType = createSupabaseEntity('platform_types');
 export const supabaseAICommand = createSupabaseEntity('ai_commands');
 export const supabaseSavedCommand = createSupabaseEntity('saved_commands');
 export const supabaseAIWorkflow = createSupabaseEntity('ai_workflows');
@@ -234,6 +235,7 @@ export const createSupabaseEntities = () => {
   return {
     // Supabase-backed entities (real database tables)
     Platform: supabasePlatform,
+    PlatformType: supabasePlatformType,
     AICommand: supabaseAICommand,
     SavedCommand: supabaseSavedCommand,
     AIWorkflow: supabaseAIWorkflow,
@@ -241,7 +243,6 @@ export const createSupabaseEntities = () => {
     WorkflowRun: supabaseWorkflowRun,
 
     // Mock entities (no Supabase tables yet - using mocks as fallback)
-    PlatformType: mockEntities.PlatformType,
     MockProduct: mockEntities.MockProduct,
     SecurityAudit: mockEntities.SecurityAudit,
     MarketIntelligence: mockEntities.MarketIntelligence,
