@@ -23,8 +23,6 @@ import { toast } from 'sonner';
 
 // Conversation List Component
 const ConversationList = ({ conversations, selectedId, onSelect, onNewChat, onDelete }) => {
-    const whatsappURL = agentSDK.getWhatsAppConnectURL('business_advisor');
-
     if (conversations.length === 0) {
         return (
             <div className="flex flex-col h-full bg-slate-50 border-r">
@@ -36,11 +34,6 @@ const ConversationList = ({ conversations, selectedId, onSelect, onNewChat, onDe
                     <Button className="w-full" onClick={onNewChat}>
                         <Plus className="w-4 h-4 mr-2" />
                         New Chat
-                    </Button>
-                    <Button asChild variant="outline" className="w-full mt-2 bg-green-100 border-green-200 text-green-800 hover:bg-green-200 hover:text-green-900">
-                        <a href={whatsappURL} target="_blank" rel="noopener noreferrer">
-                            💬 Connect on WhatsApp
-                        </a>
                     </Button>
                 </div>
                 <div className="flex-1 flex items-center justify-center p-6">
@@ -63,11 +56,6 @@ const ConversationList = ({ conversations, selectedId, onSelect, onNewChat, onDe
                 <Button className="w-full" onClick={onNewChat}>
                     <Plus className="w-4 h-4 mr-2" />
                     New Chat
-                </Button>
-                <Button asChild variant="outline" className="w-full mt-2 bg-green-100 border-green-200 text-green-800 hover:bg-green-200 hover:text-green-900">
-                    <a href={whatsappURL} target="_blank" rel="noopener noreferrer">
-                        💬 Connect on WhatsApp
-                    </a>
                 </Button>
             </div>
             <div className="flex-1 overflow-y-auto">
