@@ -160,7 +160,7 @@ export default function CommandConfirmation({ command, onConfirm, onCancel, onEd
                         </h3>
                         {command.actions_planned && command.actions_planned.length > 0 ? (
                             <div className="space-y-2">
-                                {command.actions_planned.map((action, index) => (
+                                {command.actions_planned.filter(action => action).map((action, index) => (
                                     <Card key={index} className="border-slate-200">
                                         <CardContent className="p-4">
                                             <div className="flex items-start gap-3">
@@ -171,12 +171,12 @@ export default function CommandConfirmation({ command, onConfirm, onCancel, onEd
                                                 </div>
                                                 <div className="flex-1">
                                                     <div className="flex items-center gap-2 mb-1">
-                                                        <h4 className="font-semibold text-slate-900">{action.title || action.action_type}</h4>
+                                                        <h4 className="font-semibold text-slate-900">{action.title || action.action_type || 'Action'}</h4>
                                                         {action.platform && <Badge variant="outline" className="text-xs">
                                                             {action.platform}
                                                         </Badge>}
                                                     </div>
-                                                    <p className="text-sm text-slate-600">{action.description}</p>
+                                                    <p className="text-sm text-slate-600">{action.description || ''}</p>
                                                 </div>
                                             </div>
                                         </CardContent>
