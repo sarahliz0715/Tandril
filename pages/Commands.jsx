@@ -58,6 +58,17 @@ export default function Commands() {
   const { isOpen, config, confirm, cancel } = useConfirmDialog();
   const [selectedPlatforms, setSelectedPlatforms] = useState([]);
 
+  // Sanitize command data to prevent crashes from malformed actions
+  const sanitizeCommand = useCallback((cmd) => {
+    if (!cmd) return null;
+    return {
+      ...cmd,
+      actions_planned: Array.isArray(cmd.actions_planned)
+        ? cmd.actions_planned.filter(action => action && typeof action === 'object')
+        : []
+    };
+  }, []);
+
   // Get hasBetaAccess from user
   const hasBetaAccess = useMemo(() => {
     return currentUser?.beta_features_enabled === true || 
@@ -151,7 +162,7 @@ export default function Commands() {
         confidence_score: interpretation.confidence_score || 0.8
       });
 
-      setCurrentCommand(command);
+      setCurrentCommand(sanitizeCommand(command));
       pollCommandStatus(command.id);
 
     } catch (error) {
@@ -165,7 +176,7 @@ export default function Commands() {
     const pollInterval = setInterval(async () => {
       try {
         const updated = await base44.entities.AICommand.get(commandId);
-        setCurrentCommand(updated);
+        setCurrentCommand(sanitizeCommand(updated));
 
         if (updated.status === 'completed' || updated.status === 'failed') {
           clearInterval(pollInterval);
