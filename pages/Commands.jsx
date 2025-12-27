@@ -268,8 +268,11 @@ export default function Commands() {
       });
 
       const actions = [];
-      for (let i = 0; i < currentCommand.actions_planned.length; i++) {
-        const plannedAction = currentCommand.actions_planned[i];
+      const validActions = (currentCommand.actions_planned && Array.isArray(currentCommand.actions_planned))
+        ? currentCommand.actions_planned.filter(a => a && typeof a === 'object')
+        : [];
+      for (let i = 0; i < validActions.length; i++) {
+        const plannedAction = validActions[i];
         const action = await base44.entities.AutomationAction.create({
           name: (plannedAction && plannedAction.title) ? plannedAction.title : `Action ${i + 1}`,
           action_type: 'run_ai_command',
