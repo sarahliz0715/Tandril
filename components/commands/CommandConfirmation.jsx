@@ -158,9 +158,9 @@ export default function CommandConfirmation({ command, onConfirm, onCancel, onEd
                             <List className="w-5 h-5 text-indigo-600" />
                             Execution Plan:
                         </h3>
-                        {command.actions_planned && command.actions_planned.length > 0 ? (
+                        {command.actions_planned && Array.isArray(command.actions_planned) && command.actions_planned.length > 0 ? (
                             <div className="space-y-2">
-                                {command.actions_planned.filter(action => action).map((action, index) => (
+                                {command.actions_planned.filter(action => action && typeof action === 'object').map((action, index) => (
                                     <Card key={index} className="border-slate-200">
                                         <CardContent className="p-4">
                                             <div className="flex items-start gap-3">
