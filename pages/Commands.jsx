@@ -44,8 +44,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
+import CommandsErrorBoundary from '../components/common/CommandsErrorBoundary';
 
-export default function Commands() {
+function CommandsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [commandText, setCommandText] = useState('');
@@ -495,5 +496,13 @@ export default function Commands() {
         {...config}
       />
     </div>
+  );
+}
+
+export default function Commands() {
+  return (
+    <CommandsErrorBoundary>
+      <CommandsPage />
+    </CommandsErrorBoundary>
   );
 }
