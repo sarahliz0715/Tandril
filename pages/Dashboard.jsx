@@ -159,8 +159,9 @@ export default function Dashboard() {
 
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      // TEMPORARILY DISABLED AIRecommendation - Testing if this causes Commands crash
-      const alertsData = await SmartAlert.list('-created_date', 20);
+      // TEMPORARILY DISABLED - Testing if these mock entities cause Commands crash
+      // const alertsData = await SmartAlert.list('-created_date', 20);
+      const alertsData = []; // Empty - bypassing SmartAlert.list()
       const recommendationsData = []; // Empty - bypassing AIRecommendation.list()
 
       await new Promise(resolve => setTimeout(resolve, 100));
