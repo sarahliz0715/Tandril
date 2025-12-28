@@ -20,9 +20,14 @@ export default function SavedCommandsPanel({ onRunCommand }) {
     const loadSavedCommands = async () => {
         try {
             const commands = await SavedCommand.list('-usage_count');
-            setSavedCommands(commands);
+            // Filter out any malformed commands
+            const validCommands = (commands || []).filter(cmd =>
+                cmd && typeof cmd === 'object' && cmd.name && cmd.command_text
+            );
+            setSavedCommands(validCommands);
         } catch (error) {
             console.error('Failed to load saved commands:', error);
+            setSavedCommands([]);
         }
     };
 
@@ -81,16 +86,19 @@ export default function SavedCommandsPanel({ onRunCommand }) {
         general: 'bg-slate-100 text-slate-800'
     };
 
-    const CommandCard = ({ command }) => (
-        <Card className="hover:shadow-md transition-shadow bg-white border-slate-200 relative">
-            <CardContent className="p-4">
-                <div className="flex items-start justify-between mb-2">
-                    <div className="flex-1 min-w-0">
-                        <h4 className="font-semibold text-slate-900 truncate">{command.name}</h4>
-                        {command.description && (
-                            <p className="text-xs text-slate-500 mt-1 line-clamp-2">{command.description}</p>
-                        )}
-                    </div>
+    const CommandCard = ({ command }) => {
+        if (!command || !command.name) return null;
+
+        return (
+            <Card className="hover:shadow-md transition-shadow bg-white border-slate-200 relative">
+                <CardContent className="p-4">
+                    <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1 min-w-0">
+                            <h4 className="font-semibold text-slate-900 truncate">{command.name}</h4>
+                            {command.description && (
+                                <p className="text-xs text-slate-500 mt-1 line-clamp-2">{command.description}</p>
+                            )}
+                        </div>
                     <Button
                         variant="ghost"
                         size="icon"
