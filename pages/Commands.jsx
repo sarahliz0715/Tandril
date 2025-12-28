@@ -485,7 +485,16 @@ function CommandsPage() {
         </div>
 
         <div className="lg:col-span-1">
-          <SavedCommandsPanel onUseCommand={handleUseSavedCommand} />
+          {/* TEMPORARILY DISABLED - Testing if this causes crash */}
+          {/* <SavedCommandsPanel onUseCommand={handleUseSavedCommand} /> */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Saved Commands</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-slate-600">Temporarily disabled for testing</p>
+            </CardContent>
+          </Card>
         </div>
       </div>
 
