@@ -159,10 +159,9 @@ export default function Dashboard() {
 
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      const [alertsData, recommendationsData] = await Promise.all([
-          SmartAlert.list('-created_date', 20),
-          AIRecommendation.list('-created_date', 20)
-      ]);
+      // TEMPORARILY DISABLED AIRecommendation - Testing if this causes Commands crash
+      const alertsData = await SmartAlert.list('-created_date', 20);
+      const recommendationsData = []; // Empty - bypassing AIRecommendation.list()
 
       await new Promise(resolve => setTimeout(resolve, 100));
 
