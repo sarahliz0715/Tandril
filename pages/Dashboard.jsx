@@ -181,7 +181,7 @@ export default function Dashboard() {
       setPlatforms(platformsData);
       setRecentCommands(commandsData);
       setAlerts(alertsData);
-      setRecommendations(recommendationsData);
+      setRecommendations((recommendationsData || []).filter(rec => rec && typeof rec === 'object'));
       setProducts(allProducts);
 
       const lastWeek = new Date();
