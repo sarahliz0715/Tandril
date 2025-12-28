@@ -99,50 +99,51 @@ export default function SavedCommandsPanel({ onRunCommand }) {
                                 <p className="text-xs text-slate-500 mt-1 line-clamp-2">{command.description}</p>
                             )}
                         </div>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleToggleFavorite(command)}
-                        className="flex-shrink-0 ml-2"
-                    >
-                        <Star className={`w-4 h-4 ${command.is_favorite ? 'fill-yellow-400 text-yellow-400' : 'text-slate-400'}`} />
-                    </Button>
-                </div>
-                <div className="flex items-center gap-2 mb-3">
-                    <Badge className={categoryColors[command.category] || categoryColors.general}>
-                        {command.category}
-                    </Badge>
-                    {command.usage_count > 0 && (
-                        <span className="text-xs text-slate-500">Used {command.usage_count} times</span>
-                    )}
-                </div>
-                <div className="flex gap-2">
-                    <Button
-                        size="sm"
-                        onClick={() => handleRun(command)}
-                        className="flex-1 bg-indigo-600 hover:bg-indigo-700"
-                    >
-                        <Play className="w-3 h-3 mr-1" /> Run
-                    </Button>
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleEdit(command)}
-                    >
-                        <Edit className="w-3 h-3" />
-                    </Button>
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleDelete(command.id)}
-                        className="text-red-600 hover:text-red-700"
-                    >
-                        <Trash2 className="w-3 h-3" />
-                    </Button>
-                </div>
-            </CardContent>
-        </Card>
-    );
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleToggleFavorite(command)}
+                            className="flex-shrink-0 ml-2"
+                        >
+                            <Star className={`w-4 h-4 ${command.is_favorite ? 'fill-yellow-400 text-yellow-400' : 'text-slate-400'}`} />
+                        </Button>
+                    </div>
+                    <div className="flex items-center gap-2 mb-3">
+                        <Badge className={categoryColors[command.category] || categoryColors.general}>
+                            {command.category}
+                        </Badge>
+                        {command.usage_count > 0 && (
+                            <span className="text-xs text-slate-500">Used {command.usage_count} times</span>
+                        )}
+                    </div>
+                    <div className="flex gap-2">
+                        <Button
+                            size="sm"
+                            onClick={() => handleRun(command)}
+                            className="flex-1 bg-indigo-600 hover:bg-indigo-700"
+                        >
+                            <Play className="w-3 h-3 mr-1" /> Run
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleEdit(command)}
+                        >
+                            <Edit className="w-3 h-3" />
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleDelete(command.id)}
+                            className="text-red-600 hover:text-red-700"
+                        >
+                            <Trash2 className="w-3 h-3" />
+                        </Button>
+                    </div>
+                </CardContent>
+            </Card>
+        );
+    };
 
     return (
         <div className="space-y-4">
