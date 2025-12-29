@@ -500,9 +500,8 @@ function CommandsPage() {
 
       <ConfirmDialog
         isOpen={isOpen}
-        onConfirm={confirm}
+        config={config}
         onCancel={cancel}
-        {...config}
       />
     </div>
   );

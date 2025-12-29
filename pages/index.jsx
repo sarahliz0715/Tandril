@@ -269,7 +269,7 @@ function PagesContent() {
                 
                 <Route path="/Platforms" element={<Platforms />} />
                 
-                <Route path="/Commands" element={<CommandsMinimal />} />
+                <Route path="/Commands" element={<Commands />} />
                 
                 <Route path="/History" element={<History />} />
                 
