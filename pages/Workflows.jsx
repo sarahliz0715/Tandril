@@ -65,7 +65,7 @@ export default function Workflows() {
           console.error('Error fetching workflows:', err);
           return [];
         }),
-        WorkflowTemplate.filter({ is_featured: true }).catch(err => {
+        WorkflowTemplate.list().catch(err => {
           console.error('Error fetching templates:', err);
           return [];
         })
