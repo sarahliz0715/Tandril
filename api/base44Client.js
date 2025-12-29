@@ -1,116 +1,87 @@
-import { createClient } from '@base44/sdk';
+// Tandril API Client
+// Unified client interface for functions, auth, and entities
+// Uses Supabase in production, mocks in development/standalone mode
+
 import { mockFunctions, mockAuth, createMockEntities } from './mockData';
 import { isSupabaseConfigured } from './supabaseClient';
 import { supabaseFunctions } from './supabaseFunctions';
 import { createSupabaseEntities } from './supabaseEntities';
 import { supabaseAuthService } from './supabaseAuth';
-// import { getAccessToken } from '@base44/sdk/utils/auth-utils';
 
-// Check if running in standalone mode (e.g., Vercel without Base44 auth)
-// Default to standalone mode (true) unless explicitly set to false
+// Check if running in standalone mode (without Supabase)
 const standaloneEnv = import.meta.env.VITE_STANDALONE_MODE;
 const isStandaloneMode = standaloneEnv !== 'false' && standaloneEnv !== false;
 
 // Check if Supabase is configured
 const hasSupabase = isSupabaseConfigured();
 
-// Debug logging (will show in browser console)
-console.log('🔍 Tandril Mode Check:', {
+// Debug logging
+console.log('🔍 Tandril Client Mode:', {
   env: standaloneEnv,
   isStandaloneMode,
   hasSupabase,
-  functionProvider: hasSupabase ? 'Supabase Edge Functions' : isStandaloneMode ? 'Mock' : 'Base44',
-  requiresAuth: !isStandaloneMode
+  functionProvider: hasSupabase ? 'Supabase Edge Functions' : 'Mock',
+  authProvider: hasSupabase ? 'Supabase Auth' : 'Mock',
+  entityProvider: hasSupabase ? 'Supabase PostgreSQL' : 'Mock'
 });
 
-// Create client based on configuration
+// Create mock integrations (placeholder for future platform integrations)
+const mockIntegrations = {
+  Core: {
+    InvokeLLM: async (params) => {
+      console.warn('[Tandril] InvokeLLM integration not implemented yet');
+      return { data: { response: 'Mock LLM response' } };
+    },
+    SendEmail: async (params) => {
+      console.warn('[Tandril] SendEmail integration not implemented yet');
+      return { data: { success: true } };
+    },
+    UploadFile: async (file) => {
+      console.warn('[Tandril] UploadFile integration not implemented yet');
+      return { data: { url: 'mock-file-url' } };
+    },
+    GenerateImage: async (params) => {
+      console.warn('[Tandril] GenerateImage integration not implemented yet');
+      return { data: { url: 'mock-image-url' } };
+    },
+    ExtractDataFromUploadedFile: async (params) => {
+      console.warn('[Tandril] ExtractDataFromUploadedFile integration not implemented yet');
+      return { data: {} };
+    },
+    CreateFileSignedUrl: async (params) => {
+      console.warn('[Tandril] CreateFileSignedUrl integration not implemented yet');
+      return { data: { url: 'mock-signed-url' } };
+    },
+    UploadPrivateFile: async (file) => {
+      console.warn('[Tandril] UploadPrivateFile integration not implemented yet');
+      return { data: { url: 'mock-private-file-url' } };
+    },
+  }
+};
+
+// Create unified client interface
 let client;
 
 if (hasSupabase) {
-  // When using Supabase, create a minimal client object without calling base44 SDK
-  // This prevents the 404 error from base44 trying to connect
-
-  // Create mock integrations for Supabase mode
-  const mockIntegrations = {
-    Core: {
-      InvokeLLM: async (params) => {
-        console.warn('[Supabase Mode] InvokeLLM not implemented yet');
-        return { data: { response: 'Mock LLM response' } };
-      },
-      SendEmail: async (params) => {
-        console.warn('[Supabase Mode] SendEmail not implemented yet');
-        return { data: { success: true } };
-      },
-      UploadFile: async (file) => {
-        console.warn('[Supabase Mode] UploadFile not implemented yet');
-        return { data: { url: 'mock-file-url' } };
-      },
-      GenerateImage: async (params) => {
-        console.warn('[Supabase Mode] GenerateImage not implemented yet');
-        return { data: { url: 'mock-image-url' } };
-      },
-      ExtractDataFromUploadedFile: async (params) => {
-        console.warn('[Supabase Mode] ExtractDataFromUploadedFile not implemented yet');
-        return { data: {} };
-      },
-      CreateFileSignedUrl: async (params) => {
-        console.warn('[Supabase Mode] CreateFileSignedUrl not implemented yet');
-        return { data: { url: 'mock-signed-url' } };
-      },
-      UploadPrivateFile: async (file) => {
-        console.warn('[Supabase Mode] UploadPrivateFile not implemented yet');
-        return { data: { url: 'mock-private-file-url' } };
-      },
-    }
-  };
-
+  // Production mode: Use Supabase for everything
   client = {
     functions: supabaseFunctions,
     auth: supabaseAuthService,
     entities: createSupabaseEntities(),
     integrations: mockIntegrations
   };
-  console.log('✅ Supabase Edge Functions attached to base44 client');
-  console.log('✅ Supabase entities attached to base44 client');
-} else if (isStandaloneMode) {
-  // In standalone mode, create base44 client but override with mocks
-  client = createClient({
-    appId: "68a3236e6b961b3c35fd1bbc",
-    requiresAuth: false
-  });
-  // Use mock functions in standalone mode without Supabase
-  if (!client.functions) {
-    client.functions = mockFunctions;
-    console.log('✅ Mock functions attached to base44 client');
-  } else if (!client.functions.invoke) {
-    client.functions.invoke = mockFunctions.invoke;
-    console.log('✅ Mock invoke method attached to base44.functions');
-  }
-
-  // Mock auth
-  if (!client.auth) {
-    client.auth = mockAuth;
-    console.log('✅ Mock auth attached to base44 client');
-  } else {
-    client.auth = { ...client.auth, ...mockAuth };
-    console.log('✅ Mock auth methods merged with base44.auth');
-  }
-
-  // Mock entities
-  if (!client.entities) {
-    client.entities = createMockEntities();
-    console.log('✅ Mock entities attached to base44 client');
-  } else {
-    client.entities = { ...client.entities, ...createMockEntities() };
-    console.log('✅ Mock entities merged with base44.entities');
-  }
+  console.log('✅ Tandril Client initialized with Supabase backend');
 } else {
-  // Real Base44 mode
-  client = createClient({
-    appId: "68a3236e6b961b3c35fd1bbc",
-    requiresAuth: true
-  });
-  console.log('✅ Using Base44 backend');
+  // Standalone/development mode: Use mocks
+  client = {
+    functions: mockFunctions,
+    auth: mockAuth,
+    entities: createMockEntities(),
+    integrations: mockIntegrations
+  };
+  console.log('✅ Tandril Client initialized with mock backend');
 }
 
+// Export as 'base44' for backward compatibility with existing code
+// (named 'base44' to avoid refactoring hundreds of base44.entities calls)
 export const base44 = client;
