@@ -6,6 +6,8 @@ import Platforms from "./Platforms";
 
 import Commands from "./Commands";
 
+import CommandsMinimal from "./CommandsMinimal";
+
 import History from "./History";
 
 import Settings from "./Settings";
@@ -267,7 +269,7 @@ function PagesContent() {
                 
                 <Route path="/Platforms" element={<Platforms />} />
                 
-                <Route path="/Commands" element={<Commands />} />
+                <Route path="/Commands" element={<CommandsMinimal />} />
                 
                 <Route path="/History" element={<History />} />
                 
