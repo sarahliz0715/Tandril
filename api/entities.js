@@ -1,4 +1,4 @@
-import { base44 } from './base44Client';
+import { api } from './apiClient';
 import { createMockEntities, mockAuth } from './mockData';
 import { supabaseAuthService } from './supabaseAuth';
 import { isSupabaseConfigured } from './supabaseClient';
@@ -19,8 +19,8 @@ if (hasSupabase) {
   // Standalone mode - all mocks
   entities = createMockEntities();
 } else {
-  // Base44 mode
-  entities = base44.entities;
+  // API mode
+  entities = api.entities;
 }
 
 console.log('🗄️ Tandril Entities Mode:', {
@@ -28,7 +28,7 @@ console.log('🗄️ Tandril Entities Mode:', {
   hasSupabase,
   usingMocks: !hasSupabase && isStandaloneMode,
   usingSupabase: hasSupabase,
-  authProvider: hasSupabase ? 'Supabase' : isStandaloneMode ? 'Mock' : 'Base44'
+  authProvider: hasSupabase ? 'Supabase' : isStandaloneMode ? 'Mock' : 'API'
 });
 
 // Export all entities from the selected source
@@ -77,5 +77,5 @@ export const CustomAlert = entities.CustomAlert;
 
 
 
-// auth sdk - use Supabase if configured, otherwise use mock auth in standalone mode, or Base44 auth
-export const User = hasSupabase ? supabaseAuthService : (isStandaloneMode ? mockAuth : base44.auth);
+// auth sdk - use Supabase if configured, otherwise use mock auth in standalone mode, or API auth
+export const User = hasSupabase ? supabaseAuthService : (isStandaloneMode ? mockAuth : api.auth);

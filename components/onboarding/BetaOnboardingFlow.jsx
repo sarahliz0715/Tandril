@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -128,7 +128,7 @@ export default function BetaOnboardingFlow() {
     useEffect(() => {
         const checkExistingUser = async () => {
             try {
-                const user = await base44.auth.me();
+                const user = await api.auth.me();
                 if (user.onboarding_completed) {
                     navigate(createPageUrl('Dashboard'));
                 }
@@ -145,7 +145,7 @@ export default function BetaOnboardingFlow() {
         if (mode === 'demo') {
             // Demo mode - update user and go straight to dashboard
             try {
-                await base44.auth.updateMe({ 
+                await api.auth.updateMe({ 
                     user_mode: 'demo',
                     onboarding_completed: true 
                 });
@@ -159,7 +159,7 @@ export default function BetaOnboardingFlow() {
             }
         } else {
             // Live mode - continue to next step
-            await base44.auth.updateMe({ user_mode: 'live' });
+            await api.auth.updateMe({ user_mode: 'live' });
             setCurrentStep(2);
         }
     };
@@ -173,7 +173,7 @@ export default function BetaOnboardingFlow() {
         setTimeout(async () => {
             try {
                 // Check if products were synced
-                const products = await base44.entities.InventoryItem.list();
+                const products = await api.entities.InventoryItem.list();
                 setProductCount(products.length);
                 setSyncInProgress(false);
                 setSyncComplete(true);
@@ -207,7 +207,7 @@ export default function BetaOnboardingFlow() {
 
         try {
             // Use AI to analyze the challenge and suggest a workflow
-            const response = await base44.integrations.Core.InvokeLLM({
+            const response = await api.integrations.Core.InvokeLLM({
                 prompt: `A Shopify seller just told me their biggest challenge is: "${userChallenge}"
 
 Based on this challenge, I need to:
@@ -258,7 +258,7 @@ Return JSON with:
 
         try {
             // Create the workflow
-            await base44.entities.AIWorkflow.create({
+            await api.entities.AIWorkflow.create({
                 name: selectedWorkflow.name,
                 description: selectedWorkflow.description,
                 trigger_type: selectedWorkflow.schedule === 'event' ? 'event' : 'schedule',
@@ -289,7 +289,7 @@ Return JSON with:
 
     const handleComplete = async () => {
         try {
-            await base44.auth.updateMe({ onboarding_completed: true });
+            await api.auth.updateMe({ onboarding_completed: true });
             toast.success("Welcome to Tandril! 🎉", {
                 description: "You're all set up and ready to grow your business with AI."
             });

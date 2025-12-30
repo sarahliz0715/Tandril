@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,7 +20,7 @@ export default function ProfileSettings() {
     useEffect(() => {
         const loadUser = async () => {
             try {
-                const currentUser = await base44.auth.me();
+                const currentUser = await api.auth.me();
                 setUser(currentUser);
                 setFullName(currentUser?.full_name || '');
                 
@@ -73,7 +73,7 @@ export default function ProfileSettings() {
         e.preventDefault();
         setIsSaving(true);
         try {
-            await base44.auth.updateMe({ 
+            await api.auth.updateMe({ 
                 full_name: fullName,
                 business_info: {
                     ...user?.business_info,
@@ -81,7 +81,7 @@ export default function ProfileSettings() {
                     niche: businessNiches[0] || '' // Keep first niche as legacy field
                 }
             });
-            const updatedUser = await base44.auth.me();
+            const updatedUser = await api.auth.me();
             setUser(updatedUser);
             toast.success('Profile updated successfully!');
         } catch (error) {
@@ -99,7 +99,7 @@ export default function ProfileSettings() {
                 updatedMemory[index].is_dismissed = true;
             }
             
-            await base44.auth.updateMe({ ai_memory: updatedMemory });
+            await api.auth.updateMe({ ai_memory: updatedMemory });
             setMemoryItems(updatedMemory);
             toast.success('Memory item dismissed');
         } catch (error) {
@@ -112,7 +112,7 @@ export default function ProfileSettings() {
         try {
             const updatedMemory = memoryItems.filter((_, i) => i !== index);
             
-            await base44.auth.updateMe({ ai_memory: updatedMemory });
+            await api.auth.updateMe({ ai_memory: updatedMemory });
             setMemoryItems(updatedMemory);
             toast.success('Memory item deleted');
         } catch (error) {

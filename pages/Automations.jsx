@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Button } from '@/components/ui/button';
@@ -40,7 +40,7 @@ export default function AutomationsPage() {
 
     const loadAutomations = async () => {
         try {
-            const data = await base44.entities.Automation.list('-created_date');
+            const data = await api.entities.Automation.list('-created_date');
             setAutomations(data);
         } catch (error) {
             console.error('Error loading automations:', error);
@@ -52,7 +52,7 @@ export default function AutomationsPage() {
 
     const handleToggleAutomation = async (automation) => {
         try {
-            await base44.entities.Automation.update(automation.id, {
+            await api.entities.Automation.update(automation.id, {
                 is_active: !automation.is_active
             });
             
@@ -68,7 +68,7 @@ export default function AutomationsPage() {
         if (!confirm('Are you sure you want to delete this automation?')) return;
 
         try {
-            await base44.entities.Automation.delete(automation.id);
+            await api.entities.Automation.delete(automation.id);
             await loadAutomations();
             toast.success('Automation deleted');
         } catch (error) {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -62,7 +62,7 @@ export default function CustomAlerts() {
     const loadAlerts = async () => {
         setIsLoading(true);
         try {
-            const alertsData = await base44.entities.CustomAlert.list('-created_date');
+            const alertsData = await api.entities.CustomAlert.list('-created_date');
             setAlerts(alertsData || []);
         } catch (error) {
             console.error('Error loading custom alerts:', error);
@@ -75,7 +75,7 @@ export default function CustomAlerts() {
 
     const handleToggleAlert = async (alert) => {
         try {
-            await base44.entities.CustomAlert.update(alert.id, {
+            await api.entities.CustomAlert.update(alert.id, {
                 is_active: !alert.is_active
             });
             toast.success(`Alert ${alert.is_active ? 'deactivated' : 'activated'}`);
@@ -95,7 +95,7 @@ export default function CustomAlerts() {
             variant: 'destructive',
             onConfirm: async () => {
                 try {
-                    await base44.entities.CustomAlert.delete(alert.id);
+                    await api.entities.CustomAlert.delete(alert.id);
                     toast.success('Alert deleted successfully');
                     loadAlerts();
                 } catch (error) {

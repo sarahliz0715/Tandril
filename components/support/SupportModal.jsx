@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, CheckCircle, LifeBuoy } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { toast } from 'sonner';
 
 export default function SupportModal({ isOpen, onClose }) {
@@ -28,7 +28,7 @@ export default function SupportModal({ isOpen, onClose }) {
         setIsSubmitting(true);
 
         try {
-            const response = await base44.functions.invoke('sendSupportRequest', {
+            const response = await api.functions.invoke('sendSupportRequest', {
                 subject,
                 message,
                 category

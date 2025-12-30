@@ -8,7 +8,7 @@ import AnimatedCommandPrompt from '../components/landing/AnimatedCommandPrompt';
 import EmailCapture from '../components/landing/EmailCapture';
 import { CheckCircle, Zap, TrendingUp, Bot, Package, Briefcase, BarChart, Shield, Users, Sparkles, MessageSquare, ArrowRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { isSupabaseConfigured } from '@/api/supabaseClient';
 import { toast } from 'sonner';
 
@@ -40,9 +40,9 @@ export default function Home() {
     useEffect(() => {
         const checkAuthAndRedirect = async () => {
             try {
-                const isAuth = await base44.auth.isAuthenticated();
+                const isAuth = await api.auth.isAuthenticated();
                 if (isAuth) {
-                    const user = await base44.auth.me(); // Fetch user data after confirming authentication
+                    const user = await api.auth.me(); // Fetch user data after confirming authentication
                     // User is authenticated
                     if (!user.onboarding_completed) {
                         // Redirect to onboarding if not completed
@@ -76,9 +76,9 @@ export default function Home() {
 
         // Otherwise, use the existing flow (mock or Base44)
         try {
-            const isAuth = await base44.auth.isAuthenticated();
+            const isAuth = await api.auth.isAuthenticated();
             if (isAuth) {
-                const user = await base44.auth.me();
+                const user = await api.auth.me();
 
                 // Check for invite token in URL
                 const urlParams = new URLSearchParams(window.location.search);
@@ -87,7 +87,7 @@ export default function Home() {
                 if (inviteToken) {
                     // Validate and redeem the invite token
                     try {
-                        const invites = await base44.entities.BetaInvite.filter({ token: inviteToken });
+                        const invites = await api.entities.BetaInvite.filter({ token: inviteToken });
                         const invite = invites[0]; // Assuming token is unique and filter returns an array
 
                         if (invite && !invite.is_redeemed) {
@@ -95,8 +95,8 @@ export default function Home() {
                             const expiresAt = new Date(invite.expires_at);
                             if (expiresAt > new Date()) {
                                 // Grant beta access and mark as redeemed
-                                await base44.auth.updateMe({ shopify_beta_access: true });
-                                await base44.entities.BetaInvite.update(invite.id, {
+                                await api.auth.updateMe({ shopify_beta_access: true });
+                                await api.entities.BetaInvite.update(invite.id, {
                                     is_redeemed: true,
                                     redeemed_at: new Date().toISOString()
                                 });
@@ -136,12 +136,12 @@ export default function Home() {
                     navigate(createPageUrl('Dashboard'));
                 }
             } else {
-                base44.auth.redirectToLogin(createPageUrl('Onboarding'));
+                api.auth.redirectToLogin(createPageUrl('Onboarding'));
             }
         } catch (error) {
             console.error('Error in handleGetStarted:', error);
             // Fallback to login redirect in case of any unhandled error during authentication check
-            base44.auth.redirectToLogin(createPageUrl('Onboarding'));
+            api.auth.redirectToLogin(createPageUrl('Onboarding'));
         }
     };
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -91,8 +91,8 @@ export default function Intelligence() {
     setIsLoading(true);
     try {
       const [user, intelligenceData] = await Promise.all([
-        base44.auth.me(),
-        base44.entities.MarketIntelligence.list('-created_date').catch(err => {
+        api.auth.me(),
+        api.entities.MarketIntelligence.list('-created_date').catch(err => {
           console.error('Error fetching intelligence:', err);
           return [];
         })
@@ -170,7 +170,7 @@ export default function Intelligence() {
         try {
           // Generate intelligence for each selected niche
           const promises = selectedNiches.map(niche => 
-            base44.functions.invoke('generateMarketIntelligence', {
+            api.functions.invoke('generateMarketIntelligence', {
               analysis_types: ['trending_products', 'niche_analysis', 'competitor_analysis', 'keyword_performance'],
               category: niche
             })
@@ -214,7 +214,7 @@ export default function Intelligence() {
     }
 
     try {
-      await base44.auth.updateMe({
+      await api.auth.updateMe({
         business_info: {
           ...currentUser?.business_info,
           niches: selectedNiches,
@@ -222,7 +222,7 @@ export default function Intelligence() {
         }
       });
       
-      const updatedUser = await base44.auth.me();
+      const updatedUser = await api.auth.me();
       setCurrentUser(updatedUser);
       
       toast.success("Niches saved to your profile!");

@@ -16,7 +16,7 @@ import {
   ChevronDown,
   Store
 } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { toast } from 'sonner';
 import { handleAuthError } from '@/utils/authHelpers';
 import { useNavigate } from 'react-router-dom';
@@ -58,7 +58,7 @@ export default function PnLDashboard() {
         params.platform_id = selectedPlatform;
       }
 
-      const data = await base44.functions.calculatePnL(params);
+      const data = await api.functions.calculatePnL(params);
       setPnlData(data);
     } catch (error) {
       console.error('Failed to load P&L data:', error);

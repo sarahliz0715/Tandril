@@ -10,7 +10,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Plus, Trash2, Info, Loader2, Save } from 'lucide-react';
 import { toast } from 'sonner';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 
 const triggerTypes = [
     { value: 'inventory_low', label: 'Inventory Low', icon: '📦' },
@@ -166,10 +166,10 @@ export default function CreateCustomAlertModal({ alert, onClose, onSuccess }) {
             };
 
             if (alert?.id) {
-                await base44.entities.CustomAlert.update(alert.id, alertData);
+                await api.entities.CustomAlert.update(alert.id, alertData);
                 toast.success('Alert updated successfully!');
             } else {
-                await base44.entities.CustomAlert.create(alertData);
+                await api.entities.CustomAlert.create(alertData);
                 toast.success('Alert created successfully!');
             }
 

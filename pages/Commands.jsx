@@ -26,7 +26,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import CommandConfirmation from '../components/commands/CommandConfirmation';
 import ExecutionProgress from '../components/commands/ExecutionProgress';
 import SavedCommandsPanel from '../components/commands/SavedCommandsPanel';
@@ -104,8 +104,8 @@ function CommandsPage() {
   const loadData = async () => {
     try {
       const [user, platformsData] = await Promise.all([
-        base44.auth.me(),
-        base44.entities.Platform.list()
+        api.auth.me(),
+        api.entities.Platform.list()
       ]);
 
       setCurrentUser(user);
@@ -143,7 +143,7 @@ function CommandsPage() {
     setIsProcessing(true);
 
     try {
-      const { data: interpretation } = await base44.functions.invoke('interpretCommand', {
+      const { data: interpretation } = await api.functions.invoke('interpretCommand', {
         command_text: commandText,
         platform_targets: getSelectedPlatformObjects().map(p => p.name),
         file_urls: attachments
@@ -155,7 +155,7 @@ function CommandsPage() {
         return;
       }
 
-      const command = await base44.entities.AICommand.create({
+      const command = await api.entities.AICommand.create({
         command_text: commandText,
         platform_targets: getSelectedPlatformObjects().map(p => p.name),
         actions_planned: interpretation.actions || [],
@@ -176,7 +176,7 @@ function CommandsPage() {
   const pollCommandStatus = async (commandId) => {
     const pollInterval = setInterval(async () => {
       try {
-        const updated = await base44.entities.AICommand.get(commandId);
+        const updated = await api.entities.AICommand.get(commandId);
         setCurrentCommand(sanitizeCommand(updated));
 
         if (updated.status === 'completed' || updated.status === 'failed') {
@@ -203,7 +203,7 @@ function CommandsPage() {
 
     if (confirmed) {
       try {
-        await base44.entities.AICommand.update(currentCommand.id, {
+        await api.entities.AICommand.update(currentCommand.id, {
           status: 'failed',
           results: { error: 'Cancelled by user' }
         });
@@ -235,7 +235,7 @@ function CommandsPage() {
 
     try {
       const uploadPromises = files.map(async (file) => {
-        const { data } = await base44.functions.invoke('uploadFile', { file });
+        const { data } = await api.functions.invoke('uploadFile', { file });
         return data.file_url;
       });
 
@@ -258,7 +258,7 @@ function CommandsPage() {
     if (!currentCommand) return;
 
     try {
-      const trigger = await base44.entities.AutomationTrigger.create({
+      const trigger = await api.entities.AutomationTrigger.create({
         name: `Auto: ${commandText.substring(0, 50)}`,
         trigger_type: 'schedule',
         schedule_config: {
@@ -274,7 +274,7 @@ function CommandsPage() {
         : [];
       for (let i = 0; i < validActions.length; i++) {
         const plannedAction = validActions[i];
-        const action = await base44.entities.AutomationAction.create({
+        const action = await api.entities.AutomationAction.create({
           name: (plannedAction && plannedAction.title) ? plannedAction.title : `Action ${i + 1}`,
           action_type: 'run_ai_command',
           config: {
@@ -289,7 +289,7 @@ function CommandsPage() {
         });
       }
 
-      const automation = await base44.entities.Automation.create({
+      const automation = await api.entities.Automation.create({
         name: `Command: ${commandText.substring(0, 50)}`,
         description: `Automatically runs: ${commandText}`,
         icon: 'Bot',

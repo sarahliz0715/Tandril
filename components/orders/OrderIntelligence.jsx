@@ -14,7 +14,7 @@ import {
   Mail,
   ExternalLink
 } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { toast } from 'sonner';
 import { handleAuthError } from '@/utils/authHelpers';
 import { useNavigate } from 'react-router-dom';
@@ -29,7 +29,7 @@ export default function OrderIntelligence() {
   const loadOrderData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const data = await base44.functions.monitorOrders({
+      const data = await api.functions.monitorOrders({
         stuck_days: stuckDays,
         lookback_days: lookbackDays,
         include_returns: true

@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import OrderList from '../components/orders/OrderList';
 import OrderDetails from '../components/orders/OrderDetails';
 import { handleAuthError } from '@/utils/authHelpers';
@@ -46,7 +46,7 @@ export default function Orders() {
   const loadOrders = async () => {
     setIsLoading(true);
     try {
-      const data = await base44.entities.Order.list('-order_date');
+      const data = await api.entities.Order.list('-order_date');
       setOrders(data);
     } catch (error) {
       console.error('Error loading orders:', error);
@@ -69,7 +69,7 @@ export default function Orders() {
 
       for (const order of recentOrders) {
         try {
-          await base44.functions.invoke('evaluateTriggers', {
+          await api.functions.invoke('evaluateTriggers', {
             trigger_type: 'order_placed',
             trigger_data: {
               order_id: order.order_id,
@@ -82,7 +82,7 @@ export default function Orders() {
           });
 
           if (order.status === 'shipped' && order.tracking_number) {
-            await base44.functions.invoke('evaluateTriggers', {
+            await api.functions.invoke('evaluateTriggers', {
               trigger_type: 'order_shipped',
               trigger_data: {
                 order_id: order.order_id,

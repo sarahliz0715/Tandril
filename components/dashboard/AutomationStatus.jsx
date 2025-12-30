@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 
 export default function AutomationStatus() {
     const navigate = useNavigate();
@@ -28,7 +28,7 @@ export default function AutomationStatus() {
     const loadAutomations = async () => {
         setIsLoading(true);
         try {
-            const data = await base44.entities.Automation.list('-updated_date', 5);
+            const data = await api.entities.Automation.list('-updated_date', 5);
             setAutomations(data);
 
             // Calculate stats

@@ -24,8 +24,8 @@ const navigate = (path) => {
 };
 const createPageUrl = (page) => `/${page}`;
 
-// Mock for base44 entity system, assumed to be an ORM or API client
-const base44 = {
+// Mock for API entity system
+const mockAPI = {
     entities: {
         Automation: {
             update: async (id, updates) => {
@@ -83,7 +83,7 @@ export default function AutomationSetupPage() {
             // In a real app, currentAutomation.id would be set after initial creation or fetched.
             // For this placeholder, we assume it's available or we'd handle creation first.
             if (currentAutomation.id) {
-                await base44.entities.Automation.update(currentAutomation.id, updates);
+                await api.entities.Automation.update(currentAutomation.id, updates);
             } else {
                 // If no ID, it means the automation is new and hasn't been saved yet.
                 // We just update the local state. A full save would assign an ID.

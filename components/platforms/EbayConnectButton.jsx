@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ShoppingCart, Loader2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 
 export default function EbayConnectButton({ onConnectionSuccess, disabled }) {
     const [isConnecting, setIsConnecting] = useState(false);
@@ -15,7 +15,7 @@ export default function EbayConnectButton({ onConnectionSuccess, disabled }) {
         try {
             console.log('[EbayConnectButton] Starting eBay connection...');
             
-            const response = await base44.functions.invoke('initiateEbayAuth');
+            const response = await api.functions.invoke('initiateEbayAuth');
             console.log('[EbayConnectButton] Response:', response.data);
             
             if (!response.data) {

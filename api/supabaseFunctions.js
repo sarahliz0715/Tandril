@@ -284,7 +284,7 @@ export async function generateAIContent({
   return response.data || response;
 }
 
-// Export all functions as a functions object similar to base44.functions
+// Export all functions as a unified functions object
 export const supabaseFunctions = {
   invoke: invokeEdgeFunction,
   initiateShopifyAuth,

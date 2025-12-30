@@ -5,7 +5,7 @@ import { WorkflowTemplate } from '@/api/entities';
 import { User } from '@/api/entities';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -168,7 +168,7 @@ export default function Workflows() {
     toast.info("Starting workflow execution...");
     
     try {
-      const { data } = await base44.functions.invoke('executeWorkflow', {
+      const { data } = await api.functions.invoke('executeWorkflow', {
         workflow_id: workflow.id
       });
       
@@ -200,7 +200,7 @@ export default function Workflows() {
 
       // Map template names to automation functions
       if (template.name.includes('Inventory Sync') || template.name.includes('Stock Protection')) {
-        result = await base44.functions.runInventoryProtection({
+        result = await api.functions.runInventoryProtection({
           threshold: 0,
           action: 'unpublish'
         });
@@ -210,7 +210,7 @@ export default function Workflows() {
           loadData();
         }
       } else if (template.name.includes('Price Monitor') || template.name.includes('Price Guardrail')) {
-        result = await base44.functions.runPriceGuardrail({
+        result = await api.functions.runPriceGuardrail({
           min_margin_percent: 30,
           action: 'flag',
           target_margin_percent: 35
@@ -221,7 +221,7 @@ export default function Workflows() {
           loadData();
         }
       } else if (template.name.includes('SEO') || template.name.includes('seo')) {
-        result = await base44.functions.runSEOFixer({
+        result = await api.functions.runSEOFixer({
           mode: 'fix',
           max_products: 50
         });
@@ -231,7 +231,7 @@ export default function Workflows() {
           loadData();
         }
       } else if (template.name.includes('Dead Product') || template.name.includes('Cleanup') || template.name.includes('Sales Report')) {
-        result = await base44.functions.runDeadProductCleanup({
+        result = await api.functions.runDeadProductCleanup({
           days_inactive: 90,
           action: 'flag',
           tag_name: 'Dead Product'
@@ -243,7 +243,7 @@ export default function Workflows() {
         }
       } else {
         // For other templates, use the standard workflow execution
-        result = await base44.functions.invoke('executeWorkflow', {
+        result = await api.functions.invoke('executeWorkflow', {
           workflow_id: template.id
         });
 

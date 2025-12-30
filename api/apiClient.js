@@ -82,6 +82,5 @@ if (hasSupabase) {
   console.log('✅ Tandril Client initialized with mock backend');
 }
 
-// Export as 'base44' for backward compatibility with existing code
-// (named 'base44' to avoid refactoring hundreds of base44.entities calls)
-export const base44 = client;
+// Export unified API client
+export const api = client;

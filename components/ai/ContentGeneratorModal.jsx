@@ -13,7 +13,7 @@ import {
   CheckCircle,
   AlertCircle
 } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { toast } from 'sonner';
 import { handleAuthError } from '@/utils/authHelpers';
 import { useNavigate } from 'react-router-dom';
@@ -65,7 +65,7 @@ export default function ContentGeneratorModal({ isOpen, onClose, selectedProduct
     setResults(null);
 
     try {
-      const data = await base44.functions.generateAIContent({
+      const data = await api.functions.generateAIContent({
         content_type: contentType,
         product_ids: selectedProducts,
         tone,

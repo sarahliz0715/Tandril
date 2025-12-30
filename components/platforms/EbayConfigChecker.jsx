@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CheckCircle, XCircle, AlertCircle, RefreshCw, Bug, ExternalLink } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 
 export default function EbayConfigChecker() {
     const [checking, setChecking] = useState(false);
@@ -12,7 +12,7 @@ export default function EbayConfigChecker() {
     const checkConfig = async () => {
         setChecking(true);
         try {
-            const response = await base44.functions.invoke('checkEbayConfig');
+            const response = await api.functions.invoke('checkEbayConfig');
             console.log('eBay Config Check Response:', response.data);
             setConfig(response.data);
         } catch (error) {
@@ -29,7 +29,7 @@ export default function EbayConfigChecker() {
     const debugAuth = async () => {
         setChecking(true);
         try {
-            const response = await base44.functions.invoke('debugEbayAuth');
+            const response = await api.functions.invoke('debugEbayAuth');
             console.log('eBay Debug Response:', response.data);
             setDebug(response.data);
         } catch (error) {

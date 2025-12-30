@@ -15,7 +15,7 @@ import {
   ChevronRight,
   CheckCircle
 } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { toast } from 'sonner';
 import { handleAuthError } from '@/utils/authHelpers';
 import { useNavigate } from 'react-router-dom';
@@ -29,7 +29,7 @@ export default function AIInsightsDashboard({ compact = false }) {
   const loadInsights = useCallback(async () => {
     setIsLoading(true);
     try {
-      const data = await base44.functions.generateAIInsights();
+      const data = await api.functions.generateAIInsights();
       setInsights(data.insights || []);
       setSummary(data.summary || { total: 0, critical: 0, high: 0, medium: 0 });
     } catch (error) {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -25,7 +25,7 @@ export default function ScheduledRunsCalendar() {
 
     const loadScheduledTriggers = async () => {
         try {
-            const triggers = await base44.entities.AutomationTrigger.filter({
+            const triggers = await api.entities.AutomationTrigger.filter({
                 trigger_type: 'schedule',
                 is_active: true
             });
@@ -73,7 +73,7 @@ export default function ScheduledRunsCalendar() {
         try {
             toast.info('Running automation manually...');
             
-            const result = await base44.functions.invoke('evaluateTriggers', {
+            const result = await api.functions.invoke('evaluateTriggers', {
                 trigger_id: trigger.id,
                 event_data: { manual: true }
             });

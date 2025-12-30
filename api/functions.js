@@ -1,8 +1,8 @@
-import { base44 } from './base44Client';
+import { api } from './apiClient';
 
 // Safely access functions - they may not exist in standalone mode
-// In standalone mode, use base44.functions.invoke() instead
-const safeAccess = (funcName) => base44.functions?.[funcName];
+// In standalone mode, use api.functions.invoke() instead
+const safeAccess = (funcName) => api.functions?.[funcName];
 
 export const initiateShopifyAuth = safeAccess('initiateShopifyAuth');
 
