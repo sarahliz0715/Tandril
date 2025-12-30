@@ -118,6 +118,8 @@ import Login from "./Login";
 
 import Signup from "./Signup";
 
+import FinancialDashboard from "./FinancialDashboard";
+
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 
 const PAGES = {
@@ -237,6 +239,8 @@ const PAGES = {
     Login: Login,
 
     Signup: Signup,
+
+    FinancialDashboard: FinancialDashboard,
 
 }
 
@@ -380,6 +384,8 @@ function PagesContent() {
                 <Route path="/Login" element={<Login />} />
 
                 <Route path="/Signup" element={<Signup />} />
+
+                <Route path="/FinancialDashboard" element={<FinancialDashboard />} />
 
             </Routes>
         </Layout>

@@ -198,6 +198,29 @@ export async function runDeadProductCleanup({
   return response.data || response;
 }
 
+/**
+ * Calculate P&L (Profit & Loss) for a date range
+ * Aggregates revenue, costs, and calculates net profit across all platforms
+ * @param {object} options - Configuration options
+ * @param {string} options.start_date - Start date ISO string (default: 30 days ago)
+ * @param {string} options.end_date - End date ISO string (default: today)
+ * @param {string} options.platform_id - Optional platform ID to filter by
+ * @returns {Promise<{revenue: number, cogs: number, net_profit: number, profit_margin: number, platforms: Array}>}
+ */
+export async function calculatePnL({
+  start_date = null,
+  end_date = null,
+  platform_id = null
+} = {}) {
+  const response = await invokeEdgeFunction('calculate-pnl', {
+    start_date,
+    end_date,
+    platform_id,
+  });
+
+  return response.data || response;
+}
+
 // Export all functions as a functions object similar to base44.functions
 export const supabaseFunctions = {
   invoke: invokeEdgeFunction,
@@ -209,4 +232,5 @@ export const supabaseFunctions = {
   runPriceGuardrail,
   runSEOFixer,
   runDeadProductCleanup,
+  calculatePnL,
 };
