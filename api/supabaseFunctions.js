@@ -243,6 +243,47 @@ export async function monitorOrders({
   return response.data || response;
 }
 
+/**
+ * Generate AI-powered insights and recommendations for your store
+ * Analyzes SEO, orders, pricing, inventory, and trends
+ * @returns {Promise<{insights: Array, summary: object}>}
+ */
+export async function generateAIInsights() {
+  const response = await invokeEdgeFunction('ai-insights', {});
+  return response.data || response;
+}
+
+/**
+ * Generate AI content for products (descriptions, titles, SEO, social, alt text)
+ * @param {object} options - Configuration options
+ * @param {string} options.content_type - 'description', 'title', 'meta', 'social', or 'alt_text'
+ * @param {Array<string>} options.product_ids - Product IDs to generate content for
+ * @param {string} options.tone - 'professional', 'casual', 'luxury', or 'playful' (default: 'professional')
+ * @param {string} options.target_audience - 'general', 'b2b', 'b2c', 'youth', or 'premium' (default: 'general')
+ * @param {boolean} options.apply_to_store - If true, update products in Shopify (default: false)
+ * @param {string} options.platform_id - Required if apply_to_store is true
+ * @returns {Promise<{results: Array, summary: object}>}
+ */
+export async function generateAIContent({
+  content_type = 'description',
+  product_ids = [],
+  tone = 'professional',
+  target_audience = 'general',
+  apply_to_store = false,
+  platform_id = null
+} = {}) {
+  const response = await invokeEdgeFunction('ai-content-generator', {
+    content_type,
+    product_ids,
+    tone,
+    target_audience,
+    apply_to_store,
+    platform_id,
+  });
+
+  return response.data || response;
+}
+
 // Export all functions as a functions object similar to base44.functions
 export const supabaseFunctions = {
   invoke: invokeEdgeFunction,
@@ -256,4 +297,6 @@ export const supabaseFunctions = {
   runDeadProductCleanup,
   calculatePnL,
   monitorOrders,
+  generateAIInsights,
+  generateAIContent,
 };
