@@ -117,6 +117,32 @@ export default function PnLDashboard() {
     );
   }
 
+  // Show error state if no data
+  if (!pnlData || !metrics) {
+    return (
+      <div className="flex items-center justify-center p-12">
+        <Card className="max-w-md">
+          <CardContent className="p-8 text-center">
+            <AlertTriangle className="w-12 h-12 mx-auto text-amber-500 mb-4" />
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">No Financial Data Available</h3>
+            <p className="text-slate-600 mb-4">
+              Unable to load P&L data. This could be because:
+            </p>
+            <ul className="text-left text-sm text-slate-600 mb-4 space-y-1">
+              <li>• No platforms connected yet</li>
+              <li>• No orders in the selected time period</li>
+              <li>• API connection issue</li>
+            </ul>
+            <Button onClick={loadPnLData} className="w-full">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Try Again
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
