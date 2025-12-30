@@ -230,6 +230,17 @@ export default function Workflows() {
           toast.success(`SEO Fixed: ${result.fixed_count || 0} products optimized (${result.analyzed_count || 0} analyzed)`);
           loadData();
         }
+      } else if (template.name.includes('Dead Product') || template.name.includes('Cleanup') || template.name.includes('Sales Report')) {
+        result = await base44.functions.runDeadProductCleanup({
+          days_inactive: 90,
+          action: 'flag',
+          tag_name: 'Dead Product'
+        });
+
+        if (result.success || result.cleaned_count !== undefined) {
+          toast.success(`Cleanup complete: ${result.cleaned_count || 0} dead products flagged (${result.dead_products_found || 0} found)`);
+          loadData();
+        }
       } else {
         // For other templates, use the standard workflow execution
         result = await base44.functions.invoke('executeWorkflow', {

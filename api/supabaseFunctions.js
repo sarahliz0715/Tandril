@@ -172,6 +172,32 @@ export async function runSEOFixer({
   return response.data || response;
 }
 
+/**
+ * Run Dead Product Cleanup automation
+ * Flags or unpublishes products with no sales in X days
+ * @param {object} options - Configuration options
+ * @param {number} options.days_inactive - Days with no sales (default: 90)
+ * @param {string} options.action - 'flag' or 'unpublish' (default: 'flag')
+ * @param {string} options.tag_name - Tag to add if action=flag (default: 'Dead Product')
+ * @param {string} options.workflow_id - Optional workflow ID for tracking
+ * @returns {Promise<{dead_products_found: number, cleaned_count: number, results: Array}>}
+ */
+export async function runDeadProductCleanup({
+  days_inactive = 90,
+  action = 'flag',
+  tag_name = 'Dead Product',
+  workflow_id = null
+} = {}) {
+  const response = await invokeEdgeFunction('dead-product-cleanup', {
+    days_inactive,
+    action,
+    tag_name,
+    workflow_id,
+  });
+
+  return response.data || response;
+}
+
 // Export all functions as a functions object similar to base44.functions
 export const supabaseFunctions = {
   invoke: invokeEdgeFunction,
@@ -182,4 +208,5 @@ export const supabaseFunctions = {
   runInventoryProtection,
   runPriceGuardrail,
   runSEOFixer,
+  runDeadProductCleanup,
 };
