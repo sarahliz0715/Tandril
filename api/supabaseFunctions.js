@@ -104,6 +104,51 @@ export async function executeWorkflow(workflowId, actions, platformTargets) {
   return response.data || response;
 }
 
+/**
+ * Run Inventory Protection automation
+ * Auto-unpublishes products when inventory hits zero
+ * @param {object} options - Configuration options
+ * @param {number} options.threshold - Inventory threshold (default: 0)
+ * @param {string} options.action - 'unpublish' or 'preorder' (default: 'unpublish')
+ * @param {string} options.workflow_id - Optional workflow ID for tracking
+ * @returns {Promise<{protected_count: number, platforms_processed: number, results: Array}>}
+ */
+export async function runInventoryProtection({ threshold = 0, action = 'unpublish', workflow_id = null } = {}) {
+  const response = await invokeEdgeFunction('inventory-protection', {
+    threshold,
+    action,
+    workflow_id,
+  });
+
+  return response.data || response;
+}
+
+/**
+ * Run Price Guardrail automation
+ * Monitors margins and auto-adjusts or flags when margins drop too low
+ * @param {object} options - Configuration options
+ * @param {number} options.min_margin_percent - Minimum acceptable margin % (default: 30)
+ * @param {string} options.action - 'flag' or 'auto_adjust' (default: 'flag')
+ * @param {number} options.target_margin_percent - Target margin for auto-adjust (default: 35)
+ * @param {string} options.workflow_id - Optional workflow ID for tracking
+ * @returns {Promise<{low_margin_count: number, adjusted_count: number, results: Array}>}
+ */
+export async function runPriceGuardrail({
+  min_margin_percent = 30,
+  action = 'flag',
+  target_margin_percent = 35,
+  workflow_id = null
+} = {}) {
+  const response = await invokeEdgeFunction('price-guardrail', {
+    min_margin_percent,
+    action,
+    target_margin_percent,
+    workflow_id,
+  });
+
+  return response.data || response;
+}
+
 // Export all functions as a functions object similar to base44.functions
 export const supabaseFunctions = {
   invoke: invokeEdgeFunction,
@@ -111,4 +156,6 @@ export const supabaseFunctions = {
   interpretCommand,
   executeCommand,
   executeWorkflow,
+  runInventoryProtection,
+  runPriceGuardrail,
 };
