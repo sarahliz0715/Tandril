@@ -2,9 +2,9 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Clock, Zap, Star } from 'lucide-react';
+import { Clock, Zap, Star, Play } from 'lucide-react';
 
-export default function WorkflowTemplateCard({ template, onUse }) {
+export default function WorkflowTemplateCard({ template, onUse, onRun }) {
     if (!template || !template.workflow_data) {
         return null; // Don't render if template data is invalid
     }
@@ -63,13 +63,23 @@ export default function WorkflowTemplateCard({ template, onUse }) {
                             {actionCount} action{actionCount !== 1 ? 's' : ''}
                         </Badge>
                     </div>
-                    
-                    <Button 
-                        onClick={() => onUse(template)} 
-                        className="w-full"
-                    >
-                        Use This Template
-                    </Button>
+
+                    <div className="flex gap-2">
+                        <Button
+                            onClick={() => onRun(template)}
+                            variant="outline"
+                            className="flex-1"
+                        >
+                            <Play className="w-4 h-4 mr-2" />
+                            Run Now
+                        </Button>
+                        <Button
+                            onClick={() => onUse(template)}
+                            className="flex-1"
+                        >
+                            Use Template
+                        </Button>
+                    </div>
                 </div>
             </CardContent>
         </Card>

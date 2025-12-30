@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -34,7 +34,7 @@ export default function AutomationAnalytics() {
 
     const loadData = async () => {
         try {
-            const data = await base44.entities.Automation.list();
+            const data = await api.entities.Automation.list();
             setAutomations(data);
             
             const analyticsData = calculateAnalytics(data, dateRange);

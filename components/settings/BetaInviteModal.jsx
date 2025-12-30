@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Mail, CheckCircle } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { toast } from 'sonner';
 
 export default function BetaInviteModal({ isOpen, onClose }) {
@@ -21,7 +21,7 @@ export default function BetaInviteModal({ isOpen, onClose }) {
 
         setIsSending(true);
         try {
-            const response = await base44.functions.invoke('sendBetaInvite', { email });
+            const response = await api.functions.invoke('sendBetaInvite', { email });
             
             if (response.data.success) {
                 setInviteUrl(response.data.invite_url);

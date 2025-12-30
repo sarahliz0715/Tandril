@@ -7,7 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import {
   Menu, X, LogOut, Settings, LayoutDashboard, MessageSquare, Briefcase, Bot,
   TrendingUp, BarChart3, Package, Users, FileText, LifeBuoy,
-  DollarSign, Command, Repeat, ShoppingCart, History, GripVertical, CreditCard, Bell
+  DollarSign, Command, Repeat, ShoppingCart, History, GripVertical, CreditCard, Bell, AlertTriangle
 } from 'lucide-react';
 import TandrilLogo from '@/components/logos/TandrilLogo';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -26,6 +26,8 @@ import SupportModal from '@/components/support/SupportModal';
 const defaultNavigationItems = [
     { name: 'Dashboard', href: 'Dashboard', icon: LayoutDashboard, color: 'text-blue-600' },
     { name: 'AI Advisor', href: 'AIAdvisor', icon: Bot, color: 'text-purple-600' },
+    { name: 'P&L Dashboard', href: 'FinancialDashboard', icon: DollarSign, color: 'text-green-600' },
+    { name: 'Order Intelligence', href: 'OrderIntelligence', icon: AlertTriangle, color: 'text-red-600' },
     { name: 'Platforms', href: 'Platforms', icon: Briefcase, color: 'text-green-600' },
     { name: 'Commands', href: 'Commands', icon: Command, color: 'text-indigo-600' },
     { name: 'History', href: 'History', icon: History, color: 'text-slate-600' },
@@ -42,7 +44,9 @@ const defaultNavigationItems = [
 const betaNavigationItems = [
     { name: 'Dashboard', href: 'Dashboard', icon: LayoutDashboard, color: 'text-blue-600' },
     { name: 'AI Advisor', href: 'AIAdvisor', icon: Bot, color: 'text-purple-600' },
-    { name: 'My Shopify Store', href: 'Platforms', icon: Briefcase, color: 'text-green-600' },
+    { name: 'P&L Dashboard', href: 'FinancialDashboard', icon: DollarSign, color: 'text-green-600' },
+    { name: 'Order Intelligence', href: 'OrderIntelligence', icon: AlertTriangle, color: 'text-red-600' },
+    { name: 'My Shopify Store', href: 'Platforms', icon: Briefcase, color: 'text-teal-600' },
     { name: 'Commands', href: 'Commands', icon: Command, color: 'text-indigo-600' },
     { name: 'History', href: 'History', icon: History, color: 'text-slate-600' },
 ];

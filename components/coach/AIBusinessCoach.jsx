@@ -1,0 +1,535 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  GraduationCap,
+  TrendingUp,
+  AlertTriangle,
+  Send,
+  Loader2,
+  Sparkles,
+  Sun,
+  Target,
+  Shield,
+  MessageSquare,
+  RefreshCw,
+  CheckCircle,
+  ArrowRight,
+  DollarSign,
+  Zap
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { api } from '@/api/apiClient';
+
+export default function AIBusinessCoach() {
+  const [activeTab, setActiveTab] = useState('briefing');
+  const [briefing, setBriefing] = useState(null);
+  const [opportunities, setOpportunities] = useState([]);
+  const [risks, setRisks] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const chatEndRef = useRef(null);
+
+  useEffect(() => {
+    loadAll();
+  }, []);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
+
+  const loadAll = async () => {
+    setIsLoading(true);
+    try {
+      await Promise.all([loadBriefing(), loadOpportunities(), loadRisks()]);
+    } catch (error) {
+      console.error('Failed to load coach data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadBriefing = async () => {
+    try {
+      const data = await api.functions.invoke('daily-business-briefing', {});
+      setBriefing(data.data || data);
+    } catch (error) {
+      console.error('Failed to load briefing:', error);
+    }
+  };
+
+  const loadOpportunities = async () => {
+    try {
+      const data = await api.functions.invoke('growth-opportunity-detector', {});
+      setOpportunities(data.data?.opportunities || data.opportunities || []);
+    } catch (error) {
+      console.error('Failed to load opportunities:', error);
+    }
+  };
+
+  const loadRisks = async () => {
+    try {
+      const data = await api.functions.invoke('risk-alert-analyzer', {});
+      setRisks(data.data?.risks || data.risks || []);
+    } catch (error) {
+      console.error('Failed to load risks:', error);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!chatInput.trim()) return;
+
+    const userMessage = chatInput.trim();
+    setChatInput('');
+
+    // Add user message
+    setChatMessages([...chatMessages, { role: 'user', content: userMessage }]);
+    setIsChatLoading(true);
+
+    try {
+      // TODO: Call conversational AI endpoint
+      // For now, simulate response
+      setTimeout(() => {
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: `I understand you're asking about "${userMessage}". Let me analyze your store data to provide specific advice...
+
+Based on your current metrics, here's what I recommend:
+
+1. Focus on your top-performing products
+2. Consider running a promotion to boost sales
+3. Review your inventory levels
+
+Is there a specific area you'd like me to dive deeper into?`,
+          },
+        ]);
+        setIsChatLoading(false);
+      }, 1500);
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      toast.error('Failed to get response from AI coach');
+      setIsChatLoading(false);
+    }
+  };
+
+  const getPriorityColor = (priority) => {
+    switch (priority) {
+      case 'high':
+      case 'critical':
+        return 'bg-red-100 text-red-700 border-red-300';
+      case 'medium':
+        return 'bg-yellow-100 text-yellow-700 border-yellow-300';
+      case 'low':
+        return 'bg-blue-100 text-blue-700 border-blue-300';
+      default:
+        return 'bg-slate-100 text-slate-700 border-slate-300';
+    }
+  };
+
+  const getHighlightIcon = (type) => {
+    switch (type) {
+      case 'win':
+        return CheckCircle;
+      case 'alert':
+        return AlertTriangle;
+      case 'opportunity':
+        return Target;
+      case 'insight':
+        return Sparkles;
+      default:
+        return MessageSquare;
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <Card className="bg-gradient-to-r from-purple-600 to-blue-600 text-white border-0">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-3">
+            <GraduationCap className="w-8 h-8" />
+            <div>
+              <h2 className="text-2xl font-bold">Your AI Business Coach</h2>
+              <p className="text-purple-100 text-sm font-normal">
+                Personalized insights, growth strategies, and risk management
+              </p>
+            </div>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-2">
+            <Button variant="secondary" size="sm" onClick={loadAll} disabled={isLoading}>
+              <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+              Refresh All
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="briefing">
+            <Sun className="w-4 h-4 mr-2" />
+            Daily Briefing
+          </TabsTrigger>
+          <TabsTrigger value="opportunities">
+            <TrendingUp className="w-4 h-4 mr-2" />
+            Opportunities
+          </TabsTrigger>
+          <TabsTrigger value="risks">
+            <Shield className="w-4 h-4 mr-2" />
+            Risk Alerts
+          </TabsTrigger>
+          <TabsTrigger value="chat">
+            <MessageSquare className="w-4 h-4 mr-2" />
+            Ask Coach
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Daily Briefing Tab */}
+        <TabsContent value="briefing" className="space-y-4">
+          {briefing ? (
+            <>
+              {/* Greeting */}
+              <Card>
+                <CardContent className="pt-6">
+                  <p className="text-lg font-medium text-slate-900 mb-2">{briefing.greeting}</p>
+                  <p className="text-slate-600">{briefing.summary}</p>
+                </CardContent>
+              </Card>
+
+              {/* Quick Stats */}
+              {briefing.quick_stats && (
+                <div className="grid md:grid-cols-3 gap-4">
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-slate-500">Revenue (24h)</p>
+                          <p className="text-2xl font-bold text-slate-900">
+                            {briefing.quick_stats.revenue_24h}
+                          </p>
+                        </div>
+                        <DollarSign className="w-8 h-8 text-green-600" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-slate-500">Orders (24h)</p>
+                          <p className="text-2xl font-bold text-slate-900">
+                            {briefing.quick_stats.orders_24h}
+                          </p>
+                        </div>
+                        <Zap className="w-8 h-8 text-blue-600" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-slate-500">Trend</p>
+                          <p className="text-2xl font-bold text-slate-900 capitalize">
+                            {briefing.quick_stats.trend}
+                          </p>
+                        </div>
+                        <TrendingUp
+                          className={`w-8 h-8 ${
+                            briefing.quick_stats.trend === 'up'
+                              ? 'text-green-600'
+                              : briefing.quick_stats.trend === 'down'
+                              ? 'text-red-600'
+                              : 'text-slate-600'
+                          }`}
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Highlights */}
+              {briefing.highlights && briefing.highlights.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Today's Highlights</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {briefing.highlights.map((highlight, idx) => {
+                      const Icon = getHighlightIcon(highlight.type);
+                      return (
+                        <div
+                          key={idx}
+                          className={`p-4 rounded-lg border ${getPriorityColor(
+                            highlight.type === 'alert' ? 'high' : 'medium'
+                          )}`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <Icon className="w-5 h-5 mt-0.5" />
+                            <div className="flex-1">
+                              <p className="font-semibold mb-1">{highlight.title}</p>
+                              <p className="text-sm mb-2">{highlight.description}</p>
+                              {highlight.action && (
+                                <p className="text-sm font-medium">→ {highlight.action}</p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Daily Focus */}
+              {briefing.daily_focus && (
+                <Alert className="bg-purple-50 border-purple-200">
+                  <Target className="w-4 h-4" />
+                  <AlertTitle>Your Daily Focus</AlertTitle>
+                  <AlertDescription className="text-purple-900">
+                    {briefing.daily_focus}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* Motivation */}
+              {briefing.motivation && (
+                <Card className="bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200">
+                  <CardContent className="pt-6">
+                    <p className="text-center text-slate-700 italic">{briefing.motivation}</p>
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          ) : (
+            <Card>
+              <CardContent className="p-12">
+                <div className="flex flex-col items-center gap-4">
+                  <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
+                  <p className="text-slate-600">Generating your daily briefing...</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* Growth Opportunities Tab */}
+        <TabsContent value="opportunities" className="space-y-4">
+          {opportunities.length > 0 ? (
+            opportunities.map((opp, idx) => (
+              <Card key={idx} className="border-l-4 border-l-green-500">
+                <CardHeader>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <CardTitle className="text-base">{opp.title}</CardTitle>
+                        <Badge className={getPriorityColor(opp.priority)}>{opp.priority}</Badge>
+                      </div>
+                      <p className="text-sm text-slate-600">{opp.description}</p>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-600">Estimated Revenue Potential:</span>
+                      <span className="font-bold text-green-600">
+                        ${opp.estimated_revenue?.toLocaleString() || 0}/month
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-600">Effort Required:</span>
+                      <Badge variant="outline" className="capitalize">
+                        {opp.effort_required}
+                      </Badge>
+                    </div>
+                    <div className="p-3 rounded-lg bg-green-50 border border-green-200">
+                      <p className="text-sm font-medium text-green-900 mb-1">Recommended Action:</p>
+                      <p className="text-sm text-green-700">{opp.action}</p>
+                    </div>
+                    {opp.products_affected && opp.products_affected.length > 0 && (
+                      <p className="text-xs text-slate-500">
+                        Affects {opp.products_affected.length} products
+                      </p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          ) : (
+            <Card>
+              <CardContent className="p-12">
+                <div className="text-center">
+                  <TrendingUp className="w-12 h-12 mx-auto mb-3 text-slate-400" />
+                  <p className="text-slate-600">Analyzing your store for growth opportunities...</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* Risk Alerts Tab */}
+        <TabsContent value="risks" className="space-y-4">
+          {risks.length > 0 ? (
+            risks.map((risk, idx) => (
+              <Card key={idx} className={`border-l-4 ${
+                risk.severity === 'critical' || risk.severity === 'high'
+                  ? 'border-l-red-500'
+                  : risk.severity === 'medium'
+                  ? 'border-l-yellow-500'
+                  : 'border-l-blue-500'
+              }`}>
+                <CardHeader>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <AlertTriangle className="w-5 h-5 text-red-600" />
+                        <CardTitle className="text-base">{risk.title}</CardTitle>
+                        <Badge className={getPriorityColor(risk.severity)}>
+                          {risk.severity}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-slate-600">{risk.description}</p>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <Alert variant="destructive" className="bg-red-50">
+                      <AlertDescription className="text-sm">
+                        <span className="font-semibold">Potential Impact:</span> {risk.impact}
+                      </AlertDescription>
+                    </Alert>
+                    <div className="p-3 rounded-lg bg-blue-50 border border-blue-200">
+                      <p className="text-sm font-medium text-blue-900 mb-1">What To Do:</p>
+                      <p className="text-sm text-blue-700">{risk.action}</p>
+                    </div>
+                    {risk.timeframe && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-600">Act by:</span>
+                        <Badge variant="outline" className="capitalize text-xs">
+                          {risk.timeframe.replace('_', ' ')}
+                        </Badge>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          ) : (
+            <Card className="bg-green-50 border-green-200">
+              <CardContent className="p-12">
+                <div className="text-center">
+                  <CheckCircle className="w-12 h-12 mx-auto mb-3 text-green-600" />
+                  <p className="text-green-900 font-semibold mb-2">No Critical Risks Detected!</p>
+                  <p className="text-green-700 text-sm">
+                    Your store is looking healthy. Keep up the good work!
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* Chat Tab */}
+        <TabsContent value="chat" className="space-y-4">
+          <Card className="h-[600px] flex flex-col">
+            <CardHeader className="border-b">
+              <CardTitle className="text-base flex items-center gap-2">
+                <MessageSquare className="w-4 h-4" />
+                Ask Your AI Coach Anything
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex-1 overflow-y-auto p-4 space-y-4">
+              {chatMessages.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-center">
+                  <GraduationCap className="w-16 h-16 text-purple-400 mb-4" />
+                  <h3 className="text-lg font-semibold text-slate-900 mb-2">
+                    Your Personal Business Advisor
+                  </h3>
+                  <p className="text-sm text-slate-600 max-w-md">
+                    Ask me anything about your store, get strategic advice, or request analysis on
+                    specific products or campaigns.
+                  </p>
+                  <div className="mt-6 grid gap-2">
+                    <button
+                      className="text-sm text-left px-4 py-2 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-900 transition-colors"
+                      onClick={() => setChatInput('How can I increase my average order value?')}
+                    >
+                      💰 How can I increase my average order value?
+                    </button>
+                    <button
+                      className="text-sm text-left px-4 py-2 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-900 transition-colors"
+                      onClick={() => setChatInput('What products should I focus on promoting?')}
+                    >
+                      🎯 What products should I focus on promoting?
+                    </button>
+                    <button
+                      className="text-sm text-left px-4 py-2 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-900 transition-colors"
+                      onClick={() => setChatInput('Analyze my inventory levels')}
+                    >
+                      📦 Analyze my inventory levels
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {chatMessages.map((msg, idx) => (
+                    <div
+                      key={idx}
+                      className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div
+                        className={`max-w-[80%] rounded-lg px-4 py-3 ${
+                          msg.role === 'user'
+                            ? 'bg-purple-600 text-white'
+                            : 'bg-slate-100 text-slate-900'
+                        }`}
+                      >
+                        <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                      </div>
+                    </div>
+                  ))}
+                  {isChatLoading && (
+                    <div className="flex justify-start">
+                      <div className="bg-slate-100 rounded-lg px-4 py-3">
+                        <Loader2 className="w-4 h-4 animate-spin text-purple-600" />
+                      </div>
+                    </div>
+                  )}
+                  <div ref={chatEndRef} />
+                </>
+              )}
+            </CardContent>
+            <div className="border-t p-4">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Ask your AI coach anything..."
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && !isChatLoading && handleSendMessage()}
+                  disabled={isChatLoading}
+                />
+                <Button onClick={handleSendMessage} disabled={isChatLoading || !chatInput.trim()}>
+                  <Send className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}

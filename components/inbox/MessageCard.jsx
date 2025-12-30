@@ -15,7 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from 'sonner';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import AIResponseSuggestion from '../support/AIResponseSuggestion';
 
 const platformColors = {
@@ -78,7 +78,7 @@ export default function MessageCard({ message, onClick, isSelected = false, onRe
         setShowReplyModal(true);
         
         try {
-            const { data } = await base44.functions.invoke('generateAIResponse', {
+            const { data } = await api.functions.invoke('generateAIResponse', {
                 message: message.original_message,
                 context: {
                     response_id: message.id,
@@ -107,7 +107,7 @@ export default function MessageCard({ message, onClick, isSelected = false, onRe
         setIsSending(true);
         try {
             // Update message status to manually replied
-            await base44.entities.CustomerMessage.update(message.id, {
+            await api.entities.CustomerMessage.update(message.id, {
                 status: 'manually_replied'
             });
 

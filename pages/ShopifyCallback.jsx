@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, CheckCircle, XCircle, ShoppingCart } from 'lucide-react';
@@ -68,7 +68,7 @@ export default function ShopifyCallback() {
                 console.log('🔵 [ShopifyCallback] Calling handleShopifyCallback function...');
 
                 // Call the backend to exchange the code for access token
-                const response = await base44.functions.invoke('handleShopifyCallback', {
+                const response = await api.functions.invoke('handleShopifyCallback', {
                     code,
                     state,
                     shop

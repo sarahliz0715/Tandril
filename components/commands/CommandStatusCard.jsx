@@ -5,7 +5,11 @@ import { Loader2, Check, CornerDownRight } from 'lucide-react';
 import ExecutionProgress from './ExecutionProgress';
 
 export default function CommandStatusCard({ command }) {
-    const [actions, setActions] = useState(command.actions_planned.map(a => ({ ...a, status: 'pending' })));
+    const [actions, setActions] = useState(
+        (command.actions_planned && Array.isArray(command.actions_planned))
+            ? command.actions_planned.filter(a => a && typeof a === 'object').map(a => ({ ...a, status: 'pending' }))
+            : []
+    );
 
     useEffect(() => {
         const timer = setTimeout(() => {

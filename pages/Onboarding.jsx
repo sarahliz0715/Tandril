@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import BetaOnboardingFlow from '../components/onboarding/BetaOnboardingFlow';
 import { Loader2 } from 'lucide-react';
 
@@ -13,7 +13,7 @@ export default function Onboarding() {
     useEffect(() => {
         const checkUser = async () => {
             try {
-                const currentUser = await base44.auth.me();
+                const currentUser = await api.auth.me();
                 setUser(currentUser);
                 
                 // If onboarding is already completed, redirect to dashboard

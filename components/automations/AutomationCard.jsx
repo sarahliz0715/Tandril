@@ -10,7 +10,7 @@ import {
     Clock, TrendingUp, Zap, Loader2, Edit2 // Loader2 and Edit2 are new icons
 } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { base44 } from '@/api/base44Client'; // New import for API client
+import { api } from '@/api/apiClient'; // New import for API client
 
 export default function AutomationCard({ automation, onToggleActive, onEdit, onDelete, onViewDetails }) {
     const [isRunning, setIsRunning] = useState(false);
@@ -38,7 +38,7 @@ export default function AutomationCard({ automation, onToggleActive, onEdit, onD
         setIsRunning(true);
 
         try {
-            const response = await base44.functions.invoke('testAutomation', {
+            const response = await api.functions.invoke('testAutomation', {
                 automation_id: automation.id
             });
 

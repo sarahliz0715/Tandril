@@ -14,7 +14,7 @@ import {
     Activity,
     ChevronRight
 } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { toast } from 'sonner';
 
 export default function ExecutionMonitor({ automationId = null }) {
@@ -33,8 +33,8 @@ export default function ExecutionMonitor({ automationId = null }) {
     const loadExecutions = async () => {
         try {
             const automations = automationId 
-                ? [await base44.entities.Automation.get(automationId)]
-                : await base44.entities.Automation.list('-updated_date', 50);
+                ? [await api.entities.Automation.get(automationId)]
+                : await api.entities.Automation.list('-updated_date', 50);
 
             // Extract recent executions from all automations
             const allExecutions = [];

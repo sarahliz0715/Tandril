@@ -6,6 +6,8 @@ import Platforms from "./Platforms";
 
 import Commands from "./Commands";
 
+import CommandsMinimal from "./CommandsMinimal";
+
 import History from "./History";
 
 import Settings from "./Settings";
@@ -115,6 +117,10 @@ import CustomAlerts from "./CustomAlerts";
 import Login from "./Login";
 
 import Signup from "./Signup";
+
+import FinancialDashboard from "./FinancialDashboard";
+
+import OrderIntelligence from "./OrderIntelligence";
 
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 
@@ -235,6 +241,10 @@ const PAGES = {
     Login: Login,
 
     Signup: Signup,
+
+    FinancialDashboard: FinancialDashboard,
+
+    OrderIntelligence: OrderIntelligence,
 
 }
 
@@ -378,6 +388,10 @@ function PagesContent() {
                 <Route path="/Login" element={<Login />} />
 
                 <Route path="/Signup" element={<Signup />} />
+
+                <Route path="/FinancialDashboard" element={<FinancialDashboard />} />
+
+                <Route path="/OrderIntelligence" element={<OrderIntelligence />} />
 
             </Routes>
         </Layout>

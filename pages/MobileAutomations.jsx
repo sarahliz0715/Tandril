@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -31,7 +31,7 @@ export default function MobileAutomationsPage() {
     const loadAutomations = async () => {
         setIsLoading(true);
         try {
-            const data = await base44.entities.Automation.list('-updated_date');
+            const data = await api.entities.Automation.list('-updated_date');
             setAutomations(data);
         } catch (error) {
             console.error('Error loading automations:', error);
@@ -43,7 +43,7 @@ export default function MobileAutomationsPage() {
 
     const handleToggle = async (automation) => {
         try {
-            await base44.entities.Automation.update(automation.id, {
+            await api.entities.Automation.update(automation.id, {
                 is_active: !automation.is_active
             });
             
@@ -70,7 +70,7 @@ export default function MobileAutomationsPage() {
         if (!confirm('Delete this automation?')) return;
 
         try {
-            await base44.entities.Automation.delete(automation.id);
+            await api.entities.Automation.delete(automation.id);
             setAutomations(automations.filter(a => a.id !== automation.id));
             toast.success('Automation deleted');
         } catch (error) {

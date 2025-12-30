@@ -1,5 +1,5 @@
 // Supabase Entities
-// Database wrappers for accessing Supabase tables with a similar API to Base44 entities
+// Database wrappers for accessing Supabase tables
 
 import { supabase } from './supabaseClient';
 import { createMockEntities } from './mockData';

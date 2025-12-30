@@ -159,10 +159,10 @@ export default function Dashboard() {
 
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      const [alertsData, recommendationsData] = await Promise.all([
-          SmartAlert.list('-created_date', 20),
-          AIRecommendation.list('-created_date', 20)
-      ]);
+      // TEMPORARILY DISABLED - Testing if these mock entities cause Commands crash
+      // const alertsData = await SmartAlert.list('-created_date', 20);
+      const alertsData = []; // Empty - bypassing SmartAlert.list()
+      const recommendationsData = []; // Empty - bypassing AIRecommendation.list()
 
       await new Promise(resolve => setTimeout(resolve, 100));
 
@@ -181,7 +181,7 @@ export default function Dashboard() {
       setPlatforms(platformsData);
       setRecentCommands(commandsData);
       setAlerts(alertsData);
-      setRecommendations(recommendationsData);
+      setRecommendations((recommendationsData || []).filter(rec => rec && typeof rec === 'object'));
       setProducts(allProducts);
 
       const lastWeek = new Date();
@@ -658,7 +658,7 @@ export default function Dashboard() {
             <CardContent className="p-0">
               <div className="space-y-3 sm:space-y-4">
                 {recommendations.length > 0 ? (
-                  recommendations.slice(0, 3).map((rec, index) => (
+                  recommendations.filter(rec => rec && rec.title).slice(0, 3).map((rec, index) => (
                     <div key={rec.id || index} className="p-3 sm:p-4 rounded-lg bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 hover:from-indigo-100 hover:to-purple-100 transition-colors">
                       <div className="flex items-center gap-2 mb-2">
                         <Target className="w-4 h-4 text-indigo-600" />

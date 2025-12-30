@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Check, AlertCircle, Sparkles, Clock, Zap } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { toast } from 'sonner';
 
 export default function CreateFromTemplateModal({ template, isOpen, onClose, onSuccess }) {
@@ -22,14 +22,14 @@ export default function CreateFromTemplateModal({ template, isOpen, onClose, onS
         setIsCreating(true);
         try {
             // 1. Create the trigger
-            const trigger = await base44.entities.AutomationTrigger.create({
+            const trigger = await api.entities.AutomationTrigger.create({
                 ...template.trigger_template
             });
 
             // 2. Create all actions
             const createdActions = [];
             for (const actionTemplate of template.actions_template) {
-                const action = await base44.entities.AutomationAction.create({
+                const action = await api.entities.AutomationAction.create({
                     name: actionTemplate.name,
                     action_type: actionTemplate.action_type,
                     config: actionTemplate.config,
@@ -45,7 +45,7 @@ export default function CreateFromTemplateModal({ template, isOpen, onClose, onS
             }
 
             // 3. Create the automation
-            const automation = await base44.entities.Automation.create({
+            const automation = await api.entities.Automation.create({
                 name: automationName,
                 description: template.description,
                 icon: template.icon,
@@ -64,7 +64,7 @@ export default function CreateFromTemplateModal({ template, isOpen, onClose, onS
             });
 
             // 4. Update template use count
-            await base44.entities.AutomationTemplate.update(template.id, {
+            await api.entities.AutomationTemplate.update(template.id, {
                 use_count: (template.use_count || 0) + 1
             });
 

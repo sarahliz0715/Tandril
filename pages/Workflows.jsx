@@ -5,7 +5,7 @@ import { WorkflowTemplate } from '@/api/entities';
 import { User } from '@/api/entities';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -65,7 +65,7 @@ export default function Workflows() {
           console.error('Error fetching workflows:', err);
           return [];
         }),
-        WorkflowTemplate.filter({ is_featured: true }).catch(err => {
+        WorkflowTemplate.list().catch(err => {
           console.error('Error fetching templates:', err);
           return [];
         })
@@ -168,7 +168,7 @@ export default function Workflows() {
     toast.info("Starting workflow execution...");
     
     try {
-      const { data } = await base44.functions.invoke('executeWorkflow', {
+      const { data } = await api.functions.invoke('executeWorkflow', {
         workflow_id: workflow.id
       });
       
@@ -191,6 +191,80 @@ export default function Workflows() {
     }
   }, [navigate, loadData]);
 
+  // Handle run automation directly from template
+  const handleRunAutomation = useCallback(async (template) => {
+    toast.info("Running automation...");
+
+    try {
+      let result;
+
+      // Map template names to automation functions
+      if (template.name.includes('Inventory Sync') || template.name.includes('Stock Protection')) {
+        result = await api.functions.runInventoryProtection({
+          threshold: 0,
+          action: 'unpublish'
+        });
+
+        if (result.success || result.protected_count !== undefined) {
+          toast.success(`Protected ${result.protected_count || 0} products across ${result.platforms_processed || 0} stores`);
+          loadData();
+        }
+      } else if (template.name.includes('Price Monitor') || template.name.includes('Price Guardrail')) {
+        result = await api.functions.runPriceGuardrail({
+          min_margin_percent: 30,
+          action: 'flag',
+          target_margin_percent: 35
+        });
+
+        if (result.success || result.low_margin_count !== undefined) {
+          toast.success(`Checked margins - Found ${result.low_margin_count || 0} products below target`);
+          loadData();
+        }
+      } else if (template.name.includes('SEO') || template.name.includes('seo')) {
+        result = await api.functions.runSEOFixer({
+          mode: 'fix',
+          max_products: 50
+        });
+
+        if (result.success || result.fixed_count !== undefined) {
+          toast.success(`SEO Fixed: ${result.fixed_count || 0} products optimized (${result.analyzed_count || 0} analyzed)`);
+          loadData();
+        }
+      } else if (template.name.includes('Dead Product') || template.name.includes('Cleanup') || template.name.includes('Sales Report')) {
+        result = await api.functions.runDeadProductCleanup({
+          days_inactive: 90,
+          action: 'flag',
+          tag_name: 'Dead Product'
+        });
+
+        if (result.success || result.cleaned_count !== undefined) {
+          toast.success(`Cleanup complete: ${result.cleaned_count || 0} dead products flagged (${result.dead_products_found || 0} found)`);
+          loadData();
+        }
+      } else {
+        // For other templates, use the standard workflow execution
+        result = await api.functions.invoke('executeWorkflow', {
+          workflow_id: template.id
+        });
+
+        if (result.success) {
+          toast.success("Automation completed successfully");
+          loadData();
+        }
+      }
+    } catch (error) {
+      console.error('Failed to run automation:', error);
+
+      if (handleAuthError(error, navigate)) {
+        return;
+      }
+
+      toast.error("Failed to run automation", {
+        description: error.message
+      });
+    }
+  }, [navigate, loadData]);
+
   // Handle create from template
   const handleUseTemplate = useCallback(async (template) => {
     try {
@@ -199,18 +273,18 @@ export default function Workflows() {
         name: `${template.name} (Copy)`,
         is_active: false
       };
-      
+
       await AIWorkflow.create(workflowData);
       toast.success("Workflow created from template!");
       loadData();
       setActiveTab('active');
     } catch (error) {
       console.error('Failed to create workflow from template:', error);
-      
+
       if (handleAuthError(error, navigate)) {
         return;
       }
-      
+
       toast.error("Failed to create workflow", {
         description: "Please try again."
       });
@@ -325,6 +399,7 @@ export default function Workflows() {
                   key={template.id}
                   template={template}
                   onUse={handleUseTemplate}
+                  onRun={handleRunAutomation}
                 />
               ))}
             </div>

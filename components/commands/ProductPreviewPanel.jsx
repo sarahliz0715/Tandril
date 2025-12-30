@@ -114,31 +114,31 @@ export default function ProductPreviewPanel() {
                     </div>
                 ) : (
                     <div className="space-y-3">
-                        {products.map((product) => (
+                        {products.filter(product => product && typeof product === 'object').map((product) => (
                             <Collapsible key={product.id} open={expandedProducts.has(product.id)} onOpenChange={() => toggleExpanded(product.id)}>
                                 <CollapsibleTrigger asChild>
-                                    <div 
+                                    <div
                                         className="flex items-center justify-between p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer"
                                         // onClick is handled by CollapsibleTrigger's onOpenChange, removed explicit onClick
                                     >
                                         <div className="flex items-center gap-3">
-                                            {expandedProducts.has(product.id) ? 
-                                                <ChevronDown className="w-4 h-4 text-slate-400" /> : 
+                                            {expandedProducts.has(product.id) ?
+                                                <ChevronDown className="w-4 h-4 text-slate-400" /> :
                                                 <ChevronRight className="w-4 h-4 text-slate-400" />
                                             }
                                             {product.images?.[0] && ( // Added optional chaining for images
-                                                <img 
+                                                <img
                                                     src={product.images[0].src} // Assuming image object has a 'src' property
-                                                    alt={product.title}
+                                                    alt={product.title || 'Product'}
                                                     className="w-8 h-8 object-cover rounded"
                                                 />
                                             )}
                                             <div>
-                                                <p className="font-medium text-sm">{product.title}</p>
+                                                <p className="font-medium text-sm">{product.title || 'Untitled Product'}</p>
                                                 <p className="text-xs text-slate-500">${product.variants?.[0]?.price || 'N/A'}</p> {/* Added optional chaining and N/A */}
                                             </div>
                                         </div>
-                                        <Badge 
+                                        <Badge
                                             variant={product.status === 'active' ? 'default' : 'secondary'}
                                             className="text-xs"
                                         >

@@ -26,7 +26,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import CommandConfirmation from '../components/commands/CommandConfirmation';
 import ExecutionProgress from '../components/commands/ExecutionProgress';
 import SavedCommandsPanel from '../components/commands/SavedCommandsPanel';
@@ -44,8 +44,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
+import CommandsErrorBoundary from '../components/common/CommandsErrorBoundary';
 
-export default function Commands() {
+function CommandsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [commandText, setCommandText] = useState('');
@@ -103,8 +104,8 @@ export default function Commands() {
   const loadData = async () => {
     try {
       const [user, platformsData] = await Promise.all([
-        base44.auth.me(),
-        base44.entities.Platform.list()
+        api.auth.me(),
+        api.entities.Platform.list()
       ]);
 
       setCurrentUser(user);
@@ -142,7 +143,7 @@ export default function Commands() {
     setIsProcessing(true);
 
     try {
-      const { data: interpretation } = await base44.functions.invoke('interpretCommand', {
+      const { data: interpretation } = await api.functions.invoke('interpretCommand', {
         command_text: commandText,
         platform_targets: getSelectedPlatformObjects().map(p => p.name),
         file_urls: attachments
@@ -154,7 +155,7 @@ export default function Commands() {
         return;
       }
 
-      const command = await base44.entities.AICommand.create({
+      const command = await api.entities.AICommand.create({
         command_text: commandText,
         platform_targets: getSelectedPlatformObjects().map(p => p.name),
         actions_planned: interpretation.actions || [],
@@ -175,7 +176,7 @@ export default function Commands() {
   const pollCommandStatus = async (commandId) => {
     const pollInterval = setInterval(async () => {
       try {
-        const updated = await base44.entities.AICommand.get(commandId);
+        const updated = await api.entities.AICommand.get(commandId);
         setCurrentCommand(sanitizeCommand(updated));
 
         if (updated.status === 'completed' || updated.status === 'failed') {
@@ -202,7 +203,7 @@ export default function Commands() {
 
     if (confirmed) {
       try {
-        await base44.entities.AICommand.update(currentCommand.id, {
+        await api.entities.AICommand.update(currentCommand.id, {
           status: 'failed',
           results: { error: 'Cancelled by user' }
         });
@@ -234,7 +235,7 @@ export default function Commands() {
 
     try {
       const uploadPromises = files.map(async (file) => {
-        const { data } = await base44.functions.invoke('uploadFile', { file });
+        const { data } = await api.functions.invoke('uploadFile', { file });
         return data.file_url;
       });
 
@@ -257,7 +258,7 @@ export default function Commands() {
     if (!currentCommand) return;
 
     try {
-      const trigger = await base44.entities.AutomationTrigger.create({
+      const trigger = await api.entities.AutomationTrigger.create({
         name: `Auto: ${commandText.substring(0, 50)}`,
         trigger_type: 'schedule',
         schedule_config: {
@@ -268,9 +269,12 @@ export default function Commands() {
       });
 
       const actions = [];
-      for (let i = 0; i < currentCommand.actions_planned.length; i++) {
-        const plannedAction = currentCommand.actions_planned[i];
-        const action = await base44.entities.AutomationAction.create({
+      const validActions = (currentCommand.actions_planned && Array.isArray(currentCommand.actions_planned))
+        ? currentCommand.actions_planned.filter(a => a && typeof a === 'object')
+        : [];
+      for (let i = 0; i < validActions.length; i++) {
+        const plannedAction = validActions[i];
+        const action = await api.entities.AutomationAction.create({
           name: (plannedAction && plannedAction.title) ? plannedAction.title : `Action ${i + 1}`,
           action_type: 'run_ai_command',
           config: {
@@ -285,7 +289,7 @@ export default function Commands() {
         });
       }
 
-      const automation = await base44.entities.Automation.create({
+      const automation = await api.entities.Automation.create({
         name: `Command: ${commandText.substring(0, 50)}`,
         description: `Automatically runs: ${commandText}`,
         icon: 'Bot',
@@ -481,16 +485,32 @@ export default function Commands() {
         </div>
 
         <div className="lg:col-span-1">
-          <SavedCommandsPanel onUseCommand={handleUseSavedCommand} />
+          {/* TEMPORARILY DISABLED - Testing if this causes crash */}
+          {/* <SavedCommandsPanel onUseCommand={handleUseSavedCommand} /> */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Saved Commands</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-slate-600">Temporarily disabled for testing</p>
+            </CardContent>
+          </Card>
         </div>
       </div>
 
       <ConfirmDialog
         isOpen={isOpen}
-        onConfirm={confirm}
+        config={config}
         onCancel={cancel}
-        {...config}
       />
     </div>
+  );
+}
+
+export default function Commands() {
+  return (
+    <CommandsErrorBoundary>
+      <CommandsPage />
+    </CommandsErrorBoundary>
   );
 }

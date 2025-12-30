@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { Loader2, AlertCircle, CheckCircle, Home } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -53,7 +53,7 @@ export default function EbayCallback() {
                     setMessage('Processing authorization...');
                 }
 
-                const response = await base44.functions.invoke('handleEbayCallback', {
+                const response = await api.functions.invoke('handleEbayCallback', {
                     code,
                     state
                 });

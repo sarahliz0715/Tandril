@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { BusinessStrategy } from '@/api/entities';
 import { User } from '@/api/entities';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -101,7 +101,7 @@ export default function MasterStrategist() {
     setIsGenerating(true);
     try {
       // Call AI function to generate comprehensive strategy
-      const response = await base44.functions.invoke('masterStrategist', {
+      const response = await api.functions.invoke('masterStrategist', {
         goal: {
           target_revenue: parseFloat(newStrategy.target_revenue),
           timeframe_months: parseInt(newStrategy.timeframe_months),

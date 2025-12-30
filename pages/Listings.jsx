@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { InventoryItem } from '@/api/entities';
 import { Platform } from '@/api/entities';
 import { User } from '@/api/entities';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -198,7 +198,7 @@ export default function Listings() {
             const prompt = `Generate an optimized product listing for ${item.product_name} to be published on ${targetPlatforms.join(', ')}. 
                 Include compelling title, detailed description, relevant tags, and pricing recommendations.`;
 
-            const response = await base44.functions.invoke('interpretCommand', {
+            const response = await api.functions.invoke('interpretCommand', {
                 command_text: prompt,
                 context: { item, platforms: targetPlatforms }
             });
@@ -272,7 +272,7 @@ export default function Listings() {
                         }).join(', ')
                     }`;
 
-                    const response = await base44.functions.invoke('interpretCommand', {
+                    const response = await api.functions.invoke('interpretCommand', {
                         command_text: prompt
                     });
 

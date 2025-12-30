@@ -21,7 +21,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import InventoryTable from '../components/inventory/InventoryTable';
 import InventoryItemFormModal from '../components/inventory/InventoryItemFormModal';
 import SmartInventoryActions from '../components/inventory/SmartInventoryActions';
@@ -49,8 +49,8 @@ export default function Inventory() {
     setIsLoading(true);
     try {
       const [user, items] = await Promise.all([
-        base44.auth.me(),
-        base44.entities.InventoryItem.list('-updated_date')
+        api.auth.me(),
+        api.entities.InventoryItem.list('-updated_date')
       ]);
       
       setCurrentUser(user);
@@ -79,7 +79,7 @@ export default function Inventory() {
       if (lowStockItems.length > 0) {
         for (const item of lowStockItems) {
           try {
-            await base44.functions.invoke('evaluateTriggers', {
+            await api.functions.invoke('evaluateTriggers', {
               trigger_type: 'inventory_low',
               trigger_data: {
                 product_name: item.product_name,
@@ -98,7 +98,7 @@ export default function Inventory() {
       if (outOfStockItems.length > 0) {
         for (const item of outOfStockItems) {
           try {
-            await base44.functions.invoke('evaluateTriggers', {
+            await api.functions.invoke('evaluateTriggers', {
               trigger_type: 'inventory_out_of_stock',
               trigger_data: {
                 product_name: item.product_name,
@@ -146,10 +146,10 @@ export default function Inventory() {
   const handleSaveItem = async (itemData) => {
     try {
       if (editingItem) {
-        await base44.entities.InventoryItem.update(editingItem.id, itemData);
+        await api.entities.InventoryItem.update(editingItem.id, itemData);
         toast.success('Item updated successfully');
       } else {
-        await base44.entities.InventoryItem.create(itemData);
+        await api.entities.InventoryItem.create(itemData);
         toast.success('Item added successfully');
       }
       loadInventory();
@@ -176,7 +176,7 @@ export default function Inventory() {
 
     if (confirmed) {
       try {
-        await base44.entities.InventoryItem.delete(item.id);
+        await api.entities.InventoryItem.delete(item.id);
         toast.success('Item deleted');
         loadInventory();
       } catch (error) {

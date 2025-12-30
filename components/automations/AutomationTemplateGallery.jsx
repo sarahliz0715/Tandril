@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -60,7 +60,7 @@ export default function AutomationTemplateGallery({ onSelectTemplate }) {
 
     const loadTemplates = async () => {
         try {
-            const data = await base44.entities.AutomationTemplate.list('-is_featured');
+            const data = await api.entities.AutomationTemplate.list('-is_featured');
             setTemplates(data);
         } catch (error) {
             console.error('Error loading templates:', error);
@@ -94,7 +94,7 @@ export default function AutomationTemplateGallery({ onSelectTemplate }) {
 
     const handleUseTemplate = async (template) => {
         try {
-            await base44.entities.AutomationTemplate.update(template.id, {
+            await api.entities.AutomationTemplate.update(template.id, {
                 use_count: (template.use_count || 0) + 1
             });
 

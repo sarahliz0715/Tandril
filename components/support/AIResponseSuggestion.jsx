@@ -17,7 +17,7 @@ import {
     Lightbulb
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 
 export default function AIResponseSuggestion({ 
     suggestion, 
@@ -38,7 +38,7 @@ export default function AIResponseSuggestion({
     const handleFeedback = async (feedbackType) => {
         setIsSaving(true);
         try {
-            await base44.functions.invoke('saveResponseFeedback', {
+            await api.functions.invoke('saveResponseFeedback', {
                 response_id: context.response_id,
                 response_type: context.response_type,
                 feedback_type: feedbackType,
@@ -81,7 +81,7 @@ export default function AIResponseSuggestion({
         setIsSaving(true);
         try {
             // Save positive feedback since they're using it
-            await base44.functions.invoke('saveResponseFeedback', {
+            await api.functions.invoke('saveResponseFeedback', {
                 response_id: context.response_id,
                 response_type: context.response_type,
                 feedback_type: 'thumbs_up',

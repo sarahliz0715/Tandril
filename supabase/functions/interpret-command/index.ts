@@ -87,16 +87,13 @@ async function interpretCommandWithAI(
   platformTargets: string[],
   fileUrls: string[] = []
 ): Promise<any> {
-  const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
   const anthropicApiKey = Deno.env.get('ANTHROPIC_API_KEY');
 
-  // Prefer Anthropic Claude, fallback to OpenAI
   if (anthropicApiKey) {
     return await interpretWithClaude(commandText, platformTargets, fileUrls, anthropicApiKey);
-  } else if (openaiApiKey) {
-    return await interpretWithOpenAI(commandText, platformTargets, fileUrls, openaiApiKey);
   } else {
     // Fallback to rule-based interpretation if no AI API key is configured
+    console.warn('[Interpret Command] No ANTHROPIC_API_KEY found, using rule-based fallback');
     return ruleBasedInterpretation(commandText, platformTargets);
   }
 }
@@ -169,52 +166,6 @@ Be specific with your actions and parameters. If you're unsure about something, 
   const jsonText = jsonMatch ? jsonMatch[1] : contentText;
 
   return JSON.parse(jsonText);
-}
-
-async function interpretWithOpenAI(
-  commandText: string,
-  platformTargets: string[],
-  fileUrls: string[],
-  apiKey: string
-): Promise<any> {
-  const systemPrompt = `You are an AI assistant that interprets e-commerce management commands and converts them into structured actions. Respond only with valid JSON in this format:
-
-{
-  "actions": [
-    {
-      "type": "update_products" | "get_products" | "update_inventory" | "apply_discount" | etc,
-      "description": "Human-readable description",
-      "parameters": {},
-      "requires_confirmation": true | false
-    }
-  ],
-  "confidence_score": 0.0 to 1.0,
-  "warnings": [],
-  "estimated_impact": "Description of changes"
-}`;
-
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: 'gpt-4-turbo-preview',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Command: "${commandText}"\nPlatforms: ${platformTargets.join(', ')}` },
-      ],
-      response_format: { type: 'json_object' },
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`OpenAI API error: ${await response.text()}`);
-  }
-
-  const result = await response.json();
-  return JSON.parse(result.choices[0].message.content);
 }
 
 function ruleBasedInterpretation(commandText: string, platformTargets: string[]): any {

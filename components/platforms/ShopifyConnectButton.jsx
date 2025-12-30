@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { toast } from 'sonner';
 import { Loader2, ShoppingCart, AlertCircle, ExternalLink } from 'lucide-react';
 
@@ -26,7 +26,7 @@ export default function ShopifyConnectButton({ onConnectionSuccess }) {
         try {
             console.log('🔵 [Shopify] Starting connection for store:', storeName.trim());
 
-            const response = await base44.functions.invoke('shopify-auth-init', {
+            const response = await api.functions.invoke('shopify-auth-init', {
                 store_name: storeName.trim().replace('.myshopify.com', '')
             });
 
@@ -39,7 +39,7 @@ export default function ShopifyConnectButton({ onConnectionSuccess }) {
 
                 setErrorDetails({
                     message: "Shopify connection is not available in demo mode",
-                    details: "This is a demo/preview environment. Platform connections require authentication.\n\nTo enable platform connections:\n1. Deploy with Base44 authentication enabled\n2. Set VITE_STANDALONE_MODE=false in your environment variables\n3. Configure your Shopify API credentials"
+                    details: "This is a demo/preview environment. Platform connections require authentication.\n\nTo enable platform connections:\n1. Deploy with Supabase authentication enabled\n2. Set VITE_STANDALONE_MODE=false in your environment variables\n3. Configure your Shopify API credentials"
                 });
                 toast.error("Demo Mode Active", {
                     description: "Platform connections are not available in demo mode"

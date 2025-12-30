@@ -18,7 +18,7 @@ import {
     Copy
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 
 export default function TestingSandbox({ automation }) {
     const [testData, setTestData] = useState('{\n  "product_name": "Test Product",\n  "total_stock": 5,\n  "sku": "TEST-123",\n  "order_total": 599.99\n}');
@@ -43,7 +43,7 @@ export default function TestingSandbox({ automation }) {
             console.log('[Test] Running automation with test data:', triggerData);
 
             // Execute automation in test mode
-            const { data } = await base44.functions.invoke('executeAutomation', {
+            const { data } = await api.functions.invoke('executeAutomation', {
                 automation_id: automation.id,
                 trigger_data: triggerData,
                 test_mode: true

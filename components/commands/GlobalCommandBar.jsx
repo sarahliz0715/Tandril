@@ -155,11 +155,14 @@ export default function GlobalCommandBar({ open, onOpenChange }) {
                 } else {
                     // Simulation if no connected platform
                     setTimeout(async () => {
-                        const finalCommand = { 
-                            ...newCommand, 
-                            status: 'completed', 
-                            execution_time: (Math.random() * 3 + 1).toFixed(1), 
-                            results: { success_count: command.actions_planned.length, failure_count: 0 },
+                        const actionsCount = (command.actions_planned && Array.isArray(command.actions_planned))
+                            ? command.actions_planned.filter(a => a && typeof a === 'object').length
+                            : 0;
+                        const finalCommand = {
+                            ...newCommand,
+                            status: 'completed',
+                            execution_time: (Math.random() * 3 + 1).toFixed(1),
+                            results: { success_count: actionsCount, failure_count: 0 },
                             real_execution: false
                         };
                         await AICommand.update(newCommand.id, finalCommand);
@@ -168,11 +171,14 @@ export default function GlobalCommandBar({ open, onOpenChange }) {
                     }, 3000);
                 }
             } catch (execError) {
-                const failedCommand = { 
-                    ...newCommand, 
-                    status: 'failed', 
-                    execution_time: 0, 
-                    results: { success_count: 0, failure_count: command.actions_planned.length },
+                const actionsCount = (command.actions_planned && Array.isArray(command.actions_planned))
+                    ? command.actions_planned.filter(a => a && typeof a === 'object').length
+                    : 0;
+                const failedCommand = {
+                    ...newCommand,
+                    status: 'failed',
+                    execution_time: 0,
+                    results: { success_count: 0, failure_count: actionsCount },
                     error: execError.message
                 };
                 await AICommand.update(newCommand.id, failedCommand);
