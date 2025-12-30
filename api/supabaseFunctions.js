@@ -409,6 +409,17 @@ export async function chatWithCoach({
   return response.data || response;
 }
 
+// Onboarding Functions
+export async function analyzeStoreForOnboarding({
+  platform_id
+} = {}) {
+  const response = await invokeEdgeFunction('onboarding-store-analyzer', {
+    platform_id,
+  });
+
+  return response.data || response;
+}
+
 // Export all functions as a unified functions object
 export const supabaseFunctions = {
   invoke: invokeEdgeFunction,
@@ -434,4 +445,5 @@ export const supabaseFunctions = {
   detectGrowthOpportunities,
   analyzeRisks,
   chatWithCoach,
+  analyzeStoreForOnboarding,
 };
