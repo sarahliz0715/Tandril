@@ -327,6 +327,53 @@ export async function undoCommand(command_id) {
   return response.data || response;
 }
 
+// Smart Automation Trigger Functions
+export async function evaluateSmartTrigger({
+  automation_id,
+  trigger_type,
+  context = {}
+} = {}) {
+  const response = await invokeEdgeFunction('smart-trigger-evaluator', {
+    automation_id,
+    trigger_type,
+    context,
+  });
+
+  return response.data || response;
+}
+
+export async function intelligentScheduler({
+  mode = 'analyze'
+} = {}) {
+  const response = await invokeEdgeFunction('intelligent-scheduler', {
+    mode,
+  });
+
+  return response.data || response;
+}
+
+export async function trackAutomationPerformance({
+  automation_id,
+  success_rate,
+  execution_time_ms,
+  items_affected,
+  errors_encountered = [],
+  metrics = {},
+  trigger_context = {}
+} = {}) {
+  const response = await invokeEdgeFunction('track-automation-performance', {
+    automation_id,
+    success_rate,
+    execution_time_ms,
+    items_affected,
+    errors_encountered,
+    metrics,
+    trigger_context,
+  });
+
+  return response.data || response;
+}
+
 // Export all functions as a unified functions object
 export const supabaseFunctions = {
   invoke: invokeEdgeFunction,
@@ -345,4 +392,7 @@ export const supabaseFunctions = {
   enhancedInterpretCommand,
   enhancedExecuteCommand,
   undoCommand,
+  evaluateSmartTrigger,
+  intelligentScheduler,
+  trackAutomationPerformance,
 };
