@@ -213,15 +213,64 @@ async function calculatePlatformPnL(
   let platformFees = 0;
   let refunds = 0;
   const productIds = new Set<number>();
+  const variantCostMap = new Map<number, number>(); // Cache variant costs
+
+  // Collect all unique variant IDs from orders
+  const variantIds = new Set<number>();
+  for (const order of orders) {
+    for (const lineItem of order.line_items || []) {
+      if (lineItem.variant_id) {
+        variantIds.add(lineItem.variant_id);
+      }
+    }
+  }
+
+  console.log(`[P&L Calculator] Fetching costs for ${variantIds.size} unique variants`);
+
+  // Fetch costs for all variants (batch process to avoid rate limits)
+  const variantIdArray = Array.from(variantIds);
+  const batchSize = 50;
+
+  for (let i = 0; i < variantIdArray.length; i += batchSize) {
+    const batchIds = variantIdArray.slice(i, i + batchSize);
+
+    for (const variantId of batchIds) {
+      try {
+        // Fetch variant to get inventory_item_id
+        const variantResponse = await shopifyRequest(
+          platform,
+          `variants/${variantId}.json`
+        );
+        const variant = variantResponse.variant;
+
+        if (variant?.inventory_item_id) {
+          // Fetch inventory item to get cost
+          const inventoryResponse = await shopifyRequest(
+            platform,
+            `inventory_items/${variant.inventory_item_id}.json`
+          );
+          const cost = parseFloat(inventoryResponse.inventory_item?.cost || '0');
+          variantCostMap.set(variantId, cost);
+
+          console.log(`[P&L Calculator] Variant ${variantId}: cost = $${cost}`);
+        }
+      } catch (error) {
+        console.error(`[P&L Calculator] Failed to fetch cost for variant ${variantId}:`, error.message);
+        variantCostMap.set(variantId, 0); // Default to 0 if fetch fails
+      }
+    }
+
+    // Small delay between batches to respect rate limits (2 calls per second)
+    if (i + batchSize < variantIdArray.length) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
 
   // Process each order
   for (const order of orders) {
     // Revenue = total price (includes shipping, taxes, etc)
     const orderTotal = parseFloat(order.total_price || '0');
     revenue += orderTotal;
-
-    // Shipping charged to customer (part of revenue, tracked separately for analysis)
-    const shippingPrice = parseFloat(order.total_shipping_price_set?.shop_money?.amount || '0');
 
     // Transaction fees (payment gateway fees)
     // Shopify's transaction fees vary by plan, default to 2.9% + $0.30 for basic
@@ -234,16 +283,17 @@ async function calculatePlatformPnL(
         productIds.add(lineItem.product_id);
       }
 
-      // Quantity ordered
+      // Calculate COGS using fetched costs
       const quantity = lineItem.quantity || 1;
+      const variantId = lineItem.variant_id;
 
-      // Try to get cost from variant
-      // Note: Shopify doesn't include cost in order API, need to fetch separately
-      // For MVP, we'll estimate or mark as 0 if not available
-      // In production, you'd fetch inventory_item.cost for each variant
+      if (variantId && variantCostMap.has(variantId)) {
+        const cost = variantCostMap.get(variantId) || 0;
+        const lineItemCogs = cost * quantity;
+        cogs += lineItemCogs;
 
-      // Track that we need COGS data
-      // For now, COGS will be 0 unless we enhance this later
+        console.log(`[P&L Calculator] Order ${order.order_number}: ${lineItem.name} x${quantity} @ $${cost} = $${lineItemCogs} COGS`);
+      }
     }
 
     // Check for refunds
@@ -258,25 +308,25 @@ async function calculatePlatformPnL(
     }
   }
 
-  // TODO: Fetch actual COGS by getting inventory_items for all products
-  // For MVP, this requires additional API calls per product which is slow
-  // Better approach: Store COGS in our database when products sync
-
   // Shipping costs (what we pay to ship, not what customer pays)
   // This requires integration with shipping providers or manual input
-  // For MVP, estimate as 50% of customer shipping charges as rough approximation
-  const estimatedShippingCost = 0; // Set to 0 for now, will add proper tracking later
+  // For MVP, set to 0 - will add proper tracking later
+  const estimatedShippingCost = 0;
+
+  const needsCogsData = cogs === 0 && orders.length > 0 && variantIds.size > 0;
+
+  console.log(`[P&L Calculator] Platform totals - Revenue: $${revenue}, COGS: $${cogs}, Fees: $${platformFees}, Refunds: $${refunds}`);
 
   return {
     revenue,
-    cogs, // Currently 0, needs product cost data
+    cogs,
     shipping_costs: estimatedShippingCost,
     platform_fees: platformFees,
     ad_spend: 0, // Requires Meta/Google Ads API integration
     refunds,
     total_orders: orders.length,
     unique_products: productIds.size,
-    needs_cogs_data: cogs === 0 && orders.length > 0, // Flag to indicate COGS missing
+    needs_cogs_data: needsCogsData,
   };
 }
 
