@@ -149,6 +149,29 @@ export async function runPriceGuardrail({
   return response.data || response;
 }
 
+/**
+ * Run SEO Fixer automation
+ * AI-powered SEO optimization for product titles, descriptions, and alt text
+ * @param {object} options - Configuration options
+ * @param {string} options.mode - 'analyze' or 'fix' (default: 'analyze')
+ * @param {number} options.max_products - Maximum products to process (default: 50)
+ * @param {string} options.workflow_id - Optional workflow ID for tracking
+ * @returns {Promise<{analyzed_count: number, fixed_count: number, results: Array}>}
+ */
+export async function runSEOFixer({
+  mode = 'analyze',
+  max_products = 50,
+  workflow_id = null
+} = {}) {
+  const response = await invokeEdgeFunction('seo-fixer', {
+    mode,
+    max_products,
+    workflow_id,
+  });
+
+  return response.data || response;
+}
+
 // Export all functions as a functions object similar to base44.functions
 export const supabaseFunctions = {
   invoke: invokeEdgeFunction,
@@ -158,4 +181,5 @@ export const supabaseFunctions = {
   executeWorkflow,
   runInventoryProtection,
   runPriceGuardrail,
+  runSEOFixer,
 };

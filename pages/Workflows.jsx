@@ -220,6 +220,16 @@ export default function Workflows() {
           toast.success(`Checked margins - Found ${result.low_margin_count || 0} products below target`);
           loadData();
         }
+      } else if (template.name.includes('SEO') || template.name.includes('seo')) {
+        result = await base44.functions.runSEOFixer({
+          mode: 'fix',
+          max_products: 50
+        });
+
+        if (result.success || result.fixed_count !== undefined) {
+          toast.success(`SEO Fixed: ${result.fixed_count || 0} products optimized (${result.analyzed_count || 0} analyzed)`);
+          loadData();
+        }
       } else {
         // For other templates, use the standard workflow execution
         result = await base44.functions.invoke('executeWorkflow', {
