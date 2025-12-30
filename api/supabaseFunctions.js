@@ -221,6 +221,28 @@ export async function calculatePnL({
   return response.data || response;
 }
 
+/**
+ * Monitor orders for fulfillment issues, stuck orders, and returns
+ * @param {object} options - Configuration options
+ * @param {number} options.stuck_days - Days unfulfilled before flagged as stuck (default: 3)
+ * @param {number} options.lookback_days - Days to look back for orders (default: 30)
+ * @param {boolean} options.include_returns - Include return/refund analysis (default: true)
+ * @returns {Promise<{stuck_orders: Array, fulfillment_summary: object, returns_summary: object}>}
+ */
+export async function monitorOrders({
+  stuck_days = 3,
+  lookback_days = 30,
+  include_returns = true
+} = {}) {
+  const response = await invokeEdgeFunction('order-monitor', {
+    stuck_days,
+    lookback_days,
+    include_returns,
+  });
+
+  return response.data || response;
+}
+
 // Export all functions as a functions object similar to base44.functions
 export const supabaseFunctions = {
   invoke: invokeEdgeFunction,
@@ -233,4 +255,5 @@ export const supabaseFunctions = {
   runSEOFixer,
   runDeadProductCleanup,
   calculatePnL,
+  monitorOrders,
 };
