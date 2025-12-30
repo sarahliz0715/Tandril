@@ -74,7 +74,7 @@ export default function Home() {
             return;
         }
 
-        // Otherwise, use the existing flow (mock or Base44)
+        // Otherwise, use the existing authentication flow
         try {
             const isAuth = await api.auth.isAuthenticated();
             if (isAuth) {

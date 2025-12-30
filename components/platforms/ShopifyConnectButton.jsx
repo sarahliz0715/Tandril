@@ -39,7 +39,7 @@ export default function ShopifyConnectButton({ onConnectionSuccess }) {
 
                 setErrorDetails({
                     message: "Shopify connection is not available in demo mode",
-                    details: "This is a demo/preview environment. Platform connections require authentication.\n\nTo enable platform connections:\n1. Deploy with Base44 authentication enabled\n2. Set VITE_STANDALONE_MODE=false in your environment variables\n3. Configure your Shopify API credentials"
+                    details: "This is a demo/preview environment. Platform connections require authentication.\n\nTo enable platform connections:\n1. Deploy with Supabase authentication enabled\n2. Set VITE_STANDALONE_MODE=false in your environment variables\n3. Configure your Shopify API credentials"
                 });
                 toast.error("Demo Mode Active", {
                     description: "Platform connections are not available in demo mode"

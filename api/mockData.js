@@ -68,12 +68,12 @@ class MockEntity {
   }
 
   static async list(options = {}) {
-    // Alias for findMany - Base44 SDK uses both
+    // Alias for findMany
     return this.findMany(options);
   }
 
   static async filter(filterParams = {}) {
-    // Alias for findMany with filtering - Base44 SDK pattern
+    // Alias for findMany with filtering
     const items = await this.findMany();
     // In mock mode, just return all items (filtering not implemented)
     return items;
