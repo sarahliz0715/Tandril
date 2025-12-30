@@ -374,6 +374,41 @@ export async function trackAutomationPerformance({
   return response.data || response;
 }
 
+// AI Business Coach Functions
+export async function getDailyBriefing({
+  date = new Date().toISOString().split('T')[0]
+} = {}) {
+  const response = await invokeEdgeFunction('daily-business-briefing', {
+    date,
+  });
+
+  return response.data || response;
+}
+
+export async function detectGrowthOpportunities() {
+  const response = await invokeEdgeFunction('growth-opportunity-detector', {});
+
+  return response.data || response;
+}
+
+export async function analyzeRisks() {
+  const response = await invokeEdgeFunction('risk-alert-analyzer', {});
+
+  return response.data || response;
+}
+
+export async function chatWithCoach({
+  message,
+  conversation_history = []
+} = {}) {
+  const response = await invokeEdgeFunction('conversational-coach', {
+    message,
+    conversation_history,
+  });
+
+  return response.data || response;
+}
+
 // Export all functions as a unified functions object
 export const supabaseFunctions = {
   invoke: invokeEdgeFunction,
@@ -395,4 +430,8 @@ export const supabaseFunctions = {
   evaluateSmartTrigger,
   intelligentScheduler,
   trackAutomationPerformance,
+  getDailyBriefing,
+  detectGrowthOpportunities,
+  analyzeRisks,
+  chatWithCoach,
 };
