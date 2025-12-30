@@ -284,6 +284,49 @@ export async function generateAIContent({
   return response.data || response;
 }
 
+// Enhanced Command Understanding Functions
+export async function enhancedInterpretCommand({
+  command_text,
+  platform_targets,
+  context = {},
+  request_preview = true
+} = {}) {
+  const response = await invokeEdgeFunction('enhanced-interpret-command', {
+    command_text,
+    platform_targets,
+    context,
+    request_preview,
+  });
+
+  return response.data || response;
+}
+
+export async function enhancedExecuteCommand({
+  command_id,
+  actions,
+  platform_targets,
+  preview_mode = false,
+  track_for_undo = true
+} = {}) {
+  const response = await invokeEdgeFunction('enhanced-execute-command', {
+    command_id,
+    actions,
+    platform_targets,
+    preview_mode,
+    track_for_undo,
+  });
+
+  return response.data || response;
+}
+
+export async function undoCommand(command_id) {
+  const response = await invokeEdgeFunction('undo-command', {
+    command_id,
+  });
+
+  return response.data || response;
+}
+
 // Export all functions as a unified functions object
 export const supabaseFunctions = {
   invoke: invokeEdgeFunction,
@@ -299,4 +342,7 @@ export const supabaseFunctions = {
   monitorOrders,
   generateAIInsights,
   generateAIContent,
+  enhancedInterpretCommand,
+  enhancedExecuteCommand,
+  undoCommand,
 };
