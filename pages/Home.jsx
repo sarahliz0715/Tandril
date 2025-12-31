@@ -14,7 +14,7 @@ import { toast } from 'sonner';
 
 const FeatureCard = ({ icon: Icon, title, description }) => (
     <div className="p-6 bg-white rounded-xl shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 border border-slate-100">
-        <div className="flex items-center justify-center h-12 w-12 rounded-full bg-indigo-50 text-indigo-600 mb-4">
+        <div className="flex items-center justify-center h-12 w-12 rounded-full bg-green-50 text-green-600 mb-4">
             <Icon className="w-6 h-6" />
         </div>
         <h3 className="text-lg font-semibold text-slate-900 mb-2">{title}</h3>
@@ -24,7 +24,7 @@ const FeatureCard = ({ icon: Icon, title, description }) => (
 
 const StepCard = ({ number, title, description }) => (
     <div className="relative p-6 bg-slate-50/50 rounded-xl border border-slate-200">
-         <div className="absolute -top-4 -left-4 h-10 w-10 bg-indigo-600 text-white rounded-lg flex items-center justify-center font-bold text-lg shadow-md">
+         <div className="absolute -top-4 -left-4 h-10 w-10 bg-green-600 text-white rounded-lg flex items-center justify-center font-bold text-lg shadow-md">
             {number}
         </div>
         <h3 className="text-lg font-semibold text-slate-900 mt-4 mb-2">{title}</h3>
@@ -148,7 +148,7 @@ export default function Home() {
     // Show loading state while checking authentication
     if (isCheckingAuth) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-white via-slate-50 to-blue-50">
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-white via-slate-50 to-green-50">
                 <div className="text-center">
                     <TandrilLogo className="h-12 w-auto mx-auto mb-4" />
                     <p className="text-slate-600">Checking your access...</p>
@@ -158,7 +158,7 @@ export default function Home() {
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50">
+        <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-emerald-50">
             {/* Header */}
             <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-lg border-b border-slate-200">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -174,7 +174,7 @@ export default function Home() {
                             <Link to={createPageUrl('Login')} className="text-sm font-medium text-slate-600 hover:text-slate-900">
                                 Log In
                             </Link>
-                            <Button onClick={handleGetStarted}>Get Started Free</Button>
+                            <Button onClick={handleGetStarted} className="bg-green-600 hover:bg-green-700">Get Started Free</Button>
                         </div>
                     </div>
                 </div>
@@ -184,14 +184,32 @@ export default function Home() {
             <main className="overflow-hidden">
                 <div className="py-20 sm:py-28 text-center">
                     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-                        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-slate-900 tracking-tight leading-tight">
-                            Your E-commerce Operations, <span className="text-indigo-600">Automated.</span>
-                        </h1>
+                        {/* Large Centered Logo */}
+                        <div className="flex flex-col items-center mb-8">
+                            <img
+                                src="/tandril-logo.png"
+                                alt="Tandril Logo"
+                                className="h-32 w-auto mb-4"
+                                onError={(e) => {
+                                    // Fallback to SVG logo if image not found
+                                    e.target.style.display = 'none';
+                                    e.target.nextSibling.style.display = 'block';
+                                }}
+                            />
+                            <TandrilLogo className="h-32 w-auto mb-4 hidden" />
+                            <h1 className="text-5xl sm:text-6xl font-extrabold text-slate-900 tracking-tight">
+                                Tandril
+                            </h1>
+                        </div>
+
+                        <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-slate-900 tracking-tight leading-tight mb-6">
+                            Your E-commerce Operations, <span className="text-green-600">Automated.</span>
+                        </h2>
                         <p className="mt-6 max-w-2xl mx-auto text-lg text-slate-600">
                             Meet <strong>Orion</strong> - your AI business partner that connects to your stores and automates everything from inventory management to marketing campaigns, all through natural conversation.
                         </p>
                         <div className="mt-8 flex justify-center gap-4">
-                            <Button size="lg" onClick={handleGetStarted} className="bg-indigo-600 hover:bg-indigo-700">
+                            <Button size="lg" onClick={handleGetStarted} className="bg-green-600 hover:bg-green-700">
                                 Get Started - It's Free
                             </Button>
                             <Button size="lg" variant="outline" onClick={() => document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })}>
@@ -232,17 +250,17 @@ export default function Home() {
                 </section>
 
                 {/* Orion Introduction Section */}
-                <section className="py-20 sm:py-24 bg-gradient-to-r from-purple-50 via-indigo-50 to-blue-50">
+                <section className="py-20 sm:py-24 bg-gradient-to-r from-green-50 via-emerald-50 to-teal-50">
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                         <div className="text-center mb-12">
                             <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-4">Meet Orion - Your AI Business Partner</h2>
                             <p className="text-lg text-slate-600 max-w-3xl mx-auto">Not just another chatbot. Orion is a strategic business advisor with the power to execute, backed by 15+ years of e-commerce expertise.</p>
                         </div>
-                        
+
                         <div className="grid lg:grid-cols-2 gap-12 items-center">
                             <div className="text-center lg:text-left">
                                 <div className="inline-flex items-center gap-4 mb-6">
-                                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-400 to-indigo-600 flex items-center justify-center">
+                                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center">
                                         <img
                                             src="https://avatar.iran.liara.run/public/boy?username=orion"
                                             alt="Orion AI"
@@ -274,24 +292,24 @@ export default function Home() {
                                     </div>
                                 </div>
                                 
-                                <Button size="lg" onClick={handleGetStarted} className="bg-purple-600 hover:bg-purple-700">
+                                <Button size="lg" onClick={handleGetStarted} className="bg-green-600 hover:bg-green-700">
                                     <Bot className="w-5 h-5 mr-2" />
                                     Start Talking to Orion
                                 </Button>
                             </div>
-                            
+
                             <div className="bg-white rounded-2xl shadow-2xl p-6 border border-slate-200">
                                 <div className="space-y-4">
                                     <div className="bg-slate-50 rounded-lg p-4">
                                         <p className="text-sm text-slate-600 mb-2">You:</p>
                                         <p className="text-slate-900">"Orion, my summer collection isn't selling well. What should I do?"</p>
                                     </div>
-                                    <div className="bg-indigo-50 rounded-lg p-4">
+                                    <div className="bg-green-50 rounded-lg p-4">
                                         <div className="flex items-center gap-2 mb-2">
-                                            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-400 to-indigo-600 flex items-center justify-center">
+                                            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center">
                                                 <img src="https://avatar.iran.liara.run/public/boy?username=orion" alt="Orion" className="w-5 h-5 rounded-full" />
                                             </div>
-                                            <p className="text-sm text-indigo-600 font-medium">Orion:</p>
+                                            <p className="text-sm text-green-600 font-medium">Orion:</p>
                                         </div>
                                         <p className="text-slate-900">"I analyzed your summer products and found 3 key issues. Let me fix the SEO on your top 5 items, create a 20% flash sale, and draft social media posts to boost visibility. Give me 2 minutes."</p>
                                     </div>
@@ -367,17 +385,17 @@ export default function Home() {
                         </div>
                         <div className="grid md:grid-cols-3 gap-8 text-center">
                             <div className="p-6">
-                                <Users className="h-12 w-12 mx-auto text-indigo-600" />
+                                <Users className="h-12 w-12 mx-auto text-green-600" />
                                 <h3 className="mt-4 text-lg font-semibold">DTC Brands</h3>
                                 <p className="mt-2 text-slate-600">Scale your direct-to-consumer business without scaling your headcount.</p>
                             </div>
                             <div className="p-6">
-                                <Zap className="h-12 w-12 mx-auto text-indigo-600" />
+                                <Zap className="h-12 w-12 mx-auto text-green-600" />
                                 <h3 className="mt-4 text-lg font-semibold">Multi-Channel Sellers</h3>
                                 <p className="mt-2 text-slate-600">Stop juggling tabs. Manage your entire operation across Amazon, Etsy, and your own site.</p>
                             </div>
                             <div className="p-6">
-                                <TrendingUp className="h-12 w-12 mx-auto text-indigo-600" />
+                                <TrendingUp className="h-12 w-12 mx-auto text-green-600" />
                                 <h3 className="mt-4 text-lg font-semibold">Growth-Focused Agencies</h3>
                                 <p className="mt-2 text-slate-600">Manage multiple client stores with unparalleled efficiency and deliver better results.</p>
                             </div>
