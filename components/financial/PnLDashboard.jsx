@@ -79,19 +79,19 @@ export default function PnLDashboard() {
     loadPnLData();
   }, [loadPnLData]);
 
-  // Calculate metrics
-  const metrics = pnlData ? {
-    revenue: pnlData.revenue || 0,
-    cogs: pnlData.cogs || 0,
-    shippingCosts: pnlData.shipping_costs || 0,
-    platformFees: pnlData.platform_fees || 0,
-    adSpend: pnlData.ad_spend || 0,
-    refunds: pnlData.refunds || 0,
-    netProfit: pnlData.net_profit || 0,
-    profitMargin: pnlData.profit_margin || 0,
-    totalOrders: pnlData.total_orders || 0,
-    avgOrderValue: pnlData.total_orders > 0 ? pnlData.revenue / pnlData.total_orders : 0
-  } : null;
+  // Calculate metrics - always return an object with defaults
+  const metrics = {
+    revenue: pnlData?.revenue || 0,
+    cogs: pnlData?.cogs || 0,
+    shippingCosts: pnlData?.shipping_costs || 0,
+    platformFees: pnlData?.platform_fees || 0,
+    adSpend: pnlData?.ad_spend || 0,
+    refunds: pnlData?.refunds || 0,
+    netProfit: pnlData?.net_profit || 0,
+    profitMargin: pnlData?.profit_margin || 0,
+    totalOrders: pnlData?.total_orders || 0,
+    avgOrderValue: pnlData?.total_orders > 0 ? pnlData.revenue / pnlData.total_orders : 0
+  };
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-US', {
@@ -117,8 +117,35 @@ export default function PnLDashboard() {
     );
   }
 
+  const hasNoData = !pnlData || metrics.totalOrders === 0;
+
   return (
     <div className="space-y-6">
+      {/* No Data Alert */}
+      {hasNoData && (
+        <Card className="border-blue-200 bg-blue-50">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-blue-900">No Financial Data for This Period</p>
+                  <p className="text-sm text-blue-700 mt-1">
+                    {!pnlData
+                      ? "Unable to load P&L data. Check your platform connections or try again."
+                      : "No orders found in the selected time period. Try a different date range."}
+                  </p>
+                </div>
+              </div>
+              <Button onClick={loadPnLData} variant="outline" size="sm" className="flex-shrink-0">
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Refresh
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
