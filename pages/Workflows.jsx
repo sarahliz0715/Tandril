@@ -392,6 +392,7 @@ export default function Workflows() {
         </TabsContent>
 
         <TabsContent value="templates" className="space-y-4">
+          {console.log('🔍 [Workflows RENDER] templates state:', templates, 'length:', templates.length)}
           {templates.length === 0 ? (
             <Card className="p-12">
               <div className="text-center">
