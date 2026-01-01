@@ -71,16 +71,23 @@ export default function Workflows() {
         })
       ]);
 
+      console.log('🔍 [Workflows] Raw templates data:', templatesData);
+      console.log('🔍 [Workflows] Templates count:', templatesData?.length);
+      console.log('🔍 [Workflows] User:', user);
+
       setCurrentUser(user);
-      
+
       // Filter valid data
-      const validWorkflows = workflowsData.filter(w => 
+      const validWorkflows = workflowsData.filter(w =>
         w && typeof w === 'object' && w.id
       );
-      const validTemplates = templatesData.filter(t => 
+      const validTemplates = templatesData.filter(t =>
         t && typeof t === 'object' && t.id
       );
-      
+
+      console.log('🔍 [Workflows] Valid templates after filter:', validTemplates);
+      console.log('🔍 [Workflows] Valid templates count:', validTemplates.length);
+
       setWorkflows(validWorkflows);
       setTemplates(validTemplates);
     } catch (error) {
