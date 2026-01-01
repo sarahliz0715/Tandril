@@ -61,7 +61,7 @@ export default function Workflows() {
     try {
       const [user, workflowsData, templatesData] = await Promise.all([
         User.me(),
-        AIWorkflow.list('-created_date').catch(err => {
+        AIWorkflow.list('-created_at').catch(err => {
           console.error('Error fetching workflows:', err);
           return [];
         }),
