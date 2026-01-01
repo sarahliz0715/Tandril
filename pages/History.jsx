@@ -75,7 +75,7 @@ export default function History() {
     try {
       const [user, commandsData] = await Promise.all([
         User.me(),
-        AICommand.list('-created_date', 100).catch(err => {
+        AICommand.list('-created_at', 100).catch(err => {
           console.error('Error fetching commands:', err);
           return [];
         })
@@ -133,10 +133,10 @@ export default function History() {
     // Apply sorting
     switch (sortBy) {
       case 'newest':
-        result.sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
+        result.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
         break;
       case 'oldest':
-        result.sort((a, b) => new Date(a.created_date) - new Date(b.created_date));
+        result.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
         break;
       case 'status':
         result.sort((a, b) => {
@@ -187,7 +187,7 @@ export default function History() {
       const csvContent = [
         ['Date', 'Command', 'Status', 'Success Count', 'Failure Count', 'Execution Time'].join(','),
         ...filteredCommands.map(cmd => [
-          format(new Date(cmd.created_date), 'yyyy-MM-dd HH:mm:ss'),
+          format(new Date(cmd.created_at), 'yyyy-MM-dd HH:mm:ss'),
           `"${cmd.command_text?.replace(/"/g, '""')}"`,
           cmd.status,
           cmd.results?.success_count || 0,
@@ -375,7 +375,7 @@ export default function History() {
                     <div className="flex items-center gap-3 mb-2">
                       {getStatusBadge(command.status)}
                       <span className="text-xs text-slate-500">
-                        {format(new Date(command.created_date), 'MMM d, yyyy HH:mm')}
+                        {format(new Date(command.created_at), 'MMM d, yyyy HH:mm')}
                       </span>
                       {command.is_demo_data && (
                         <Badge variant="outline" className="text-xs">Demo</Badge>

@@ -45,9 +45,9 @@ export default function CustomerSupport() {
             setUser(currentUser);
 
             const [messagesData, reviewsData, ticketsData] = await Promise.all([
-                CustomerMessage.list('-created_date', 50),
+                CustomerMessage.list('-created_at', 50),
                 Review.list('-review_date', 50),
-                SupportTicket.list('-created_date', 50)
+                SupportTicket.list('-created_at', 50)
             ]);
 
             setMessages(messagesData);

@@ -277,7 +277,7 @@ export default function ChatInterface({ conversationId, initialPrompt, onPromptU
                     <div className="space-y-6 max-w-4xl mx-auto">
                         {messages.length > 0 ? ( // Display messages if available
                             messages.map((msg, index) => (
-                                <MessageBubble key={`${conversationId}-${index}-${msg.created_date}`} message={msg} />
+                                <MessageBubble key={`${conversationId}-${index}-${msg.created_at}`} message={msg} />
                             ))
                         ) : (
                             // Empty state with introductory message and suggestion chips

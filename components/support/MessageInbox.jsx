@@ -146,7 +146,7 @@ export default function MessageInbox({ messages, onRefresh, user }) {
                                             </Badge>
                                         </div>
                                         <span className="text-xs text-slate-500">
-                                            {new Date(message.created_date).toLocaleDateString()}
+                                            {new Date(message.created_at).toLocaleDateString()}
                                         </span>
                                     </div>
                                     <p className="text-sm text-slate-700 line-clamp-2">{message.original_message}</p>

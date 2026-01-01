@@ -40,7 +40,7 @@ export default function AutomationsPage() {
 
     const loadAutomations = async () => {
         try {
-            const data = await api.entities.Automation.list('-created_date');
+            const data = await api.entities.Automation.list('-created_at');
             setAutomations(data);
         } catch (error) {
             console.error('Error loading automations:', error);

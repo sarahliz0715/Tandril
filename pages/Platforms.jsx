@@ -108,7 +108,7 @@ export default function Platforms() {
             await new Promise(resolve => setTimeout(resolve, 200));
 
             // 4. Then load user's platforms (instances)
-            let userPlatformInstancesData = await Platform.list('-created_date').catch(err => {
+            let userPlatformInstancesData = await Platform.list('-created_at').catch(err => {
                 console.error('Error fetching user platform instances:', err);
                 return [];
             });

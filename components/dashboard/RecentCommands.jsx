@@ -17,7 +17,7 @@ export default function RecentCommands() {
         const loadRecentCommands = async () => {
             try {
                 await User.me(); // Auth check first
-                const recentCommands = await AICommand.list('-created_date', 5);
+                const recentCommands = await AICommand.list('-created_at', 5);
                 setCommands(recentCommands);
             } catch (error) {
                 if (error.response?.status === 401) {
@@ -88,7 +88,7 @@ export default function RecentCommands() {
                                         {command.command_text}
                                     </p>
                                     <p className="text-xs text-slate-500 mt-1">
-                                        {formatDistanceToNow(new Date(command.created_date))} ago
+                                        {formatDistanceToNow(new Date(command.created_at))} ago
                                     </p>
                                 </div>
                                 <Badge className={`${getStatusColor(command.status)} text-xs ml-3`}>

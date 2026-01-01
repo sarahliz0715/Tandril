@@ -68,7 +68,7 @@ const ConversationList = ({ conversations, selectedId, onSelect, onNewChat, onDe
                     >
                         <div className="flex-1 min-w-0 pr-8">
                             <p className="truncate text-sm">
-                                {convo.metadata?.name || `Chat ${new Date(convo.created_date).toLocaleDateString()}`}
+                                {convo.metadata?.name || `Chat ${new Date(convo.created_at).toLocaleDateString()}`}
                             </p>
                             <p className="text-xs text-slate-500 truncate mt-1">
                                 {convo.last_message || 'Start a new conversation'}
@@ -150,7 +150,7 @@ export default function AIAdvisor() {
     const handleConversationDelete = useCallback(async (conversationId) => {
         const conversation = conversations.find(c => c.id === conversationId);
         const conversationName = conversation?.metadata?.name || 
-                                `Chat from ${new Date(conversation?.created_date).toLocaleDateString()}`;
+                                `Chat from ${new Date(conversation?.created_at).toLocaleDateString()}`;
 
         await confirm({
             title: 'Delete Conversation?',
@@ -259,7 +259,7 @@ export default function AIAdvisor() {
                                 <SelectContent>
                                     {conversations.map((conv) => (
                                         <SelectItem key={conv.id} value={conv.id}>
-                                            {conv.metadata?.name || `Chat ${new Date(conv.created_date).toLocaleDateString()}`}
+                                            {conv.metadata?.name || `Chat ${new Date(conv.created_at).toLocaleDateString()}`}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>

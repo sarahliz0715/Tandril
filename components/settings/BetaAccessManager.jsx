@@ -24,7 +24,7 @@ export default function BetaAccessManager({ currentUser }) {
     const loadAllUsers = async () => {
         setIsLoading(true);
         try {
-            const users = await User.list('-created_date', 100);
+            const users = await User.list('-created_at', 100);
             setAllUsers(users);
         } catch (error) {
             console.error('Failed to load users:', error);
@@ -156,7 +156,7 @@ export default function BetaAccessManager({ currentUser }) {
                                         </span>
                                         <span className="flex items-center gap-1">
                                             <Calendar className="w-3 h-3" />
-                                            {new Date(user.created_date).toLocaleDateString()}
+                                            {new Date(user.created_at).toLocaleDateString()}
                                         </span>
                                     </div>
                                 </div>

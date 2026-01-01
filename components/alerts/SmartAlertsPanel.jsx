@@ -25,7 +25,7 @@ export default function SmartAlertsPanel({ onAlertAction }) {
         try {
             const alertsData = await SmartAlert.filter({
                 is_dismissed: false
-            }, '-created_date', 10);
+            }, '-created_at', 10);
             setAlerts(alertsData);
         } catch (error) {
             console.error('Error loading alerts:', error);

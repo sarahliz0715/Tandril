@@ -31,7 +31,7 @@ export default function ConversationList({ conversations, selectedConversationId
                       {conversation.metadata?.name || 'New Conversation'}
                     </p>
                     <p className="text-xs text-slate-500 mt-1">
-                      {new Date(conversation.created_date).toLocaleDateString()}
+                      {new Date(conversation.created_at).toLocaleDateString()}
                     </p>
                     {conversation.messages && conversation.messages.length > 0 && (
                       <p className="text-xs text-slate-600 mt-1 line-clamp-2">

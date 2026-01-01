@@ -39,7 +39,7 @@ export default function BulkUploadPage() {
     try {
       const [user, uploadsData] = await Promise.all([
         User.me(),
-        BulkUpload.list('-created_date', 5).catch(err => {
+        BulkUpload.list('-created_at', 5).catch(err => {
           console.error('Error fetching uploads:', err);
           return [];
         })
@@ -183,7 +183,7 @@ export default function BulkUploadPage() {
                       <p className="font-medium text-slate-900">{upload.file_name}</p>
                       <p className="text-sm text-slate-500">
                         {upload.processing_results?.total_records || 0} records • {' '}
-                        {new Date(upload.created_date).toLocaleString()}
+                        {new Date(upload.created_at).toLocaleString()}
                       </p>
                     </div>
                   </div>

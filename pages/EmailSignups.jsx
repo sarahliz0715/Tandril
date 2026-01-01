@@ -50,7 +50,7 @@ export default function EmailSignups() {
   const loadSignups = async () => {
     setIsLoading(true);
     try {
-      const data = await EmailSignup.list('-created_date');
+      const data = await EmailSignup.list('-created_at');
       setSignups(data);
     } catch (error) {
       console.error('Error loading email signups:', error);
@@ -65,7 +65,7 @@ export default function EmailSignups() {
       ...filteredSignups.map(signup => [
         signup.email,
         signup.source,
-        new Date(signup.created_date).toLocaleDateString(),
+        new Date(signup.created_at).toLocaleDateString(),
         signup.status
       ])
     ].map(row => row.join(',')).join('\n');
@@ -83,7 +83,7 @@ export default function EmailSignups() {
   const totalSignups = signups.length;
   const todaySignups = signups.filter(signup => {
     const today = new Date().toDateString();
-    const signupDate = new Date(signup.created_date).toDateString();
+    const signupDate = new Date(signup.created_at).toDateString();
     return signupDate === today;
   }).length;
 
@@ -231,7 +231,7 @@ export default function EmailSignups() {
                       <div>
                         <p className="font-medium text-slate-900">{signup.email}</p>
                         <p className="text-sm text-slate-500">
-                          {formatDistanceToNow(new Date(signup.created_date), { addSuffix: true })}
+                          {formatDistanceToNow(new Date(signup.created_at), { addSuffix: true })}
                         </p>
                       </div>
                     </div>

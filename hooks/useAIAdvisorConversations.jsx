@@ -15,10 +15,10 @@ export function useAIAdvisorConversations(conversationIdFromUrl, navigate) {
             const convs = await agentSDK.listConversations({ agent_name: 'business_advisor' });
             // Sort by most recently updated message, or created_date if no messages
             const sortedConvs = convs.sort((a, b) => {
-                const lastMsgA = a.messages?.[a.messages.length - 1]?.created_date;
-                const lastMsgB = b.messages?.[b.messages.length - 1]?.created_date;
-                const dateA = lastMsgA ? new Date(lastMsgA) : new Date(a.created_date);
-                const dateB = lastMsgB ? new Date(lastMsgB) : new Date(b.created_date);
+                const lastMsgA = a.messages?.[a.messages.length - 1]?.created_at;
+                const lastMsgB = b.messages?.[b.messages.length - 1]?.created_at;
+                const dateA = lastMsgA ? new Date(lastMsgA) : new Date(a.created_at);
+                const dateB = lastMsgB ? new Date(lastMsgB) : new Date(b.created_at);
                 return dateB - dateA;
             });
             setConversations(sortedConvs);

@@ -66,7 +66,7 @@ const RecentCommandCard = ({ command }) => (
                         {command.command_text}
                     </p>
                     <p className="text-xs text-slate-500">
-                        {new Date(command.created_date).toLocaleTimeString()}
+                        {new Date(command.created_at).toLocaleTimeString()}
                     </p>
                 </div>
                 <Badge variant={command.status === 'completed' ? 'default' : 'secondary'} className="text-xs">
@@ -97,9 +97,9 @@ export default function MobileDashboard() {
     const loadDashboardData = async () => {
         try {
             const [platformData, commandData, alertData] = await Promise.all([
-                Platform.list('-created_date', 5),
-                AICommand.list('-created_date', 3),
-                SmartAlert.filter({ is_dismissed: false }, '-created_date', 2)
+                Platform.list('-created_at', 5),
+                AICommand.list('-created_at', 3),
+                SmartAlert.filter({ is_dismissed: false }, '-created_at', 2)
             ]);
             
             setPlatforms(platformData);
