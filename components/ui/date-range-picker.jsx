@@ -78,7 +78,7 @@ export function DateRangePicker({ date, onDateChange, className }) {
   const handlePresetChange = (presetValue) => {
     setSelectedPreset(presetValue);
     const preset = presetRanges.find(p => p.value === presetValue);
-    if (preset) {
+    if (preset && preset.getDates) {
       const dates = preset.getDates();
       onDateChange(dates);
     }
@@ -86,12 +86,18 @@ export function DateRangePicker({ date, onDateChange, className }) {
 
   const formatDateRange = () => {
     if (!date?.from) return "Select date range";
-    if (!date.to) return format(date.from, "LLL dd, y");
+    if (!date?.to) return format(date.from, "LLL dd, y");
     if (date.from.getTime() === date.to.getTime()) {
       return format(date.from, "LLL dd, y");
     }
     return `${format(date.from, "LLL dd")} - ${format(date.to, "LLL dd, y")}`;
   };
+
+  // Get the current preset label for display
+  const currentPresetLabel = React.useMemo(() => {
+    const preset = presetRanges.find(p => p.value === selectedPreset);
+    return preset?.label || "Last 30 days";
+  }, [selectedPreset]);
 
   return (
     <div className={`grid gap-2 ${className}`}>
@@ -113,7 +119,7 @@ export function DateRangePicker({ date, onDateChange, className }) {
                 <h4 className="font-medium mb-2">Quick Select</h4>
                 <Select value={selectedPreset} onValueChange={handlePresetChange}>
                   <SelectTrigger className="w-[150px]">
-                    <SelectValue />
+                    <SelectValue placeholder={currentPresetLabel} />
                   </SelectTrigger>
                   <SelectContent>
                     {presetRanges.map((preset) => (
