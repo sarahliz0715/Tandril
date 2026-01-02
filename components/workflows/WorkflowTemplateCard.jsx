@@ -5,16 +5,17 @@ import { Badge } from '@/components/ui/badge';
 import { Clock, Zap, Star, Play } from 'lucide-react';
 
 export default function WorkflowTemplateCard({ template, onUse, onRun }) {
-    if (!template || !template.workflow_data) {
-        return null; // Don't render if template data is invalid
+    if (!template) {
+        return null; // Don't render if template is invalid
     }
 
-    const workflowData = template.workflow_data;
-    
+    // Template data can be at root level OR in workflow_data
+    const workflowData = template.workflow_data || template;
+
     // Safely access trigger data with fallbacks
     const triggerType = workflowData.trigger_type || 'manual';
     const triggerConfig = workflowData.trigger_config || {};
-    
+
     // Build trigger description
     const getTriggerDescription = () => {
         if (triggerType === 'schedule') {
@@ -27,7 +28,7 @@ export default function WorkflowTemplateCard({ template, onUse, onRun }) {
     };
 
     // Get number of actions
-    const actionCount = workflowData.commands?.length || workflowData.nodes?.length || 0;
+    const actionCount = workflowData.actions?.length || workflowData.commands?.length || workflowData.nodes?.length || 0;
 
     return (
         <Card className="hover:shadow-lg transition-shadow">
@@ -35,7 +36,7 @@ export default function WorkflowTemplateCard({ template, onUse, onRun }) {
                 <div className="flex items-start justify-between">
                     <div className="flex-1">
                         <CardTitle className="flex items-center gap-2">
-                            {template.icon && <span className="text-2xl">{template.icon}</span>}
+                            {workflowData.icon && <span className="text-2xl">{workflowData.icon}</span>}
                             <span>{template.name}</span>
                         </CardTitle>
                         <p className="text-sm text-slate-600 mt-1">{template.description}</p>
@@ -52,7 +53,7 @@ export default function WorkflowTemplateCard({ template, onUse, onRun }) {
                 <div className="space-y-4">
                     <div className="flex flex-wrap gap-2">
                         <Badge variant="outline" className="text-xs">
-                            {template.category}
+                            {workflowData.category || template.category}
                         </Badge>
                         <Badge variant="outline" className="text-xs flex items-center gap-1">
                             <Clock className="w-3 h-3" />
