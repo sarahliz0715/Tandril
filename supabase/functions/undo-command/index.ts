@@ -3,6 +3,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { decrypt, isEncrypted } from '../_shared/encryption.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -82,6 +83,18 @@ serve(async (req) => {
 
     if (platformsError || !platforms || platforms.length === 0) {
       throw new Error('Platform credentials not found');
+    }
+
+    // Decrypt access tokens for all platforms
+    for (const platform of platforms) {
+      if (platform.access_token && isEncrypted(platform.access_token)) {
+        try {
+          platform.access_token = await decrypt(platform.access_token);
+        } catch (error) {
+          console.error(`[Undo Command] Failed to decrypt token for ${platform.shop_domain}`);
+          throw new Error('Failed to decrypt platform credentials');
+        }
+      }
     }
 
     // Revert each change
