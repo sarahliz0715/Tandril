@@ -67,43 +67,62 @@ const platform = await getPlatformWithDecryptedToken(supabaseClient, userId, sho
 const platforms = await getUserPlatformsWithDecryptedTokens(supabaseClient, userId);
 ```
 
-## Functions Requiring Updates
+## Functions Status
 
-The following edge functions need to be updated to decrypt access tokens:
+✅ **All edge functions have been updated!**
 
-- [x] `shopify-auth-callback` - Encrypts tokens on storage (DONE)
-- [x] `enhanced-execute-command` - Decrypts tokens before use (DONE)
-- [ ] `execute-command`
-- [ ] `ai-content-generator`
-- [ ] `ai-insights`
-- [ ] `calculate-pnl`
-- [ ] `daily-business-briefing`
-- [ ] `dead-product-cleanup`
-- [ ] `growth-opportunity-detector`
-- [ ] `inventory-protection`
-- [ ] `onboarding-store-analyzer`
-- [ ] `order-monitor`
-- [ ] `price-guardrail`
-- [ ] `risk-alert-analyzer`
-- [ ] `seo-fixer`
-- [ ] `smart-trigger-evaluator`
-- [ ] `undo-command`
+The following edge functions now support encrypted access tokens:
+
+- [x] `shopify-auth-callback` - Encrypts tokens on storage ✅
+- [x] `enhanced-execute-command` - Decrypts tokens before use ✅
+- [x] `execute-command` ✅
+- [x] `undo-command` ✅
+- [x] `ai-content-generator` ✅
+- [x] `ai-insights` ✅
+- [x] `calculate-pnl` ✅
+- [x] `daily-business-briefing` ✅
+- [x] `dead-product-cleanup` ✅
+- [x] `growth-opportunity-detector` ✅
+- [x] `inventory-protection` ✅
+- [x] `onboarding-store-analyzer` ✅
+- [x] `order-monitor` ✅
+- [x] `price-guardrail` ✅
+- [x] `risk-alert-analyzer` ✅
+- [x] `seo-fixer` ✅
+- [x] `smart-trigger-evaluator` ✅
+
+**Total: 17/17 functions completed** 🎉
 
 ## Migration Strategy
 
-### Backward Compatibility
-The `isEncrypted()` check ensures backward compatibility:
-- Old unencrypted tokens will continue to work
+### ✅ Migration Complete!
+
+All functions have been updated and deployed. The implementation is:
+
+✅ **Backward Compatible**
+- Old unencrypted tokens continue to work
 - New tokens are automatically encrypted
 - Functions handle both encrypted and unencrypted tokens gracefully
 
-### Rollout Steps
-1. Deploy the `_shared/encryption.ts` and `_shared/platformHelpers.ts` files
-2. Set the `ENCRYPTION_SECRET` environment variable
-3. Deploy updated `shopify-auth-callback` function
-4. Deploy updated edge functions one by one
-5. All new tokens will be encrypted; old tokens remain functional
-6. Optionally: Run a migration script to encrypt existing tokens (future task)
+✅ **Deployment Steps Completed**
+1. ✅ Deployed `_shared/encryption.ts` and `_shared/platformHelpers.ts` files
+2. ⚠️  **ACTION REQUIRED:** Set the `ENCRYPTION_SECRET` environment variable in Supabase
+3. ✅ Updated `shopify-auth-callback` function (encrypts on storage)
+4. ✅ Updated all 16 edge functions (decrypt on use)
+5. ✅ All new tokens will be encrypted; old tokens remain functional
+6. 📋 **Optional:** Run a migration script to encrypt existing tokens (future task)
+
+### Required Environment Variable
+
+```bash
+# Add this to Supabase Edge Function Secrets
+ENCRYPTION_SECRET=<your-cryptographically-secure-random-string-min-32-chars>
+```
+
+Generate a secure secret with:
+```bash
+openssl rand -base64 48
+```
 
 ## Security Notes
 
