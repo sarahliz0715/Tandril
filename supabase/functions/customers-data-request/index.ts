@@ -116,13 +116,144 @@ serve(async (req) => {
       console.warn('[customers/data_request] Could not log to database (table may not exist):', dbError);
     }
 
-    // TODO: Implement the actual data retrieval logic
-    // This should:
-    // 1. Query your database for all customer data related to the customer_id or email
-    // 2. Query for all order data if orders_requested is provided
-    // 3. Package the data in a format suitable for the merchant
-    // 4. Send the data to the store owner (via email or through their admin panel)
-    // 5. Complete this action within 30 days as required by Shopify
+    // Implement GDPR data export
+    // Note: Tandril stores shop owner data, not individual customer data
+    // However, customer data might exist in command/workflow execution results
+    try {
+      await supabaseClient
+        .from('compliance_requests')
+        .update({ status: 'in_progress', processed_at: new Date().toISOString() })
+        .eq('shop_domain', payload.shop_domain)
+        .eq('customer_id', payload.customer?.id)
+        .eq('request_type', 'customers/data_request');
+
+      const customerId = payload.customer?.id?.toString();
+      const customerEmail = payload.customer?.email;
+      const customerPhone = payload.customer?.phone;
+
+      const exportData = {
+        request_info: {
+          shop_domain: payload.shop_domain,
+          customer_id: customerId,
+          customer_email: customerEmail,
+          customer_phone: customerPhone,
+          data_request_id: payload.data_request?.id,
+          orders_requested: payload.orders_requested,
+          export_date: new Date().toISOString()
+        },
+        customer_data_found: {
+          commands: [],
+          workflow_runs: [],
+          command_history: []
+        }
+      };
+
+      // 1. Find customer data in AI command execution results
+      if (customerId || customerEmail || customerPhone) {
+        const { data: commands } = await supabaseClient
+          .from('ai_commands')
+          .select('id, command_text, status, execution_results, executed_at, created_at')
+          .contains('execution_results', { shop_domain: payload.shop_domain });
+
+        if (commands && commands.length > 0) {
+          for (const command of commands) {
+            const resultsStr = JSON.stringify(command.execution_results);
+            if ((customerId && resultsStr.includes(customerId)) ||
+                (customerEmail && resultsStr.includes(customerEmail)) ||
+                (customerPhone && resultsStr.includes(customerPhone))) {
+
+              exportData.customer_data_found.commands.push({
+                command_id: command.id,
+                command_text: command.command_text,
+                status: command.status,
+                execution_results: command.execution_results,
+                executed_at: command.executed_at,
+                created_at: command.created_at
+              });
+            }
+          }
+        }
+
+        // 2. Find customer data in workflow run results
+        const { data: workflowRuns } = await supabaseClient
+          .from('workflow_runs')
+          .select('id, workflow_id, status, execution_results, started_at, completed_at')
+          .contains('execution_results', { shop_domain: payload.shop_domain });
+
+        if (workflowRuns && workflowRuns.length > 0) {
+          for (const run of workflowRuns) {
+            const resultsStr = JSON.stringify(run.execution_results);
+            if ((customerId && resultsStr.includes(customerId)) ||
+                (customerEmail && resultsStr.includes(customerEmail)) ||
+                (customerPhone && resultsStr.includes(customerPhone))) {
+
+              exportData.customer_data_found.workflow_runs.push({
+                run_id: run.id,
+                workflow_id: run.workflow_id,
+                status: run.status,
+                execution_results: run.execution_results,
+                started_at: run.started_at,
+                completed_at: run.completed_at
+              });
+            }
+          }
+        }
+
+        // 3. Find customer data in command history snapshots
+        const { data: commandHistory } = await supabaseClient
+          .from('command_history')
+          .select('id, command_id, change_snapshots, executed_at, undo_results');
+
+        if (commandHistory && commandHistory.length > 0) {
+          for (const history of commandHistory) {
+            const snapshotsStr = JSON.stringify(history.change_snapshots);
+            const undoStr = JSON.stringify(history.undo_results);
+
+            if ((customerId && (snapshotsStr.includes(customerId) || undoStr.includes(customerId))) ||
+                (customerEmail && (snapshotsStr.includes(customerEmail) || undoStr.includes(customerEmail))) ||
+                (customerPhone && (snapshotsStr.includes(customerPhone) || undoStr.includes(customerPhone)))) {
+
+              exportData.customer_data_found.command_history.push({
+                history_id: history.id,
+                command_id: history.command_id,
+                change_snapshots: history.change_snapshots,
+                undo_results: history.undo_results,
+                executed_at: history.executed_at
+              });
+            }
+          }
+        }
+      }
+
+      // 4. Store the export data in the compliance request
+      await supabaseClient
+        .from('compliance_requests')
+        .update({
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          error_message: JSON.stringify(exportData) // Store export data for retrieval
+        })
+        .eq('shop_domain', payload.shop_domain)
+        .eq('customer_id', payload.customer?.id)
+        .eq('request_type', 'customers/data_request');
+
+      console.log('[customers/data_request] Successfully exported customer data');
+      console.log(`[customers/data_request] Found ${exportData.customer_data_found.commands.length} commands, ${exportData.customer_data_found.workflow_runs.length} workflow runs, ${exportData.customer_data_found.command_history.length} history entries`);
+
+    } catch (exportError) {
+      console.error('[customers/data_request] Error during export:', exportError);
+
+      await supabaseClient
+        .from('compliance_requests')
+        .update({
+          status: 'error',
+          error_message: exportError.message,
+          processed_at: new Date().toISOString()
+        })
+        .eq('shop_domain', payload.shop_domain)
+        .eq('customer_id', payload.customer?.id)
+        .eq('request_type', 'customers/data_request');
+    }
 
     console.log('[customers/data_request] Data request acknowledged. Action required: Provide customer data to store owner.');
     console.log(`[customers/data_request] Shop: ${payload.shop_domain}, Customer: ${payload.customer?.email}`);

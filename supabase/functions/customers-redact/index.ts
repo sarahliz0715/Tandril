@@ -114,44 +114,162 @@ serve(async (req) => {
       console.warn('[customers/redact] Could not log to database (table may not exist):', dbError);
     }
 
-    // TODO: Implement the actual data deletion logic
-    // This should:
-    // 1. Find all customer data in your database matching the customer_id or email
-    // 2. Delete or anonymize customer personal data
-    // 3. Delete or anonymize order data for orders in orders_to_redact array
-    // 4. Ensure compliance with data retention laws (if legally required to retain data, don't delete)
-    // 5. Complete this action within 30 days as required by Shopify
-    // 6. Update the compliance_requests table with status: 'completed'
-
-    // Example deletion logic (uncomment and adapt to your schema):
-    /*
-    if (payload.customer?.id) {
-      // Delete customer-related data
+    // Implement GDPR data deletion
+    // Note: Tandril stores shop owner data, not individual customer data
+    // However, customer data might exist in command/workflow execution results
+    try {
       await supabaseClient
-        .from('ai_commands')
-        .delete()
+        .from('compliance_requests')
+        .update({ status: 'in_progress', processed_at: new Date().toISOString() })
         .eq('shop_domain', payload.shop_domain)
-        .eq('customer_id', payload.customer.id);
+        .eq('customer_id', payload.customer?.id)
+        .eq('request_type', 'customers/redact');
 
-      await supabaseClient
-        .from('ai_workflows')
-        .delete()
-        .eq('shop_domain', payload.shop_domain)
-        .eq('customer_id', payload.customer.id);
+      const customerId = payload.customer?.id?.toString();
+      const customerEmail = payload.customer?.email;
+      const customerPhone = payload.customer?.phone;
 
-      // Delete any other customer-specific data you may have stored
-    }
+      // 1. Find and anonymize customer data in AI command execution results
+      if (customerId || customerEmail || customerPhone) {
+        const { data: commands } = await supabaseClient
+          .from('ai_commands')
+          .select('id, execution_results')
+          .contains('execution_results', { shop_domain: payload.shop_domain });
 
-    if (payload.orders_to_redact && payload.orders_to_redact.length > 0) {
-      // Delete order-related data
-      for (const orderId of payload.orders_to_redact) {
-        await supabaseClient
-          .from('order_data')
-          .delete()
-          .eq('order_id', orderId);
+        if (commands && commands.length > 0) {
+          for (const command of commands) {
+            let updated = false;
+            let results = command.execution_results;
+
+            // Check if execution results contain customer data
+            const resultsStr = JSON.stringify(results);
+            if ((customerId && resultsStr.includes(customerId)) ||
+                (customerEmail && resultsStr.includes(customerEmail)) ||
+                (customerPhone && resultsStr.includes(customerPhone))) {
+
+              // Anonymize the customer data
+              results = JSON.parse(
+                resultsStr
+                  .replace(new RegExp(customerEmail, 'g'), '[REDACTED_EMAIL]')
+                  .replace(new RegExp(customerPhone || 'NO_PHONE', 'g'), '[REDACTED_PHONE]')
+                  .replace(new RegExp(customerId, 'g'), '[REDACTED_CUSTOMER_ID]')
+              );
+              updated = true;
+            }
+
+            if (updated) {
+              await supabaseClient
+                .from('ai_commands')
+                .update({ execution_results: results })
+                .eq('id', command.id);
+            }
+          }
+        }
+
+        // 2. Anonymize customer data in workflow run results
+        const { data: workflowRuns } = await supabaseClient
+          .from('workflow_runs')
+          .select('id, execution_results')
+          .contains('execution_results', { shop_domain: payload.shop_domain });
+
+        if (workflowRuns && workflowRuns.length > 0) {
+          for (const run of workflowRuns) {
+            let updated = false;
+            let results = run.execution_results;
+
+            const resultsStr = JSON.stringify(results);
+            if ((customerId && resultsStr.includes(customerId)) ||
+                (customerEmail && resultsStr.includes(customerEmail)) ||
+                (customerPhone && resultsStr.includes(customerPhone))) {
+
+              results = JSON.parse(
+                resultsStr
+                  .replace(new RegExp(customerEmail, 'g'), '[REDACTED_EMAIL]')
+                  .replace(new RegExp(customerPhone || 'NO_PHONE', 'g'), '[REDACTED_PHONE]')
+                  .replace(new RegExp(customerId, 'g'), '[REDACTED_CUSTOMER_ID]')
+              );
+              updated = true;
+            }
+
+            if (updated) {
+              await supabaseClient
+                .from('workflow_runs')
+                .update({ execution_results: results })
+                .eq('id', run.id);
+            }
+          }
+        }
+
+        // 3. Anonymize customer data in command history snapshots
+        const { data: commandHistory } = await supabaseClient
+          .from('command_history')
+          .select('id, change_snapshots, undo_results');
+
+        if (commandHistory && commandHistory.length > 0) {
+          for (const history of commandHistory) {
+            let updated = false;
+            const snapshotsStr = JSON.stringify(history.change_snapshots);
+            const undoStr = JSON.stringify(history.undo_results);
+
+            if ((customerId && (snapshotsStr.includes(customerId) || undoStr.includes(customerId))) ||
+                (customerEmail && (snapshotsStr.includes(customerEmail) || undoStr.includes(customerEmail))) ||
+                (customerPhone && (snapshotsStr.includes(customerPhone) || undoStr.includes(customerPhone)))) {
+
+              const newSnapshots = JSON.parse(
+                snapshotsStr
+                  .replace(new RegExp(customerEmail, 'g'), '[REDACTED_EMAIL]')
+                  .replace(new RegExp(customerPhone || 'NO_PHONE', 'g'), '[REDACTED_PHONE]')
+                  .replace(new RegExp(customerId, 'g'), '[REDACTED_CUSTOMER_ID]')
+              );
+
+              const newUndo = history.undo_results ? JSON.parse(
+                undoStr
+                  .replace(new RegExp(customerEmail, 'g'), '[REDACTED_EMAIL]')
+                  .replace(new RegExp(customerPhone || 'NO_PHONE', 'g'), '[REDACTED_PHONE]')
+                  .replace(new RegExp(customerId, 'g'), '[REDACTED_CUSTOMER_ID]')
+              ) : null;
+
+              await supabaseClient
+                .from('command_history')
+                .update({
+                  change_snapshots: newSnapshots,
+                  undo_results: newUndo
+                })
+                .eq('id', history.id);
+
+              updated = true;
+            }
+          }
+        }
       }
+
+      // 4. Update compliance request status to completed
+      await supabaseClient
+        .from('compliance_requests')
+        .update({
+          status: 'completed',
+          completed_at: new Date().toISOString()
+        })
+        .eq('shop_domain', payload.shop_domain)
+        .eq('customer_id', payload.customer?.id)
+        .eq('request_type', 'customers/redact');
+
+      console.log('[customers/redact] Successfully redacted customer data');
+
+    } catch (redactError) {
+      console.error('[customers/redact] Error during redaction:', redactError);
+
+      await supabaseClient
+        .from('compliance_requests')
+        .update({
+          status: 'error',
+          error_message: redactError.message,
+          processed_at: new Date().toISOString()
+        })
+        .eq('shop_domain', payload.shop_domain)
+        .eq('customer_id', payload.customer?.id)
+        .eq('request_type', 'customers/redact');
     }
-    */
 
     console.log('[customers/redact] Redaction request acknowledged. Action required: Delete customer data.');
     console.log(`[customers/redact] Shop: ${payload.shop_domain}, Customer: ${payload.customer?.email}`);

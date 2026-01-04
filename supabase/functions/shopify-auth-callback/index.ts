@@ -4,6 +4,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { encrypt } from '../_shared/encryption.ts';
 
 serve(async (req) => {
   try {
@@ -89,6 +90,9 @@ serve(async (req) => {
       shopName = shopInfo.shop?.name || shop;
     }
 
+    // Encrypt the access token before storing
+    const encryptedToken = await encrypt(access_token);
+
     // Store platform credentials in database
     const { data: platform, error: platformError } = await supabaseClient
       .from('platforms')
@@ -97,7 +101,7 @@ serve(async (req) => {
         platform_type: 'shopify',
         shop_domain: shop,
         shop_name: shopName,
-        access_token: access_token, // TODO: Encrypt this in production
+        access_token: encryptedToken,
         access_scopes: scope ? scope.split(',') : [],
         is_active: true,
         last_synced_at: new Date().toISOString(),

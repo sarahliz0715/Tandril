@@ -7,6 +7,7 @@ import { isSupabaseConfigured } from './supabaseClient';
 import { supabaseFunctions } from './supabaseFunctions';
 import { createSupabaseEntities } from './supabaseEntities';
 import { supabaseAuthService } from './supabaseAuth';
+import logger from '@/utils/logger';
 
 // Check if running in standalone mode (without Supabase)
 const standaloneEnv = import.meta.env.VITE_STANDALONE_MODE;
@@ -16,7 +17,7 @@ const isStandaloneMode = standaloneEnv !== 'false' && standaloneEnv !== false;
 const hasSupabase = isSupabaseConfigured();
 
 // Debug logging
-console.log('🔍 Tandril Client Mode:', {
+logger.dev('🔍 Tandril Client Mode:', {
   env: standaloneEnv,
   isStandaloneMode,
   hasSupabase,
@@ -29,31 +30,31 @@ console.log('🔍 Tandril Client Mode:', {
 const mockIntegrations = {
   Core: {
     InvokeLLM: async (params) => {
-      console.warn('[Tandril] InvokeLLM integration not implemented yet');
+      logger.warn('[Tandril] InvokeLLM integration not implemented yet');
       return { data: { response: 'Mock LLM response' } };
     },
     SendEmail: async (params) => {
-      console.warn('[Tandril] SendEmail integration not implemented yet');
+      logger.warn('[Tandril] SendEmail integration not implemented yet');
       return { data: { success: true } };
     },
     UploadFile: async (file) => {
-      console.warn('[Tandril] UploadFile integration not implemented yet');
+      logger.warn('[Tandril] UploadFile integration not implemented yet');
       return { data: { url: 'mock-file-url' } };
     },
     GenerateImage: async (params) => {
-      console.warn('[Tandril] GenerateImage integration not implemented yet');
+      logger.warn('[Tandril] GenerateImage integration not implemented yet');
       return { data: { url: 'mock-image-url' } };
     },
     ExtractDataFromUploadedFile: async (params) => {
-      console.warn('[Tandril] ExtractDataFromUploadedFile integration not implemented yet');
+      logger.warn('[Tandril] ExtractDataFromUploadedFile integration not implemented yet');
       return { data: {} };
     },
     CreateFileSignedUrl: async (params) => {
-      console.warn('[Tandril] CreateFileSignedUrl integration not implemented yet');
+      logger.warn('[Tandril] CreateFileSignedUrl integration not implemented yet');
       return { data: { url: 'mock-signed-url' } };
     },
     UploadPrivateFile: async (file) => {
-      console.warn('[Tandril] UploadPrivateFile integration not implemented yet');
+      logger.warn('[Tandril] UploadPrivateFile integration not implemented yet');
       return { data: { url: 'mock-private-file-url' } };
     },
   }
@@ -70,7 +71,7 @@ if (hasSupabase) {
     entities: createSupabaseEntities(),
     integrations: mockIntegrations
   };
-  console.log('✅ Tandril Client initialized with Supabase backend');
+  logger.dev('✅ Tandril Client initialized with Supabase backend');
 } else {
   // Standalone/development mode: Use mocks
   client = {
@@ -79,7 +80,7 @@ if (hasSupabase) {
     entities: createMockEntities(),
     integrations: mockIntegrations
   };
-  console.log('✅ Tandril Client initialized with mock backend');
+  logger.dev('✅ Tandril Client initialized with mock backend');
 }
 
 // Export unified API client
