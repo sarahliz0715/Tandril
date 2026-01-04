@@ -32,20 +32,6 @@ import Calendar from "./Calendar";
 
 import PlatformSettings from "./PlatformSettings";
 
-import ProposalPDF from "./ProposalPDF";
-
-import InvestmentProposal from "./InvestmentProposal";
-
-import InvestorPrepSheet from "./InvestorPrepSheet";
-
-import ProposalNVNG from "./ProposalNVNG";
-
-import ProposalIdeaFund from "./ProposalIdeaFund";
-
-import ProposalWEDC from "./ProposalWEDC";
-
-import ProposalGener8tor from "./ProposalGener8tor";
-
 import Onboarding from "./Onboarding";
 
 import Pricing from "./Pricing";
@@ -76,8 +62,6 @@ import Capabilities from "./Capabilities";
 
 import AIAdvisor from "./AIAdvisor";
 
-import ProposalForerunner from "./ProposalForerunner";
-
 import FacebookCallback from "./FacebookCallback";
 
 import BetaCapabilities from "./BetaCapabilities";
@@ -89,16 +73,6 @@ import BusinessPlan from "./BusinessPlan";
 import Survey from "./Survey";
 
 import SellerCard from "./SellerCard";
-
-import PitchDeckAfore from "./PitchDeckAfore";
-
-import PitchDeckYC from "./PitchDeckYC";
-
-import PitchDeckGBeta from "./PitchDeckGBeta";
-
-import PitchDeckAntler from "./PitchDeckAntler";
-
-import PitchDeckA16z from "./PitchDeckA16z";
 
 import EbayCallback from "./EbayCallback";
 
@@ -155,21 +129,7 @@ const PAGES = {
     Calendar: Calendar,
     
     PlatformSettings: PlatformSettings,
-    
-    ProposalPDF: ProposalPDF,
-    
-    InvestmentProposal: InvestmentProposal,
-    
-    InvestorPrepSheet: InvestorPrepSheet,
-    
-    ProposalNVNG: ProposalNVNG,
-    
-    ProposalIdeaFund: ProposalIdeaFund,
-    
-    ProposalWEDC: ProposalWEDC,
-    
-    ProposalGener8tor: ProposalGener8tor,
-    
+
     Onboarding: Onboarding,
     
     Pricing: Pricing,
@@ -199,9 +159,7 @@ const PAGES = {
     Capabilities: Capabilities,
     
     AIAdvisor: AIAdvisor,
-    
-    ProposalForerunner: ProposalForerunner,
-    
+
     FacebookCallback: FacebookCallback,
     
     BetaCapabilities: BetaCapabilities,
@@ -213,17 +171,7 @@ const PAGES = {
     Survey: Survey,
     
     SellerCard: SellerCard,
-    
-    PitchDeckAfore: PitchDeckAfore,
-    
-    PitchDeckYC: PitchDeckYC,
-    
-    PitchDeckGBeta: PitchDeckGBeta,
-    
-    PitchDeckAntler: PitchDeckAntler,
-    
-    PitchDeckA16z: PitchDeckA16z,
-    
+
     EbayCallback: EbayCallback,
     
     Automations: Automations,
@@ -302,21 +250,7 @@ function PagesContent() {
                 <Route path="/Calendar" element={<Calendar />} />
                 
                 <Route path="/PlatformSettings" element={<PlatformSettings />} />
-                
-                <Route path="/ProposalPDF" element={<ProposalPDF />} />
-                
-                <Route path="/InvestmentProposal" element={<InvestmentProposal />} />
-                
-                <Route path="/InvestorPrepSheet" element={<InvestorPrepSheet />} />
-                
-                <Route path="/ProposalNVNG" element={<ProposalNVNG />} />
-                
-                <Route path="/ProposalIdeaFund" element={<ProposalIdeaFund />} />
-                
-                <Route path="/ProposalWEDC" element={<ProposalWEDC />} />
-                
-                <Route path="/ProposalGener8tor" element={<ProposalGener8tor />} />
-                
+
                 <Route path="/Onboarding" element={<Onboarding />} />
                 
                 <Route path="/Pricing" element={<Pricing />} />
@@ -346,9 +280,7 @@ function PagesContent() {
                 <Route path="/Capabilities" element={<Capabilities />} />
                 
                 <Route path="/AIAdvisor" element={<AIAdvisor />} />
-                
-                <Route path="/ProposalForerunner" element={<ProposalForerunner />} />
-                
+
                 <Route path="/FacebookCallback" element={<FacebookCallback />} />
                 
                 <Route path="/BetaCapabilities" element={<BetaCapabilities />} />
@@ -360,17 +292,7 @@ function PagesContent() {
                 <Route path="/Survey" element={<Survey />} />
                 
                 <Route path="/SellerCard" element={<SellerCard />} />
-                
-                <Route path="/PitchDeckAfore" element={<PitchDeckAfore />} />
-                
-                <Route path="/PitchDeckYC" element={<PitchDeckYC />} />
-                
-                <Route path="/PitchDeckGBeta" element={<PitchDeckGBeta />} />
-                
-                <Route path="/PitchDeckAntler" element={<PitchDeckAntler />} />
-                
-                <Route path="/PitchDeckA16z" element={<PitchDeckA16z />} />
-                
+
                 <Route path="/EbayCallback" element={<EbayCallback />} />
                 
                 <Route path="/Automations" element={<Automations />} />
