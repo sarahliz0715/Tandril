@@ -52,8 +52,6 @@ import Inbox from "./Inbox";
 
 import Home from "./Home";
 
-import ExecutiveSummary from "./ExecutiveSummary";
-
 import VacationDashboard from "./VacationDashboard";
 
 import MasterStrategist from "./MasterStrategist";
@@ -65,10 +63,6 @@ import AIAdvisor from "./AIAdvisor";
 import FacebookCallback from "./FacebookCallback";
 
 import BetaCapabilities from "./BetaCapabilities";
-
-import RevenueModel from "./RevenueModel";
-
-import BusinessPlan from "./BusinessPlan";
 
 import Survey from "./Survey";
 
@@ -149,9 +143,7 @@ const PAGES = {
     Inbox: Inbox,
     
     Home: Home,
-    
-    ExecutiveSummary: ExecutiveSummary,
-    
+
     VacationDashboard: VacationDashboard,
     
     MasterStrategist: MasterStrategist,
@@ -163,11 +155,7 @@ const PAGES = {
     FacebookCallback: FacebookCallback,
     
     BetaCapabilities: BetaCapabilities,
-    
-    RevenueModel: RevenueModel,
-    
-    BusinessPlan: BusinessPlan,
-    
+
     Survey: Survey,
     
     SellerCard: SellerCard,
@@ -270,9 +258,7 @@ function PagesContent() {
                 <Route path="/Inbox" element={<Inbox />} />
                 
                 <Route path="/Home" element={<Home />} />
-                
-                <Route path="/ExecutiveSummary" element={<ExecutiveSummary />} />
-                
+
                 <Route path="/VacationDashboard" element={<VacationDashboard />} />
                 
                 <Route path="/MasterStrategist" element={<MasterStrategist />} />
@@ -284,11 +270,7 @@ function PagesContent() {
                 <Route path="/FacebookCallback" element={<FacebookCallback />} />
                 
                 <Route path="/BetaCapabilities" element={<BetaCapabilities />} />
-                
-                <Route path="/RevenueModel" element={<RevenueModel />} />
-                
-                <Route path="/BusinessPlan" element={<BusinessPlan />} />
-                
+
                 <Route path="/Survey" element={<Survey />} />
                 
                 <Route path="/SellerCard" element={<SellerCard />} />
