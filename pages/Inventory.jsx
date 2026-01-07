@@ -50,14 +50,17 @@ export default function Inventory() {
     try {
       const [user, items] = await Promise.all([
         api.auth.me(),
-        api.entities.InventoryItem.list('-updated_date')
+        api.entities.InventoryItem.list('-updated_date').catch(() => [])
       ]);
-      
+
       setCurrentUser(user);
-      setInventory(items);
+      setInventory(items || []);
     } catch (error) {
       console.error('Error loading inventory:', error);
-      handleAuthError(error, navigate);
+      // Don't redirect on data loading errors, just show empty state
+      if (!handleAuthError(error, navigate, { showToast: false })) {
+        setInventory([]);
+      }
     } finally {
       setIsLoading(false);
     }
