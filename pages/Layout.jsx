@@ -55,9 +55,6 @@ const secondaryNavigation = [
     { name: 'Settings', href: 'Settings', icon: Settings, betaHidden: false },
     { name: 'Resources', href: 'Capabilities', icon: FileText, betaHidden: true },
     { name: 'Seller Card', href: 'SellerCard', icon: CreditCard, betaHidden: true },
-    { name: 'Executive Summary', href: 'ExecutiveSummary', icon: FileText, betaHidden: true, adminOnly: true },
-    { name: 'Revenue Model', href: 'RevenueModel', icon: FileText, betaHidden: true, adminOnly: true },
-    { name: 'Business Plan', href: 'BusinessPlan', icon: FileText, betaHidden: true, adminOnly: true },
     { name: 'Support', href: 'support', icon: LifeBuoy, isModal: true },
 ];
 
@@ -86,8 +83,8 @@ export default function Layout({ children, currentPageName }) {
                     navigate(createPageUrl('Onboarding'));
                 }
 
-                // Protect admin-only pages
-                const adminOnlyPages = ['ExecutiveSummary', 'RevenueModel', 'BusinessPlan'];
+                // Protect admin-only pages (if any are added in the future)
+                const adminOnlyPages = [];
                 const isAdmin = currentUser?.isAdmin || currentUser?.role === 'admin' || currentUser?.role === 'owner';
 
                 if (adminOnlyPages.includes(currentPageName) && !isAdmin) {
