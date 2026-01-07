@@ -13,7 +13,6 @@ import SecuritySettings from '../components/settings/SecuritySettings';
 import NotificationSettings from '../components/settings/NotificationSettings';
 import AppearanceSettings from '../components/settings/AppearanceSettings';
 import SubscriptionSettings from '../components/settings/SubscriptionSettings';
-import ResourcesSettings from '../components/settings/ResourcesSettings';
 import { handleAuthError } from '@/utils/authHelpers';
 import BetaAccessManager from '../components/settings/BetaAccessManager';
 
@@ -108,13 +107,12 @@ export default function Settings() {
                 </div>
 
                 <Tabs defaultValue="profile" className="w-full">
-                    <TabsList className="grid w-full grid-cols-2 lg:grid-cols-6 mb-8">
+                    <TabsList className="grid w-full grid-cols-2 lg:grid-cols-5 mb-8">
                         <TabsTrigger value="profile">Profile</TabsTrigger>
                         <TabsTrigger value="security">Security</TabsTrigger>
                         <TabsTrigger value="notifications">Notifications</TabsTrigger>
                         <TabsTrigger value="appearance">Appearance</TabsTrigger>
                         <TabsTrigger value="subscription">Subscription</TabsTrigger>
-                        <TabsTrigger value="resources">Resources</TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="profile">
@@ -151,10 +149,6 @@ export default function Settings() {
 
                     <TabsContent value="subscription">
                         <SubscriptionSettings user={user} />
-                    </TabsContent>
-
-                    <TabsContent value="resources">
-                        <ResourcesSettings user={user} />
                     </TabsContent>
                 </Tabs>
 
