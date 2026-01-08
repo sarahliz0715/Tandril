@@ -62,11 +62,11 @@ export default function Inbox() {
     try {
       const [user, alertsData, messagesData] = await Promise.all([
         User.me(),
-        SmartAlert.list('-created_date', 100).catch(err => {
+        SmartAlert.list('-created_at', 100).catch(err => {
           console.error('Error fetching alerts:', err);
           return [];
         }),
-        CustomerMessage.list('-created_date', 50).catch(err => {
+        CustomerMessage.list('-created_at', 50).catch(err => {
           console.error('Error fetching messages:', err);
           return [];
         })

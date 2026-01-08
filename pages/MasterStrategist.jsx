@@ -57,7 +57,7 @@ export default function MasterStrategist() {
       const user = await User.me();
       setCurrentUser(user);
 
-      const strategiesData = await BusinessStrategy.list('-created_date').catch(err => {
+      const strategiesData = await BusinessStrategy.list('-created_at').catch(err => {
         console.error('Error fetching strategies:', err);
         return [];
       });

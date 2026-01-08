@@ -62,7 +62,7 @@ export default function CustomAlerts() {
     const loadAlerts = async () => {
         setIsLoading(true);
         try {
-            const alertsData = await api.entities.CustomAlert.list('-created_date');
+            const alertsData = await api.entities.CustomAlert.list('-created_at');
             setAlerts(alertsData || []);
         } catch (error) {
             console.error('Error loading custom alerts:', error);

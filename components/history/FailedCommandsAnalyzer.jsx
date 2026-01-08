@@ -18,7 +18,7 @@ export default function FailedCommandsAnalyzer() {
     const loadFailedCommands = async () => {
         setIsLoading(true);
         try {
-            const commands = await AICommand.list('-created_date', 50);
+            const commands = await AICommand.list('-created_at', 50);
             const failed = commands.filter(cmd => 
                 cmd.status === 'failed' || 
                 cmd.status === 'partially_completed' ||
@@ -171,7 +171,7 @@ export default function FailedCommandsAnalyzer() {
                                                 {command.status}
                                             </Badge>
                                             <span>
-                                                {new Date(command.created_date).toLocaleString()}
+                                                {new Date(command.created_at).toLocaleString()}
                                             </span>
                                             {command.platform_targets && command.platform_targets.length > 0 && (
                                                 <Badge variant="outline">

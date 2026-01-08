@@ -178,7 +178,7 @@ export default function TicketManager({ tickets, onRefresh, user }) {
                                             </Badge>
                                         </div>
                                         <span className="text-xs text-slate-500">
-                                            {new Date(ticket.created_date).toLocaleDateString()}
+                                            {new Date(ticket.created_at).toLocaleDateString()}
                                         </span>
                                     </div>
                                     <p className="text-sm text-slate-700 line-clamp-2 mb-2">{ticket.message}</p>
@@ -272,7 +272,7 @@ export default function TicketManager({ tickets, onRefresh, user }) {
                                             {selectedTicket.customer_name}
                                         </span>
                                         <span className="text-xs text-blue-600">
-                                            {new Date(selectedTicket.created_date).toLocaleString()}
+                                            {new Date(selectedTicket.created_at).toLocaleString()}
                                         </span>
                                     </div>
                                     <p className="text-sm text-slate-900">{selectedTicket.message}</p>

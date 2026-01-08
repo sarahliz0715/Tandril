@@ -102,7 +102,7 @@ export default function Listings() {
             setCurrentUser(user);
 
             const [itemsData, platformsData] = await Promise.all([
-                InventoryItem.list('-created_date').catch(err => {
+                InventoryItem.list('-created_at').catch(err => {
                     console.error('Error fetching inventory:', err);
                     return [];
                 }),

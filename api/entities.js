@@ -3,6 +3,7 @@ import { createMockEntities, mockAuth } from './mockData';
 import { supabaseAuthService } from './supabaseAuth';
 import { isSupabaseConfigured } from './supabaseClient';
 import { createSupabaseEntities } from './supabaseEntities';
+import logger from '@/utils/logger';
 
 // Check if running in standalone mode
 // Default to standalone mode (true) unless explicitly set to false
@@ -23,7 +24,7 @@ if (hasSupabase) {
   entities = api.entities;
 }
 
-console.log('🗄️ Tandril Entities Mode:', {
+logger.dev('🗄️ Tandril Entities Mode:', {
   isStandaloneMode,
   hasSupabase,
   usingMocks: !hasSupabase && isStandaloneMode,

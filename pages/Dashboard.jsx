@@ -153,14 +153,14 @@ export default function Dashboard() {
       handleReminders(user);
 
       const [platformsData, commandsData] = await Promise.all([
-          Platform.list('-created_date'),
-          AICommand.list('-created_date', 10)
+          Platform.list('-created_at'),
+          AICommand.list('-created_at', 10)
       ]);
 
       await new Promise(resolve => setTimeout(resolve, 100));
 
       // TEMPORARILY DISABLED - Testing if these mock entities cause Commands crash
-      // const alertsData = await SmartAlert.list('-created_date', 20);
+      // const alertsData = await SmartAlert.list('-created_at', 20);
       const alertsData = []; // Empty - bypassing SmartAlert.list()
       const recommendationsData = []; // Empty - bypassing AIRecommendation.list()
 
@@ -192,7 +192,7 @@ export default function Dashboard() {
 
       const criticalAlertsCount = alertsData.filter(a => a.priority === 'high' || a.priority === 'urgent').length;
       const newRecommendationsCount = recommendationsData.filter(r => r.status === 'new').length;
-      const automationsRunCount = commandsData.filter(c => new Date(c.created_date) > lastWeek && c.status === 'completed').length;
+      const automationsRunCount = commandsData.filter(c => new Date(c.created_at) > lastWeek && c.status === 'completed').length;
 
       setHubStats({
         recentRevenue: recentRevenue,
@@ -503,7 +503,7 @@ export default function Dashboard() {
                           {command.is_demo_data && <DemoBadge />}
                         </p>
                         <div className="text-xs text-slate-500 mt-1">
-                          {new Date(command.created_date).toLocaleString()}
+                          {new Date(command.created_at).toLocaleString()}
                         </div>
                       </div>
                       <div className="opacity-0 group-hover:opacity-100 transition-opacity">

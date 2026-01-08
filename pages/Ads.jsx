@@ -56,11 +56,11 @@ export default function Ads() {
     try {
       const [user, campaignsData, creativesData, templatesData] = await Promise.all([
         User.me(),
-        AdCampaign.list('-created_date').catch(err => {
+        AdCampaign.list('-created_at').catch(err => {
           console.error('Error fetching campaigns:', err);
           return [];
         }),
-        AdCreative.list('-created_date').catch(err => {
+        AdCreative.list('-created_at').catch(err => {
           console.error('Error fetching creatives:', err);
           return [];
         }),

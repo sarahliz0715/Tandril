@@ -61,7 +61,7 @@ export default function Workflows() {
     try {
       const [user, workflowsData, templatesData] = await Promise.all([
         User.me(),
-        AIWorkflow.list('-created_date').catch(err => {
+        AIWorkflow.list('-created_at').catch(err => {
           console.error('Error fetching workflows:', err);
           return [];
         }),
@@ -72,15 +72,15 @@ export default function Workflows() {
       ]);
 
       setCurrentUser(user);
-      
+
       // Filter valid data
-      const validWorkflows = workflowsData.filter(w => 
+      const validWorkflows = workflowsData.filter(w =>
         w && typeof w === 'object' && w.id
       );
-      const validTemplates = templatesData.filter(t => 
+      const validTemplates = templatesData.filter(t =>
         t && typeof t === 'object' && t.id
       );
-      
+
       setWorkflows(validWorkflows);
       setTemplates(validTemplates);
     } catch (error) {
@@ -385,6 +385,7 @@ export default function Workflows() {
         </TabsContent>
 
         <TabsContent value="templates" className="space-y-4">
+          {console.log('🔍 [Workflows RENDER] templates state:', templates, 'length:', templates.length)}
           {templates.length === 0 ? (
             <Card className="p-12">
               <div className="text-center">

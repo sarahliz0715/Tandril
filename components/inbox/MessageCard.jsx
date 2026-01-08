@@ -180,7 +180,7 @@ export default function MessageCard({ message, onClick, isSelected = false, onRe
                         
                         <div className="flex items-center justify-between">
                             <span className="text-xs text-slate-500">
-                                {formatTimeAgo(message.created_date)}
+                                {formatTimeAgo(message.created_at)}
                             </span>
                             
                             <div className="flex items-center gap-2">

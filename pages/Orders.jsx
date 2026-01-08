@@ -47,10 +47,13 @@ export default function Orders() {
     setIsLoading(true);
     try {
       const data = await api.entities.Order.list('-order_date');
-      setOrders(data);
+      setOrders(data || []);
     } catch (error) {
       console.error('Error loading orders:', error);
-      handleAuthError(error, navigate);
+      // Don't redirect on data loading errors, just show empty state
+      if (!handleAuthError(error, navigate, { showToast: false })) {
+        setOrders([]);
+      }
     } finally {
       setIsLoading(false);
     }

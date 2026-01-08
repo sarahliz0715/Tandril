@@ -92,7 +92,7 @@ export default function Intelligence() {
     try {
       const [user, intelligenceData] = await Promise.all([
         api.auth.me(),
-        api.entities.MarketIntelligence.list('-created_date').catch(err => {
+        api.entities.MarketIntelligence.list('-created_at').catch(err => {
           console.error('Error fetching intelligence:', err);
           return [];
         })

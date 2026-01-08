@@ -59,7 +59,7 @@ export default function VacationDashboard() {
 
     const actionsToday = recentActions.filter(a => {
       const today = new Date();
-      const actionDate = new Date(a.created_date);
+      const actionDate = new Date(a.created_at);
       return actionDate.toDateString() === today.toDateString();
     }).length;
 
@@ -79,11 +79,11 @@ export default function VacationDashboard() {
     try {
       const [userData, commandsData, alertsData, inventoryData] = await Promise.all([
         User.me(),
-        AICommand.filter({ vacation_mode: true }, '-created_date', 10).catch(err => {
+        AICommand.filter({ vacation_mode: true }, '-created_at', 10).catch(err => {
           console.error('Error fetching commands:', err);
           return [];
         }),
-        SmartAlert.list('-created_date', 5).catch(err => {
+        SmartAlert.list('-created_at', 5).catch(err => {
           console.error('Error fetching alerts:', err);
           return [];
         }),
@@ -345,7 +345,7 @@ export default function VacationDashboard() {
                           <div className="flex-1">
                             <p className="font-medium text-slate-900">{action.command_text}</p>
                             <p className="text-sm text-slate-600 mt-1">
-                              {new Date(action.created_date).toLocaleString()}
+                              {new Date(action.created_at).toLocaleString()}
                             </p>
                             {action.results && (
                               <p className="text-sm text-green-600 mt-1">

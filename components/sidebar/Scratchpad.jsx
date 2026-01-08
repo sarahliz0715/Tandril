@@ -19,7 +19,7 @@ export default function Scratchpad() {
     const loadNotes = async () => {
         setIsLoading(true);
         try {
-            const fetchedNotes = await ScratchpadNote.list('-created_date');
+            const fetchedNotes = await ScratchpadNote.list('-created_at');
             setNotes(fetchedNotes);
         } catch (error) {
             toast.error("Failed to load notes.");
@@ -74,7 +74,7 @@ export default function Scratchpad() {
     const sortedNotes = [...notes].sort((a, b) => {
         if (a.is_pinned && !b.is_pinned) return -1;
         if (!a.is_pinned && b.is_pinned) return 1;
-        return new Date(b.created_date) - new Date(a.created_date);
+        return new Date(b.created_at) - new Date(a.created_at);
     });
 
     return (
@@ -126,7 +126,7 @@ export default function Scratchpad() {
                                         <p className="text-sm text-slate-800 whitespace-pre-wrap">{note.content}</p>
                                         <div className="flex items-center justify-between mt-2">
                                             <span className="text-xs text-slate-400">
-                                                {new Date(note.created_date).toLocaleDateString()}
+                                                {new Date(note.created_at).toLocaleDateString()}
                                             </span>
                                             <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
                                                 <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleTogglePin(note)}>
