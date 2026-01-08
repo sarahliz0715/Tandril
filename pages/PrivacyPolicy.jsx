@@ -145,7 +145,7 @@ export default function PrivacyPolicy() {
                 <li><strong>Withdraw Consent:</strong> Revoke previously granted permissions at any time.</li>
               </ul>
               <p className="text-slate-700 mt-3">
-                To exercise these rights, email us at <a href="mailto:privacy@tandril.com" className="text-indigo-600 hover:underline font-semibold">privacy@tandril.com</a>. We will respond within 30 days.
+                To exercise these rights, email us at <a href="mailto:evensonsarah704@gmail.com" className="text-indigo-600 hover:underline font-semibold">evensonsarah704@gmail.com</a>. We will respond within 30 days.
               </p>
             </section>
 
@@ -227,8 +227,7 @@ export default function PrivacyPolicy() {
               </p>
               <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-2">
                 <p className="text-slate-800"><strong>Tandril, Inc.</strong></p>
-                <p className="text-slate-700">Email: <a href="mailto:privacy@tandril.com" className="text-indigo-600 hover:underline font-semibold">privacy@tandril.com</a></p>
-                <p className="text-slate-700">Support: <a href="mailto:support@tandril.com" className="text-indigo-600 hover:underline font-semibold">support@tandril.com</a></p>
+                <p className="text-slate-700">Email: <a href="mailto:evensonsarah704@gmail.com" className="text-indigo-600 hover:underline font-semibold">evensonsarah704@gmail.com</a></p>
                 <p className="text-slate-700">Website: <a href="https://tandril-mvp.vercel.app" className="text-indigo-600 hover:underline font-semibold">https://tandril-mvp.vercel.app</a></p>
               </div>
             </section>
