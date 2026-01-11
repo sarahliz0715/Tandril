@@ -227,6 +227,10 @@ export const supabaseSavedCommand = createSupabaseEntity('saved_commands');
 export const supabaseAIWorkflow = createSupabaseEntity('ai_workflows');
 export const supabaseWorkflowTemplate = createSupabaseEntity('workflow_templates');
 export const supabaseWorkflowRun = createSupabaseEntity('workflow_runs');
+export const supabaseSupplier = createSupabaseEntity('suppliers');
+export const supabaseProductSupplier = createSupabaseEntity('product_suppliers');
+export const supabasePurchaseOrder = createSupabaseEntity('purchase_orders');
+export const supabasePurchaseOrderItem = createSupabaseEntity('purchase_order_items');
 
 // Export all Supabase entities, with mock entities as fallback for entities without Supabase tables
 export const createSupabaseEntities = () => {
@@ -241,6 +245,10 @@ export const createSupabaseEntities = () => {
     AIWorkflow: supabaseAIWorkflow,
     WorkflowTemplate: supabaseWorkflowTemplate,
     WorkflowRun: supabaseWorkflowRun,
+    Supplier: supabaseSupplier,
+    ProductSupplier: supabaseProductSupplier,
+    PurchaseOrder: supabasePurchaseOrder,
+    PurchaseOrderItem: supabasePurchaseOrderItem,
 
     // Mock entities (no Supabase tables yet - using mocks as fallback)
     MockProduct: mockEntities.MockProduct,

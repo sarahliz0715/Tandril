@@ -75,8 +75,10 @@ export const AutomationTemplate = entities.AutomationTemplate;
 export const Review = entities.Review;
 export const AIResponseFeedback = entities.AIResponseFeedback;
 export const CustomAlert = entities.CustomAlert;
-
-
+export const Supplier = entities.Supplier;
+export const ProductSupplier = entities.ProductSupplier;
+export const PurchaseOrder = entities.PurchaseOrder;
+export const PurchaseOrderItem = entities.PurchaseOrderItem;
 
 // auth sdk - use Supabase if configured, otherwise use mock auth in standalone mode, or API auth
 export const User = hasSupabase ? supabaseAuthService : (isStandaloneMode ? mockAuth : api.auth);
