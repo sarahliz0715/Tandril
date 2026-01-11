@@ -24,6 +24,10 @@ import Workflows from "./Workflows";
 
 import Inventory from "./Inventory";
 
+import Suppliers from "./Suppliers";
+
+import PurchaseOrders from "./PurchaseOrders";
+
 import Analytics from "./Analytics";
 
 import BulkUpload from "./BulkUpload";
@@ -115,7 +119,11 @@ const PAGES = {
     Workflows: Workflows,
     
     Inventory: Inventory,
-    
+
+    Suppliers: Suppliers,
+
+    PurchaseOrders: PurchaseOrders,
+
     Analytics: Analytics,
     
     BulkUpload: BulkUpload,
@@ -230,7 +238,11 @@ function PagesContent() {
                 <Route path="/Workflows" element={<Workflows />} />
                 
                 <Route path="/Inventory" element={<Inventory />} />
-                
+
+                <Route path="/Suppliers" element={<Suppliers />} />
+
+                <Route path="/PurchaseOrders" element={<PurchaseOrders />} />
+
                 <Route path="/Analytics" element={<Analytics />} />
                 
                 <Route path="/BulkUpload" element={<BulkUpload />} />

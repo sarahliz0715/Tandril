@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Menu, X, LogOut, Settings, LayoutDashboard, MessageSquare, Briefcase, Bot,
-  TrendingUp, BarChart3, Package, Users, FileText, LifeBuoy,
+  TrendingUp, BarChart3, Package, Users, FileText, LifeBuoy, Building2,
   DollarSign, Command, Repeat, ShoppingCart, History, GripVertical, CreditCard, Bell, AlertTriangle
 } from 'lucide-react';
 import TandrilLogo from '@/components/logos/TandrilLogo';
@@ -39,6 +39,8 @@ const defaultNavigationItems = [
     { name: 'Intelligence', href: 'Intelligence', icon: TrendingUp, color: 'text-emerald-600' },
     { name: 'Analytics', href: 'Analytics', icon: BarChart3, color: 'text-violet-600' },
     { name: 'Inventory', href: 'Inventory', icon: Package, color: 'text-amber-600' },
+    { name: 'Suppliers', href: 'Suppliers', icon: Building2, color: 'text-slate-600' },
+    { name: 'Purchase Orders', href: 'PurchaseOrders', icon: FileText, color: 'text-blue-600' },
 ];
 
 const betaNavigationItems = [
@@ -49,6 +51,9 @@ const betaNavigationItems = [
     { name: 'My Shopify Store', href: 'Platforms', icon: Briefcase, color: 'text-teal-600' },
     { name: 'Commands', href: 'Commands', icon: Command, color: 'text-indigo-600' },
     { name: 'History', href: 'History', icon: History, color: 'text-slate-600' },
+    { name: 'Inventory', href: 'Inventory', icon: Package, color: 'text-amber-600' },
+    { name: 'Suppliers', href: 'Suppliers', icon: Building2, color: 'text-slate-600' },
+    { name: 'Purchase Orders', href: 'PurchaseOrders', icon: FileText, color: 'text-blue-600' },
 ];
 
 const secondaryNavigation = [
