@@ -15,6 +15,7 @@ import AppearanceSettings from '../components/settings/AppearanceSettings';
 import SubscriptionSettings from '../components/settings/SubscriptionSettings';
 import { handleAuthError } from '@/utils/authHelpers';
 import BetaAccessManager from '../components/settings/BetaAccessManager';
+import TestAccountSetup from '../components/settings/TestAccountSetup';
 
 export default function Settings() {
     const [user, setUser] = useState(null);
@@ -152,10 +153,15 @@ export default function Settings() {
                     </TabsContent>
                 </Tabs>
 
+                {/* Test Account Setup - For configuring Shopify test accounts */}
+                <div className="mt-8">
+                    <TestAccountSetup currentUser={user} onUpdate={loadUser} />
+                </div>
+
                 {/* Beta Access Manager - Only show for admins */}
                 {user.role === 'admin' && (
                     <div className="mt-8">
-                        <BetaAccessManager />
+                        <BetaAccessManager currentUser={user} />
                     </div>
                 )}
             </div>
