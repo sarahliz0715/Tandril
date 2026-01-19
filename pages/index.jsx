@@ -94,6 +94,8 @@ import FinancialDashboard from "./FinancialDashboard";
 
 import OrderIntelligence from "./OrderIntelligence";
 
+import Welcome from "./Welcome";
+
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 
 const PAGES = {
@@ -189,6 +191,8 @@ const PAGES = {
     FinancialDashboard: FinancialDashboard,
 
     OrderIntelligence: OrderIntelligence,
+
+    Welcome: Welcome,
 
 }
 
@@ -308,6 +312,8 @@ function PagesContent() {
                 <Route path="/FinancialDashboard" element={<FinancialDashboard />} />
 
                 <Route path="/OrderIntelligence" element={<OrderIntelligence />} />
+
+                <Route path="/Welcome" element={<Welcome />} />
 
             </Routes>
         </Layout>
