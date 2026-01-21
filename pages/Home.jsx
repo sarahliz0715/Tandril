@@ -150,7 +150,7 @@ export default function Home() {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-white via-slate-50 to-green-50">
                 <div className="text-center">
-                    <TandrilLogo className="h-12 w-auto mx-auto mb-4" />
+                    <TandrilVineLogo className="h-12 w-auto mx-auto mb-4" />
                     <p className="text-slate-600">Checking your access...</p>
                 </div>
             </div>
@@ -164,7 +164,7 @@ export default function Home() {
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex justify-between items-center h-16">
                         <div className="flex items-center gap-3">
-                            <TandrilLogo className="h-8 w-auto" />
+                            <TandrilVineLogo className="h-8 w-auto" />
                             <span className="text-xl font-bold text-slate-800 hidden sm:block">Tandril</span>
                         </div>
                         <div className="flex items-center gap-4">
