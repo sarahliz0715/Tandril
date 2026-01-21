@@ -1,5 +1,6 @@
 import React from 'react';
 
+// CORRECT CURLY VINE LOGO - Build timestamp: 2026-01-21
 export default function TandrilVineLogo({ className = "w-8 h-8" }) {
   return (
     <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" className={className}>
