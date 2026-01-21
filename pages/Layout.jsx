@@ -9,7 +9,7 @@ import {
   TrendingUp, BarChart3, Package, Users, FileText, LifeBuoy, Building2,
   DollarSign, Command, Repeat, ShoppingCart, History, GripVertical, CreditCard, Bell, AlertTriangle
 } from 'lucide-react';
-import TandrilLogo from '@/components/logos/TandrilLogo';
+import TandrilVineLogo from '@/components/logos/TandrilVineLogo';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import InactivityManager from "@/components/auth/InactivityManager";
 import ActivityTracker from "@/components/auth/ActivityTracker";
@@ -180,7 +180,7 @@ export default function Layout({ children, currentPageName }) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-slate-100">
                 <div className="flex flex-col items-center gap-4">
-                    <TandrilLogo className="h-12 w-auto" />
+                    <TandrilVineLogo className="h-12 w-auto" />
                     <p className="text-lg font-medium text-slate-600">Loading...</p>
                 </div>
             </div>
@@ -208,7 +208,7 @@ export default function Layout({ children, currentPageName }) {
                                     >
                                         <Menu className="h-6 w-6" />
                                     </Button>
-                                    <TandrilLogo className="h-8" />
+                                    <TandrilVineLogo className="h-8" />
                                 </div>
                             </div>
 
@@ -227,7 +227,7 @@ export default function Layout({ children, currentPageName }) {
                                 <div className="flex flex-col h-full">
                                     {/* Logo */}
                                     <div className="flex items-center justify-between p-6 border-b border-slate-200">
-                                        <TandrilLogo className="h-8" />
+                                        <TandrilVineLogo className="h-8" />
                                         <Button
                                             variant="ghost"
                                             size="icon"

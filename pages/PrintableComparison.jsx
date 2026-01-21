@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import TandrilLogoLarge from '../components/logos/TandrilLogoLarge';
+import TandrilVineLogoLarge from '../components/logos/TandrilVineLogoLarge';
 import { Bot, Hand, GitCompareArrows, BrainCircuit, TrendingUp, Zap, Database, Printer } from 'lucide-react';
 import { createPageUrl } from '@/utils';
 
@@ -102,7 +102,7 @@ export default function PrintableComparison() {
                 <h1 className="text-4xl font-bold text-slate-900">Tandril vs. Sellbrite</h1>
                 <p className="text-lg text-slate-600 mt-1">From Manual Control to Autonomous Operation</p>
             </div>
-            <TandrilLogoLarge className="w-20 h-20" />
+            <TandrilVineLogoLarge className="w-20 h-20" />
         </header>
 
         <section className="mb-10">

@@ -9,7 +9,7 @@ import { Loader2, Mail, Lock, Chrome, Github } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabaseAuthService } from '@/api/supabaseAuth';
 import { createPageUrl } from '@/utils';
-import TandrilLogo from '@/components/logos/TandrilLogo';
+import TandrilVineLogo from '@/components/logos/TandrilVineLogo';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -72,7 +72,7 @@ export default function Login() {
         {/* Logo */}
         <div className="text-center mb-8">
           <Link to={createPageUrl('Home')} className="inline-block">
-            <TandrilLogo className="h-12 w-auto mx-auto" />
+            <TandrilVineLogo className="h-12 w-auto mx-auto" />
           </Link>
           <h1 className="mt-4 text-2xl font-bold text-slate-900">Welcome Back</h1>
           <p className="mt-2 text-slate-600">Sign in to your Tandril account</p>

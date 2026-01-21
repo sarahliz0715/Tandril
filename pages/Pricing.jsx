@@ -5,7 +5,7 @@ import { CheckCircle, ArrowRight, Star, Sparkles, Loader2, Heart, Shield, Zap } 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import TandrilLogo from '../components/logos/TandrilLogo';
+import TandrilVineLogo from '../components/logos/TandrilVineLogo';
 import { toast } from 'sonner';
 import { createPageUrl } from '@/utils';
 
@@ -243,7 +243,7 @@ export default function Pricing() {
         return (
             <div className="bg-gradient-to-br from-slate-50 via-white to-blue-50 min-h-screen flex items-center justify-center">
                 <div className="text-center">
-                    <TandrilLogo className="h-12 w-12 mx-auto mb-4" />
+                    <TandrilVineLogo className="h-12 w-12 mx-auto mb-4" />
                     <p className="text-slate-600">Loading pricing...</p>
                 </div>
             </div>
@@ -257,7 +257,7 @@ export default function Pricing() {
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex justify-between items-center h-16">
                         <div className="flex items-center gap-3">
-                            <TandrilLogo className="h-8 w-auto" />
+                            <TandrilVineLogo className="h-8 w-auto" />
                             <span className="text-xl font-bold text-slate-800 hidden sm:block">Tandril</span>
                         </div>
                         <div className="flex items-center gap-4">

@@ -5,7 +5,7 @@ import { User } from '@/api/entities';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CheckCircle, Sparkles, Zap, Package, Bot, ArrowRight, Loader2 } from 'lucide-react';
-import TandrilLogo from '../components/logos/TandrilLogo';
+import TandrilVineLogo from '../components/logos/TandrilVineLogo';
 import { handleAuthError } from '@/utils/authHelpers';
 
 export default function Welcome() {
@@ -55,7 +55,7 @@ export default function Welcome() {
                 {/* Header */}
                 <div className="text-center mb-12">
                     <div className="flex justify-center mb-6">
-                        <TandrilLogo className="h-20 w-20" />
+                        <TandrilVineLogo className="h-20 w-20" />
                     </div>
                     <h1 className="text-4xl sm:text-5xl font-bold text-slate-900 mb-4">
                         Welcome to Tandril! 🎉

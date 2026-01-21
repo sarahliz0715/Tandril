@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { CheckCircle, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import TandrilLogo from '../components/logos/TandrilLogo';
+import TandrilVineLogo from '../components/logos/TandrilVineLogo';
 
 export default function Survey() {
   const [submitted, setSubmitted] = useState(false);
@@ -89,7 +89,7 @@ export default function Survey() {
       <div className="max-w-2xl mx-auto">
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-3 mb-4">
-            <TandrilLogo className="h-12 w-12" />
+            <TandrilVineLogo className="h-12 w-12" />
             <h1 className="text-3xl font-bold text-slate-900">Tandril</h1>
           </div>
           <h2 className="text-2xl font-bold text-slate-800 mb-2">Help Us Build Better Tools for Sellers</h2>

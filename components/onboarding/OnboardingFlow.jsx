@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { toast } from 'sonner';
-import TandrilLogo from '../logos/TandrilLogo';
+import TandrilVineLogo from '../logos/TandrilVineLogo';
 import AIAvatar from '../advisor/AIAvatar';
 import { 
     Loader2, FlaskConical, Store, Bot, Zap, TrendingUp, 
@@ -495,7 +495,7 @@ export default function OnboardingFlow() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50">
           <div className="flex flex-col items-center gap-4">
-              <TandrilLogo className="h-12 w-auto" />
+              <TandrilVineLogo className="h-12 w-auto" />
               <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
               <p className="text-slate-600">Preparing your setup...</p>
           </div>
@@ -508,7 +508,7 @@ export default function OnboardingFlow() {
     return (
         <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50">
             <div className="text-center">
-                <TandrilLogo className="h-12 w-auto mx-auto mb-4" />
+                <TandrilVineLogo className="h-12 w-auto mx-auto mb-4" />
                 <p className="text-slate-600 mb-4">Authentication required</p>
                 <Button onClick={() => navigate(createPageUrl('Home'))}>
                     Return Home
@@ -523,7 +523,7 @@ export default function OnboardingFlow() {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-gray-50">
         <div className="text-center space-y-6 max-w-md">
-          <TandrilLogo className="mx-auto h-12 w-auto" />
+          <TandrilVineLogo className="mx-auto h-12 w-auto" />
           <div className="space-y-4">
             <AIAvatar size="xl" className="mx-auto" />
             <h2 className="text-2xl font-bold text-gray-900">
@@ -548,7 +548,7 @@ export default function OnboardingFlow() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-indigo-50 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-2xl">
-        <TandrilLogo className="mx-auto h-12 w-auto" />
+        <TandrilVineLogo className="mx-auto h-12 w-auto" />
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-2xl">
