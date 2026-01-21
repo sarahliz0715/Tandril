@@ -1,7 +1,7 @@
 import React from 'react';
 
 export default function TandrilLogo({ className = "w-8 h-8" }) {
-  // Curly vine design - the official Tandril logo
+  // Curly vine design - the official Tandril logo (updated)
   return (
     <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" className={className}>
       <rect width="100" height="100" rx="20" fill="#f7fee7"/>
