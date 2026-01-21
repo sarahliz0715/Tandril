@@ -1,12 +1,14 @@
 import React from 'react';
 
-// CORRECT CURLY VINE LOGO - Build timestamp: 2026-01-21
+// CORRECT CURLY VINE LOGO - CACHE BUSTER v2.0.0 - 2026-01-21T20:50:00Z
 export default function TandrilVineLogoLarge({ className = "w-20 h-20" }) {
+  // This is the CORRECT curly vine design
+  const vinePath = "M50 30 V 78 C 50 88 40 88 40 78 M 25 35 C 45 20 55 20 75 35";
   return (
     <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" className={className}>
       <rect width="100" height="100" rx="20" fill="#f7fee7"/>
       <path
-        d="M50 30 V 78 C 50 88 40 88 40 78 M 25 35 C 45 20 55 20 75 35"
+        d={vinePath}
         stroke="#166534"
         strokeWidth="8"
         fill="none"
