@@ -186,17 +186,7 @@ export default function Home() {
                     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
                         {/* Large Centered Logo */}
                         <div className="flex flex-col items-center mb-8">
-                            <img
-                                src="/tandril-logo.png"
-                                alt="Tandril Logo"
-                                className="h-32 w-auto mb-4"
-                                onError={(e) => {
-                                    // Fallback to SVG logo if image not found
-                                    e.target.style.display = 'none';
-                                    e.target.nextSibling.style.display = 'block';
-                                }}
-                            />
-                            <TandrilLogo className="h-32 w-auto mb-4 hidden" />
+                            <TandrilLogo className="h-32 w-auto mb-4" />
                             <h1 className="text-5xl sm:text-6xl font-extrabold text-slate-900 tracking-tight">
                                 Tandril
                             </h1>
