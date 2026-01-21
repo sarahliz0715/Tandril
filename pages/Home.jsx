@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import TandrilLogo from '../components/logos/TandrilLogo';
+import TandrilVineLogo from '../components/logos/TandrilVineLogo';
 import AnimatedCommandPrompt from '../components/landing/AnimatedCommandPrompt';
 import EmailCapture from '../components/landing/EmailCapture';
 import { CheckCircle, Zap, TrendingUp, Bot, Package, Briefcase, BarChart, Shield, Users, Sparkles, MessageSquare, ArrowRight } from 'lucide-react';
@@ -150,7 +150,7 @@ export default function Home() {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-white via-slate-50 to-green-50">
                 <div className="text-center">
-                    <TandrilLogo className="h-12 w-auto mx-auto mb-4" />
+                    <TandrilVineLogo className="h-12 w-auto mx-auto mb-4" />
                     <p className="text-slate-600">Checking your access...</p>
                 </div>
             </div>
@@ -164,7 +164,7 @@ export default function Home() {
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex justify-between items-center h-16">
                         <div className="flex items-center gap-3">
-                            <TandrilLogo className="h-8 w-auto" />
+                            <TandrilVineLogo className="h-8 w-auto" />
                             <span className="text-xl font-bold text-slate-800 hidden sm:block">Tandril</span>
                         </div>
                         <div className="flex items-center gap-4">
@@ -186,17 +186,7 @@ export default function Home() {
                     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
                         {/* Large Centered Logo */}
                         <div className="flex flex-col items-center mb-8">
-                            <img
-                                src="/tandril-logo.png"
-                                alt="Tandril Logo"
-                                className="h-32 w-auto mb-4"
-                                onError={(e) => {
-                                    // Fallback to SVG logo if image not found
-                                    e.target.style.display = 'none';
-                                    e.target.nextSibling.style.display = 'block';
-                                }}
-                            />
-                            <TandrilLogo className="h-32 w-auto mb-4 hidden" />
+                            <TandrilVineLogo className="h-32 w-auto mb-4" />
                             <h1 className="text-5xl sm:text-6xl font-extrabold text-slate-900 tracking-tight">
                                 Tandril
                             </h1>

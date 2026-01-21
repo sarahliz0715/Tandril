@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, Package, Bot } from 'lucide-react';
 
-export default function LowStockAlerts({ inventory }) {
+export default function LowStockAlerts({ inventory, onCreateReorderPO }) {
     const lowStockItems = inventory
         .filter(item => item.status === 'low_stock')
         .sort((a, b) => a.total_stock - b.total_stock);
@@ -17,8 +17,8 @@ export default function LowStockAlerts({ inventory }) {
                         <AlertTriangle className="w-6 h-6 text-orange-500" />
                         <CardTitle>Low Stock Alerts</CardTitle>
                     </div>
-                    {lowStockItems.length > 0 && (
-                        <Button size="sm" variant="outline">
+                    {lowStockItems.length > 0 && onCreateReorderPO && (
+                        <Button size="sm" variant="outline" onClick={() => onCreateReorderPO(lowStockItems)}>
                             <Bot className="w-4 h-4 mr-2" />
                             Create Reorder PO
                         </Button>

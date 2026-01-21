@@ -24,6 +24,10 @@ import Workflows from "./Workflows";
 
 import Inventory from "./Inventory";
 
+import Suppliers from "./Suppliers";
+
+import PurchaseOrders from "./PurchaseOrders";
+
 import Analytics from "./Analytics";
 
 import BulkUpload from "./BulkUpload";
@@ -90,6 +94,8 @@ import FinancialDashboard from "./FinancialDashboard";
 
 import OrderIntelligence from "./OrderIntelligence";
 
+import Welcome from "./Welcome";
+
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 
 const PAGES = {
@@ -115,7 +121,11 @@ const PAGES = {
     Workflows: Workflows,
     
     Inventory: Inventory,
-    
+
+    Suppliers: Suppliers,
+
+    PurchaseOrders: PurchaseOrders,
+
     Analytics: Analytics,
     
     BulkUpload: BulkUpload,
@@ -182,6 +192,8 @@ const PAGES = {
 
     OrderIntelligence: OrderIntelligence,
 
+    Welcome: Welcome,
+
 }
 
 function _getCurrentPage(url) {
@@ -230,7 +242,11 @@ function PagesContent() {
                 <Route path="/Workflows" element={<Workflows />} />
                 
                 <Route path="/Inventory" element={<Inventory />} />
-                
+
+                <Route path="/Suppliers" element={<Suppliers />} />
+
+                <Route path="/PurchaseOrders" element={<PurchaseOrders />} />
+
                 <Route path="/Analytics" element={<Analytics />} />
                 
                 <Route path="/BulkUpload" element={<BulkUpload />} />
@@ -296,6 +312,8 @@ function PagesContent() {
                 <Route path="/FinancialDashboard" element={<FinancialDashboard />} />
 
                 <Route path="/OrderIntelligence" element={<OrderIntelligence />} />
+
+                <Route path="/Welcome" element={<Welcome />} />
 
             </Routes>
         </Layout>

@@ -9,7 +9,7 @@ import { Loader2, Mail, Lock, User, Chrome, Github, CheckCircle } from 'lucide-r
 import { toast } from 'sonner';
 import { supabaseAuthService } from '@/api/supabaseAuth';
 import { createPageUrl } from '@/utils';
-import TandrilLogo from '@/components/logos/TandrilLogo';
+import TandrilVineLogo from '@/components/logos/TandrilVineLogo';
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -87,7 +87,7 @@ export default function Signup() {
         {/* Logo */}
         <div className="text-center mb-8">
           <Link to={createPageUrl('Home')} className="inline-block">
-            <TandrilLogo className="h-12 w-auto mx-auto" />
+            <TandrilVineLogo className="h-12 w-auto mx-auto" />
           </Link>
           <h1 className="mt-4 text-2xl font-bold text-slate-900">Start Your Free Trial</h1>
           <p className="mt-2 text-slate-600">14 days free, no credit card required</p>

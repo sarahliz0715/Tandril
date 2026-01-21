@@ -37,6 +37,7 @@ import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 import { NoDataEmptyState } from '../components/common/EmptyState';
 import BetaInviteModal from '../components/settings/BetaInviteModal';
 import ModeToggle from '../components/dashboard/ModeToggle';
+import LowStockAlerts from '../components/inventory/LowStockAlerts';
 
 const useBetaAccess = (user) => {
     return useMemo(() => ({
@@ -313,6 +314,7 @@ export default function Dashboard() {
           { id: 'ai-activity', title: 'AI Activity Log', layout: 'main-col', showControls: true },
           { id: 'top-products', title: 'Top Performing Products', layout: 'main-col', showControls: true },
           { id: 'personalized-todos', title: 'Today\'s Focus', component: PersonalizedTodos, layout: 'side-col' },
+          { id: 'low-stock-alerts', title: 'Low Stock Alerts', layout: 'side-col', showControls: true },
           { id: 'recommendations', title: 'AI Recommendations', layout: 'side-col', showControls: true },
           { id: 'platform-status', title: 'Platform Status', layout: 'side-col', showControls: true }
       ];
@@ -321,7 +323,7 @@ export default function Dashboard() {
           return baseWidgets.filter(w =>
               ['beta-banner', 'mode-toggle', 'agents-hub', 'quick-insights', 'quick-actions',
                'dashboard-advisor', 'ai-activity', 'top-products', 'automation-status',
-               'personalized-todos', 'platform-status'].includes(w.id)
+               'personalized-todos', 'low-stock-alerts', 'platform-status'].includes(w.id)
           ).map(w => {
               if (w.id === 'platform-status') {
                   return { ...w, title: 'Shopify Connection' };
@@ -706,6 +708,18 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         );
+
+      case 'low-stock-alerts':
+        const handleCreateReorderPO = (lowStockItems) => {
+          navigate(createPageUrl('PurchaseOrders'), {
+            state: {
+              autoOpenCreate: true,
+              lowStockItems: lowStockItems
+            }
+          });
+        };
+
+        return <LowStockAlerts inventory={products} onCreateReorderPO={handleCreateReorderPO} />;
 
       case 'platform-status':
         return (
