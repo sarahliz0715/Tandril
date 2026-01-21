@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import TandrilLogo from '../components/logos/TandrilLogo';
+import TandrilVineLogo from '../components/logos/TandrilVineLogo';
 import AnimatedCommandPrompt from '../components/landing/AnimatedCommandPrompt';
 import EmailCapture from '../components/landing/EmailCapture';
 import { CheckCircle, Zap, TrendingUp, Bot, Package, Briefcase, BarChart, Shield, Users, Sparkles, MessageSquare, ArrowRight } from 'lucide-react';
@@ -186,7 +186,7 @@ export default function Home() {
                     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
                         {/* Large Centered Logo */}
                         <div className="flex flex-col items-center mb-8">
-                            <TandrilLogo className="h-32 w-auto mb-4" />
+                            <TandrilVineLogo className="h-32 w-auto mb-4" />
                             <h1 className="text-5xl sm:text-6xl font-extrabold text-slate-900 tracking-tight">
                                 Tandril
                             </h1>
