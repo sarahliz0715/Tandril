@@ -329,14 +329,14 @@ export default function Workflows() {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
+          <TabsTrigger value="templates">
+            Templates ({templates.length})
+          </TabsTrigger>
           <TabsTrigger value="active">
             Active ({activeWorkflows.length})
           </TabsTrigger>
           <TabsTrigger value="inactive">
             Paused ({inactiveWorkflows.length})
-          </TabsTrigger>
-          <TabsTrigger value="templates">
-            Templates ({templates.length})
           </TabsTrigger>
         </TabsList>
 
