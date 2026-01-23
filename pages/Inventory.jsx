@@ -359,7 +359,7 @@ export default function Inventory() {
 
       {inventory.length > 0 && (
         <>
-          <SmartInventoryActions inventory={inventory} onRefresh={loadInventory} />
+          <SmartInventoryActions inventory={inventory} onAction={loadInventory} />
           <InventoryAnalytics inventory={inventory} />
         </>
       )}
