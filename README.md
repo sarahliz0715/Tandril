@@ -1,5 +1,5 @@
 # Tandril
-My awesome project on Base44
+My awesome projet on vercel
 
 ## What it does
 AI agent tool for automating workflows and multiplatform e-commerce management
