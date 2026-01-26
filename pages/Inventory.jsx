@@ -329,22 +329,15 @@ export default function Inventory() {
           {filteredInventory.length === 0 ? (
             searchQuery || statusFilter !== 'all' ? (
               <NoResultsEmptyState
-                title="No items found"
-                description="Try adjusting your search or filters"
-                onReset={() => {
+                onClear={() => {
                   setSearchQuery('');
                   setStatusFilter('all');
                 }}
               />
             ) : (
               <NoDataEmptyState
-                icon={Package}
-                title="No inventory items"
-                description="Start by adding your first product to track inventory"
-                action={{
-                  label: 'Add Item',
-                  onClick: () => setShowAddModal(true)
-                }}
+                entityName="Inventory Items"
+                onCreate={() => setShowAddModal(true)}
               />
             )
           ) : (

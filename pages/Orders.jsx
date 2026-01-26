@@ -279,18 +279,15 @@ export default function Orders() {
           {filteredOrders.length === 0 ? (
             searchQuery || statusFilter !== 'all' ? (
               <NoResultsEmptyState
-                title="No orders found"
-                description="Try adjusting your search or filters"
-                onReset={() => {
+                onClear={() => {
                   setSearchQuery('');
                   setStatusFilter('all');
                 }}
               />
             ) : (
               <NoDataEmptyState
-                icon={ShoppingCart}
-                title="No orders yet"
-                description="Your orders will appear here once customers make purchases"
+                entityName="Orders"
+                onCreate={() => toast.info('Orders are created automatically when customers make purchases')}
               />
             )
           ) : (
