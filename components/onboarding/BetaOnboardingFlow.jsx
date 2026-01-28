@@ -387,7 +387,7 @@ Return JSON with:
                     <CardContent className="space-y-6">
                         <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-6">
                             <p className="text-slate-700 text-lg mb-4">
-                                Let's connect your Shopify store so I can help optimize your business and automate tedious tasks.
+                                Let's connect your e-commerce platform so I can help optimize your business and automate tedious tasks.
                             </p>
                             <p className="text-sm text-slate-600">
                                 Don't worry - I'll only make changes when you approve them. You're always in control.
@@ -395,14 +395,14 @@ Return JSON with:
                         </div>
 
                         <div className="flex flex-col gap-3">
-                            <ShopifyConnectButton 
+                            <ShopifyConnectButton
                                 onSuccess={handleShopifyConnected}
-                                buttonText="Connect My Shopify Store"
+                                buttonText="Connect Shopify"
                                 fullWidth={true}
                             />
-                            
-                            <Button 
-                                variant="ghost" 
+
+                            <Button
+                                variant="ghost"
                                 onClick={handleSkipShopify}
                                 className="text-slate-500"
                             >

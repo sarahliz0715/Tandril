@@ -271,13 +271,10 @@ export default function Platforms() {
                 <div className="mb-6">
                     <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 flex items-center gap-3 mb-2">
                         <Briefcase className="w-8 h-8 sm:w-10 sm:h-10 text-indigo-600" />
-                        {hasBetaAccess ? 'My Shopify Store' : 'Platforms'}
+                        Platforms
                     </h1>
                     <p className="text-lg text-slate-600">
-                        {hasBetaAccess 
-                            ? "Connect your Shopify store to get started. More platforms coming in the full version!"
-                            : "Connect and manage your e-commerce platforms for AI-powered automation."
-                        }
+                        Connect and manage your e-commerce platforms including Shopify, WooCommerce, BigCommerce, and Faire for AI-powered automation.
                     </p>
                 </div>
 

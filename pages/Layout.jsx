@@ -48,7 +48,7 @@ const betaNavigationItems = [
     { name: 'AI Advisor', href: 'AIAdvisor', icon: Bot, color: 'text-purple-600' },
     { name: 'P&L Dashboard', href: 'FinancialDashboard', icon: DollarSign, color: 'text-green-600' },
     { name: 'Order Intelligence', href: 'OrderIntelligence', icon: AlertTriangle, color: 'text-red-600' },
-    { name: 'My Shopify Store', href: 'Platforms', icon: Briefcase, color: 'text-teal-600' },
+    { name: 'Platforms', href: 'Platforms', icon: Briefcase, color: 'text-green-600' },
     { name: 'Commands', href: 'Commands', icon: Command, color: 'text-indigo-600' },
     { name: 'History', href: 'History', icon: History, color: 'text-slate-600' },
     { name: 'Inventory', href: 'Inventory', icon: Package, color: 'text-amber-600' },
