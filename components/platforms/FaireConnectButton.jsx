@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import PropTypes from 'prop-types';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -10,7 +11,7 @@ import { toast } from 'sonner';
  * Faire Wholesale Connect Button
  * Handles connection to Faire via OAuth or API Token
  */
-export default function FaireConnectButton({ onConnectionSuccess, disabled = false }) {
+export default function FaireConnectButton({ disabled = false }) {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [apiToken, setApiToken] = useState('');
@@ -128,8 +129,8 @@ export default function FaireConnectButton({ onConnectionSuccess, disabled = fal
                                         <strong>Wholesale Platform:</strong> Faire connects brands with independent retailers.
                                     </p>
                                     <p className="text-xs text-indigo-800">
-                                        You'll be redirected to Faire to authorize Tandril.
-                                        We'll manage your products, orders, and inventory automatically.
+                                        You&apos;ll be redirected to Faire to authorize Tandril.
+                                        We&apos;ll manage your products, orders, and inventory automatically.
                                     </p>
                                 </div>
 
@@ -173,7 +174,7 @@ export default function FaireConnectButton({ onConnectionSuccess, disabled = fal
                                         disabled={isLoading}
                                     />
                                     <p className="text-xs text-slate-500">
-                                        Find in Faire {'>'} Settings {'>'} API Access
+                                        Find in Faire &gt; Settings &gt; API Access
                                     </p>
                                 </div>
 
@@ -195,7 +196,7 @@ export default function FaireConnectButton({ onConnectionSuccess, disabled = fal
                                     </p>
                                     <ol className="text-xs text-amber-800 space-y-1 list-decimal list-inside">
                                         <li>Log into your Faire brand account</li>
-                                        <li>Go to Settings {'>'} Integrations {'>'} API</li>
+                                        <li>Go to Settings &gt; Integrations &gt; API</li>
                                         <li>Generate a new API token</li>
                                         <li>Copy both Brand Token and API Token</li>
                                     </ol>
@@ -249,3 +250,7 @@ export default function FaireConnectButton({ onConnectionSuccess, disabled = fal
         </>
     );
 }
+
+FaireConnectButton.propTypes = {
+    disabled: PropTypes.bool
+};

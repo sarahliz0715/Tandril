@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import PropTypes from 'prop-types';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -11,7 +12,7 @@ import { toast } from 'sonner';
  * Amazon Seller Central Connect Button
  * Handles OAuth connection to Amazon SP-API
  */
-export default function AmazonConnectButton({ onConnectionSuccess, disabled = false }) {
+export default function AmazonConnectButton({ disabled = false }) {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [sellerId, setSellerId] = useState('');
@@ -110,7 +111,7 @@ export default function AmazonConnectButton({ onConnectionSuccess, disabled = fa
                                 disabled={isLoading}
                             />
                             <p className="text-xs text-slate-500">
-                                Find your Seller ID in Seller Central {'>'} Settings {'>'} Account Info
+                                Find your Seller ID in Seller Central &gt; Settings &gt; Account Info
                             </p>
                         </div>
 
@@ -149,7 +150,7 @@ export default function AmazonConnectButton({ onConnectionSuccess, disabled = fa
 
                         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                             <p className="text-xs text-blue-900">
-                                <strong>Note:</strong> You'll be redirected to Amazon to authorize Tandril.
+                                <strong>Note:</strong> You&apos;ll be redirected to Amazon to authorize Tandril.
                                 Make sure you have your Seller Central login ready.
                             </p>
                         </div>
@@ -188,3 +189,7 @@ export default function AmazonConnectButton({ onConnectionSuccess, disabled = fa
         </>
     );
 }
+
+AmazonConnectButton.propTypes = {
+    disabled: PropTypes.bool
+};

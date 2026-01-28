@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import PropTypes from 'prop-types';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -10,7 +11,7 @@ import { toast } from 'sonner';
  * BigCommerce Connect Button
  * Handles OAuth connection to BigCommerce API
  */
-export default function BigCommerceConnectButton({ onConnectionSuccess, disabled = false }) {
+export default function BigCommerceConnectButton({ disabled = false }) {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [storeHash, setStoreHash] = useState('');
@@ -127,8 +128,8 @@ export default function BigCommerceConnectButton({ onConnectionSuccess, disabled
                                         <strong>Recommended:</strong> Click below to securely connect your BigCommerce store.
                                     </p>
                                     <p className="text-xs text-blue-800">
-                                        You'll be redirected to BigCommerce to authorize Tandril.
-                                        We'll automatically receive the necessary permissions.
+                                        You&apos;ll be redirected to BigCommerce to authorize Tandril.
+                                        We&apos;ll automatically receive the necessary permissions.
                                     </p>
                                 </div>
 
@@ -166,7 +167,7 @@ export default function BigCommerceConnectButton({ onConnectionSuccess, disabled
                                         disabled={isLoading}
                                     />
                                     <p className="text-xs text-slate-500">
-                                        Find in your store's URL: https://store-<strong>abc123def</strong>.mybigcommerce.com
+                                        Find in your store&apos;s URL: https://store-<strong>abc123def</strong>.mybigcommerce.com
                                     </p>
                                 </div>
 
@@ -187,7 +188,7 @@ export default function BigCommerceConnectButton({ onConnectionSuccess, disabled
                                         How to get API credentials:
                                     </p>
                                     <ol className="text-xs text-amber-800 space-y-1 list-decimal list-inside">
-                                        <li>Go to Advanced Settings {'>'} API Accounts</li>
+                                        <li>Go to Advanced Settings &gt; API Accounts</li>
                                         <li>Create API Account or use existing</li>
                                         <li>Set OAuth Scopes (Products, Orders, etc.)</li>
                                         <li>Copy the Access Token</li>
@@ -242,3 +243,7 @@ export default function BigCommerceConnectButton({ onConnectionSuccess, disabled
         </>
     );
 }
+
+BigCommerceConnectButton.propTypes = {
+    disabled: PropTypes.bool
+};

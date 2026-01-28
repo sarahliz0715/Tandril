@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import PropTypes from 'prop-types';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -10,7 +11,7 @@ import { toast } from 'sonner';
  * WooCommerce Connect Button
  * Handles connection to WooCommerce stores via REST API
  */
-export default function WooCommerceConnectButton({ onConnectionSuccess, disabled = false }) {
+export default function WooCommerceConnectButton({ disabled = false }) {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [storeUrl, setStoreUrl] = useState('');
@@ -145,9 +146,9 @@ export default function WooCommerceConnectButton({ onConnectionSuccess, disabled
                                 How to get API credentials:
                             </p>
                             <ol className="text-xs text-amber-800 space-y-1 list-decimal list-inside">
-                                <li>Go to WooCommerce {'>'} Settings {'>'} Advanced {'>'} REST API</li>
-                                <li>Click "Add key"</li>
-                                <li>Set permissions to "Read/Write"</li>
+                                <li>Go to WooCommerce &gt; Settings &gt; Advanced &gt; REST API</li>
+                                <li>Click &quot;Add key&quot;</li>
+                                <li>Set permissions to &quot;Read/Write&quot;</li>
                                 <li>Copy the Consumer Key and Consumer Secret</li>
                             </ol>
                         </div>
@@ -189,3 +190,7 @@ export default function WooCommerceConnectButton({ onConnectionSuccess, disabled
         </>
     );
 }
+
+WooCommerceConnectButton.propTypes = {
+    disabled: PropTypes.bool
+};
