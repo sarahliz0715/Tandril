@@ -447,6 +447,18 @@ export async function connectBigCommerce({
   return { data: response };
 }
 
+export async function connectFaire({
+  api_token,
+  brand_token
+} = {}) {
+  const response = await invokeEdgeFunction('faire-connect', {
+    api_token,
+    brand_token,
+  });
+
+  return { data: response };
+}
+
 // Export all functions as a unified functions object
 export const supabaseFunctions = {
   invoke: invokeEdgeFunction,
@@ -475,4 +487,5 @@ export const supabaseFunctions = {
   analyzeStoreForOnboarding,
   connectWooCommerce,
   connectBigCommerce,
+  connectFaire,
 };

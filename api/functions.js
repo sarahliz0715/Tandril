@@ -154,3 +154,5 @@ export const connectWooCommerce = safeAccess('connectWooCommerce');
 
 export const connectBigCommerce = safeAccess('connectBigCommerce');
 
+export const connectFaire = safeAccess('connectFaire');
+

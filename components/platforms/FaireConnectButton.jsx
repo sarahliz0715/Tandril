@@ -6,12 +6,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Loader2, ExternalLink, Package } from 'lucide-react';
 import { toast } from 'sonner';
+import { connectFaire } from '@/api/functions';
 
 /**
  * Faire Wholesale Connect Button
  * Handles connection to Faire via OAuth or API Token
  */
-export default function FaireConnectButton({ disabled = false }) {
+export default function FaireConnectButton({ onConnectionSuccess, disabled = false }) {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [apiToken, setApiToken] = useState('');
@@ -50,26 +51,26 @@ export default function FaireConnectButton({ disabled = false }) {
 
         setIsLoading(true);
         try {
-            // TODO: Implement actual Faire manual connection
-            toast.info("Faire connection coming soon", {
-                description: "We're finalizing the Faire wholesale integration. Your connection will be available soon!"
+            // Call backend to connect Faire
+            const response = await connectFaire({
+                api_token: apiToken,
+                brand_token: brandToken
             });
 
-            // const response = await connectFaire({
-            //     api_token: apiToken,
-            //     brand_token: brandToken
-            // });
-            //
-            // if (response.data.success) {
-            //     toast.success("Successfully connected to Faire!");
-            //     if (onConnectionSuccess) {
-            //         onConnectionSuccess(response.data.platform);
-            //     }
-            //     setIsModalOpen(false);
-            // }
+            if (response.data.success) {
+                toast.success("Successfully connected to Faire!", {
+                    description: `Connected to ${response.data.store_info.name}`
+                });
 
-            setIsModalOpen(false);
-            resetForm();
+                if (onConnectionSuccess) {
+                    onConnectionSuccess(response.data.platform);
+                }
+
+                setIsModalOpen(false);
+                resetForm();
+            } else {
+                throw new Error(response.data.error || "Connection failed");
+            }
         } catch (error) {
             console.error("Faire connection error:", error);
             toast.error("Connection Failed", {
@@ -252,5 +253,6 @@ export default function FaireConnectButton({ disabled = false }) {
 }
 
 FaireConnectButton.propTypes = {
+    onConnectionSuccess: PropTypes.func,
     disabled: PropTypes.bool
 };
