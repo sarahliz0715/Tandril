@@ -48,10 +48,11 @@ export default function EbayConnectButton({ onConnectionSuccess, disabled }) {
 
     return (
         <div className="w-full space-y-2">
-            <Button 
-                onClick={handleConnect} 
+            <Button
+                onClick={handleConnect}
                 disabled={isConnecting || disabled}
-                className="w-full bg-blue-600 hover:bg-blue-700"
+                className="w-full bg-green-600 hover:bg-green-700 text-white"
+                style={{ backgroundColor: '#16a34a' }}
             >
                 {isConnecting ? (
                     <>
