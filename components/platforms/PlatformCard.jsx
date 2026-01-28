@@ -11,7 +11,11 @@ import PrintfulConnectButton from './PrintfulConnectButton';
 import TeePublicConnectButton from './TeePublicConnectButton';
 import RedbubbleConnectButton from './RedbubbleConnectButton';
 import FacebookConnectButton from './FacebookConnectButton';
-import EbayConnectButton from './EbayConnectButton'; // Added EbayConnectButton import
+import EbayConnectButton from './EbayConnectButton';
+import AmazonConnectButton from './AmazonConnectButton';
+import WooCommerceConnectButton from './WooCommerceConnectButton';
+import BigCommerceConnectButton from './BigCommerceConnectButton';
+import FaireConnectButton from './FaireConnectButton';
 import { Progress } from "@/components/ui/progress";
 
 // Platform-specific icons
@@ -23,11 +27,14 @@ const platformIcons = {
   redbubble: Store,
   facebook: Globe,
   walmart: Store,
+  amazon: ShoppingCart,
   amazon_seller: ShoppingCart,
-  ebay: ShoppingCart, // Added eBay icon
+  ebay: ShoppingCart,
   woocommerce: Store,
   bigcommerce: Store,
-  squarespace: Store
+  faire: Package,
+  squarespace: Store,
+  tiktok_shop: Globe
 };
 
 export default function PlatformCard({
@@ -98,16 +105,45 @@ export default function PlatformCard({
       case 'teepublic':
         return <TeePublicConnectButton onConnectionSuccess={onConnectionSuccess}/>
       case 'redbubble':
-          return <RedbubbleConnectButton onConnectionSuccess={onConnectionSuccess}/>
+        return <RedbubbleConnectButton onConnectionSuccess={onConnectionSuccess}/>
       case 'facebook':
-          return <FacebookConnectButton onConnectionSuccess={onConnectionSuccess}/>
-      case 'ebay': // Added eBay case
-            return (
-                <EbayConnectButton
-                    onConnectionSuccess={onConnectionSuccess} // Using onConnectionSuccess directly
-                    disabled={isAtLimit}
-                />
-            );
+        return <FacebookConnectButton onConnectionSuccess={onConnectionSuccess}/>
+      case 'ebay':
+        return (
+          <EbayConnectButton
+            onConnectionSuccess={onConnectionSuccess}
+            disabled={isAtLimit}
+          />
+        );
+      case 'amazon':
+      case 'amazon_seller':
+        return (
+          <AmazonConnectButton
+            onConnectionSuccess={onConnectionSuccess}
+            disabled={isAtLimit}
+          />
+        );
+      case 'woocommerce':
+        return (
+          <WooCommerceConnectButton
+            onConnectionSuccess={onConnectionSuccess}
+            disabled={isAtLimit}
+          />
+        );
+      case 'bigcommerce':
+        return (
+          <BigCommerceConnectButton
+            onConnectionSuccess={onConnectionSuccess}
+            disabled={isAtLimit}
+          />
+        );
+      case 'faire':
+        return (
+          <FaireConnectButton
+            onConnectionSuccess={onConnectionSuccess}
+            disabled={isAtLimit}
+          />
+        );
       default:
         return <Button disabled>Coming Soon</Button>;
     }
