@@ -420,6 +420,21 @@ export async function analyzeStoreForOnboarding({
   return response.data || response;
 }
 
+// Platform Connection Functions
+export async function connectWooCommerce({
+  store_url,
+  consumer_key,
+  consumer_secret
+} = {}) {
+  const response = await invokeEdgeFunction('woocommerce-connect', {
+    store_url,
+    consumer_key,
+    consumer_secret,
+  });
+
+  return { data: response };
+}
+
 // Export all functions as a unified functions object
 export const supabaseFunctions = {
   invoke: invokeEdgeFunction,
@@ -446,4 +461,5 @@ export const supabaseFunctions = {
   analyzeRisks,
   chatWithCoach,
   analyzeStoreForOnboarding,
+  connectWooCommerce,
 };
