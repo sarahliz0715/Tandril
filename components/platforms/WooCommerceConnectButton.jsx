@@ -75,7 +75,7 @@ export default function WooCommerceConnectButton({ onConnectionSuccess, disabled
             <Button
                 onClick={() => setIsModalOpen(true)}
                 disabled={disabled || isLoading}
-                className="w-full"
+                className="w-full bg-green-600 hover:bg-green-700"
             >
                 {isLoading ? (
                     <>

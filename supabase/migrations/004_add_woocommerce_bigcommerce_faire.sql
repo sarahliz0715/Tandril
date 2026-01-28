@@ -6,7 +6,7 @@ VALUES
 (
     'woocommerce',
     'WooCommerce',
-    'e_commerce_platform',
+    'ecommerce',
     'Connect your WooCommerce store to sync products, orders, and inventory. Perfect for WordPress-based stores.',
     'https://woocommerce.com/wp-content/themes/woo/images/logo-woocommerce.svg',
     true,
@@ -15,7 +15,7 @@ VALUES
 (
     'bigcommerce',
     'BigCommerce',
-    'e_commerce_platform',
+    'ecommerce',
     'Connect your BigCommerce store for enterprise-grade e-commerce automation and AI-powered optimization.',
     'https://www.bigcommerce.com/assets/images/bc-logo.svg',
     true,
@@ -24,7 +24,7 @@ VALUES
 (
     'faire',
     'Faire',
-    'marketplace',
+    'ecommerce',
     'Connect your Faire wholesale brand to manage retailers, products, and bulk orders efficiently.',
     'https://cdn.faire.com/static/favicon/faire-logo.svg',
     true,

@@ -78,15 +78,6 @@ export default function PlatformCard({
   );
 
   const renderConnectButton = () => {
-    // In beta mode, only allow Shopify connections
-    if (isBeta && platformType.type_id !== 'shopify') {
-      return (
-        <Button disabled className="w-full">
-          Coming Soon
-        </Button>
-      );
-    }
-
     if (isComingSoon) {
       return (
         <Button disabled className="w-full">

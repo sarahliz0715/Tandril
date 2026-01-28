@@ -92,7 +92,7 @@ export default function FaireConnectButton({ onConnectionSuccess, disabled = fal
             <Button
                 onClick={() => setIsModalOpen(true)}
                 disabled={disabled || isLoading}
-                className="w-full"
+                className="w-full bg-green-600 hover:bg-green-700"
             >
                 {isLoading ? (
                     <>
