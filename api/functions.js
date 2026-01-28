@@ -150,3 +150,5 @@ export const saveResponseFeedback = safeAccess('saveResponseFeedback');
 
 export const evaluateCustomAlerts = safeAccess('evaluateCustomAlerts');
 
+export const connectWooCommerce = safeAccess('connectWooCommerce');
+

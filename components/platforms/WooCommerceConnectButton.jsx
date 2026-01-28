@@ -6,12 +6,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Loader2, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
+import { connectWooCommerce } from '@/api/functions';
 
 /**
  * WooCommerce Connect Button
  * Handles connection to WooCommerce stores via REST API
  */
-export default function WooCommerceConnectButton({ disabled = false }) {
+export default function WooCommerceConnectButton({ onConnectionSuccess, disabled = false }) {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [storeUrl, setStoreUrl] = useState('');
@@ -32,32 +33,27 @@ export default function WooCommerceConnectButton({ disabled = false }) {
 
         setIsLoading(true);
         try {
-            // TODO: Implement actual WooCommerce connection
-            // This would call your backend to:
-            // 1. Test the connection
-            // 2. Store credentials securely
-            // 3. Initiate initial sync
-
-            toast.info("WooCommerce connection coming soon", {
-                description: "We're finalizing the WooCommerce integration. Your connection will be available soon!"
+            // Call backend to connect WooCommerce
+            const response = await connectWooCommerce({
+                store_url: normalizedUrl,
+                consumer_key: consumerKey,
+                consumer_secret: consumerSecret
             });
 
-            // const response = await connectWooCommerce({
-            //     store_url: normalizedUrl,
-            //     consumer_key: consumerKey,
-            //     consumer_secret: consumerSecret
-            // });
-            //
-            // if (response.data.success) {
-            //     toast.success("Successfully connected to WooCommerce!");
-            //     if (onConnectionSuccess) {
-            //         onConnectionSuccess(response.data.platform);
-            //     }
-            //     setIsModalOpen(false);
-            // }
+            if (response.data.success) {
+                toast.success("Successfully connected to WooCommerce!", {
+                    description: `Connected to ${response.data.store_info.name}`
+                });
 
-            setIsModalOpen(false);
-            resetForm();
+                if (onConnectionSuccess) {
+                    onConnectionSuccess(response.data.platform);
+                }
+
+                setIsModalOpen(false);
+                resetForm();
+            } else {
+                throw new Error(response.data.error || "Connection failed");
+            }
         } catch (error) {
             console.error("WooCommerce connection error:", error);
             toast.error("Connection Failed", {
@@ -192,5 +188,6 @@ export default function WooCommerceConnectButton({ disabled = false }) {
 }
 
 WooCommerceConnectButton.propTypes = {
+    onConnectionSuccess: PropTypes.func,
     disabled: PropTypes.bool
 };
