@@ -435,6 +435,18 @@ export async function connectWooCommerce({
   return { data: response };
 }
 
+export async function connectBigCommerce({
+  store_hash,
+  access_token
+} = {}) {
+  const response = await invokeEdgeFunction('bigcommerce-connect', {
+    store_hash,
+    access_token,
+  });
+
+  return { data: response };
+}
+
 // Export all functions as a unified functions object
 export const supabaseFunctions = {
   invoke: invokeEdgeFunction,
@@ -462,4 +474,5 @@ export const supabaseFunctions = {
   chatWithCoach,
   analyzeStoreForOnboarding,
   connectWooCommerce,
+  connectBigCommerce,
 };

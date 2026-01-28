@@ -6,12 +6,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Loader2, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
+import { connectBigCommerce } from '@/api/functions';
 
 /**
  * BigCommerce Connect Button
  * Handles OAuth connection to BigCommerce API
  */
-export default function BigCommerceConnectButton({ disabled = false }) {
+export default function BigCommerceConnectButton({ onConnectionSuccess, disabled = false }) {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [storeHash, setStoreHash] = useState('');
@@ -52,26 +53,26 @@ export default function BigCommerceConnectButton({ disabled = false }) {
 
         setIsLoading(true);
         try {
-            // TODO: Implement actual BigCommerce manual connection
-            toast.info("BigCommerce connection coming soon", {
-                description: "We're finalizing the BigCommerce integration. Your connection will be available soon!"
+            // Call backend to connect BigCommerce
+            const response = await connectBigCommerce({
+                store_hash: storeHash,
+                access_token: accessToken
             });
 
-            // const response = await connectBigCommerce({
-            //     store_hash: storeHash,
-            //     access_token: accessToken
-            // });
-            //
-            // if (response.data.success) {
-            //     toast.success("Successfully connected to BigCommerce!");
-            //     if (onConnectionSuccess) {
-            //         onConnectionSuccess(response.data.platform);
-            //     }
-            //     setIsModalOpen(false);
-            // }
+            if (response.data.success) {
+                toast.success("Successfully connected to BigCommerce!", {
+                    description: `Connected to ${response.data.store_info.name}`
+                });
 
-            setIsModalOpen(false);
-            resetForm();
+                if (onConnectionSuccess) {
+                    onConnectionSuccess(response.data.platform);
+                }
+
+                setIsModalOpen(false);
+                resetForm();
+            } else {
+                throw new Error(response.data.error || "Connection failed");
+            }
         } catch (error) {
             console.error("BigCommerce connection error:", error);
             toast.error("Connection Failed", {
@@ -245,5 +246,6 @@ export default function BigCommerceConnectButton({ disabled = false }) {
 }
 
 BigCommerceConnectButton.propTypes = {
+    onConnectionSuccess: PropTypes.func,
     disabled: PropTypes.bool
 };
