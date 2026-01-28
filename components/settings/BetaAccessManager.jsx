@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { User } from '@/api/entities';
+import { User } from '@/lib/entities';
 import { toast } from 'sonner';
 import { Sparkles, UserPlus, UserMinus, Search, Shield, Mail, Calendar } from 'lucide-react';
 

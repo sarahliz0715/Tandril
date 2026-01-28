@@ -23,7 +23,7 @@ import {
   Zap
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { api } from '@/api/apiClient';
+import { api } from '@/lib/apiClient';
 
 export default function AIBusinessCoach() {
   const [activeTab, setActiveTab] = useState('briefing');

@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Platform } from '@/api/entities';
-import { PlatformType } from '@/api/entities';
-import { User } from '@/api/entities';
+import { Platform } from '@/lib/entities';
+import { PlatformType } from '@/lib/entities';
+import { User } from '@/lib/entities';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

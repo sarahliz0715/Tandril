@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, ExternalLink, AlertTriangle, CheckCircle } from 'lucide-react';
-import { initiateTikTokAuth } from '@/api/functions/initiateTikTokAuth';
+import { initiateTikTokAuth } from '@/lib/functions/initiateTikTokAuth';
 import { toast } from 'sonner';
 
 export default function TikTokShopConnectButton({ onConnect }) {

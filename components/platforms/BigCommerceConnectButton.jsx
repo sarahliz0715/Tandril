@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Loader2, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
-import { connectBigCommerce } from '@/api/functions';
+import { connectBigCommerce } from '@/lib/functions';
 
 /**
  * BigCommerce Connect Button

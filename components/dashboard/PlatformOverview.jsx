@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Platform, PlatformType, User } from '@/api/entities';
+import { Platform, PlatformType, User } from '@/lib/entities';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';

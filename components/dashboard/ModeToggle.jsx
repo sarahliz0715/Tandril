@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { PlayCircle, Pause, AlertTriangle } from 'lucide-react';
-import { User } from '@/api/entities';
+import { User } from '@/lib/entities';
 import { toast } from 'sonner';
 import {
     AlertDialog,

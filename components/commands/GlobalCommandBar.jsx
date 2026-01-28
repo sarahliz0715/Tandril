@@ -5,11 +5,11 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Mic, MicOff, Send, Loader2, Bot, Zap, Clock, CheckCircle, AlertTriangle } from 'lucide-react';
-import { Platform } from '@/api/entities';
-import { AICommand } from '@/api/entities';
-import { User } from '@/api/entities';
-import { interpretCommand } from '@/api/functions';
-import { executeShopifyCommand } from '@/api/functions';
+import { Platform } from '@/lib/entities';
+import { AICommand } from '@/lib/entities';
+import { User } from '@/lib/entities';
+import { interpretCommand } from '@/lib/functions';
+import { executeShopifyCommand } from '@/lib/functions';
 import { toast } from 'sonner';
 
 export default function GlobalCommandBar({ open, onOpenChange }) {

@@ -7,8 +7,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { MessageSquare, Send, Sparkles, Clock, CheckCircle, Search, Filter } from 'lucide-react';
 import { toast } from 'sonner';
-import { CustomerMessage } from '@/api/entities';
-import { generateAIResponse } from '@/api/functions';
+import { CustomerMessage } from '@/lib/entities';
+import { generateAIResponse } from '@/lib/functions';
 
 export default function MessageInbox({ messages, onRefresh, user }) {
     const [selectedMessage, setSelectedMessage] = useState(null);

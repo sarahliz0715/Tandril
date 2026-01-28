@@ -13,7 +13,7 @@ import TandrilVineLogo from '@/components/logos/TandrilVineLogo';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import InactivityManager from "@/components/auth/InactivityManager";
 import ActivityTracker from "@/components/auth/ActivityTracker";
-import { User } from '@/api/entities';
+import { User } from '@/lib/entities';
 import GlobalCommandBar from "@/components/commands/GlobalCommandBar";
 import { Toaster } from "@/components/ui/toaster";
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';

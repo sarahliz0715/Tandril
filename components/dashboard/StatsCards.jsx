@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Platform, Order, InventoryItem, User } from '@/api/entities';
+import { Platform, Order, InventoryItem, User } from '@/lib/entities';
 import { TrendingUp, Package, ShoppingCart, DollarSign, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';

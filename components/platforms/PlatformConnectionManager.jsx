@@ -6,9 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { connectShopifyCustomApp } from '@/api/functions';
-import { initiateEtsyAuth } from '@/api/functions';
-import { initiateFacebookAuth } from '@/api/functions';
+import { connectShopifyCustomApp } from '@/lib/functions';
+import { initiateEtsyAuth } from '@/lib/functions';
+import { initiateFacebookAuth } from '@/lib/functions';
 
 // Shopify Connection Modal
 const ShopifyConnectModal = ({ open, onOpenChange, onConnectionSuccess }) => {

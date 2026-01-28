@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { User } from '@/api/entities';
-import { AICommand } from '@/api/entities';
-import { Platform } from '@/api/entities';
-import { SavedCommand } from '@/api/entities';
+import { User } from '@/lib/entities';
+import { AICommand } from '@/lib/entities';
+import { Platform } from '@/lib/entities';
+import { SavedCommand } from '@/lib/entities';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -26,7 +26,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { api } from '@/api/apiClient';
+import { api } from '@/lib/apiClient';
 import CommandConfirmation from '../components/commands/CommandConfirmation';
 import ExecutionProgress from '../components/commands/ExecutionProgress';
 import SavedCommandsPanel from '../components/commands/SavedCommandsPanel';

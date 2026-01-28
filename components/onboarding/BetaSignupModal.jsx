@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle, Mail, Loader2, FlaskConical } from "lucide-react";
-import { EmailSignup } from '@/api/entities';
+import { EmailSignup } from '@/lib/entities';
 
 export default function BetaSignupModal({ isOpen, onClose, onSuccess }) {
   const [email, setEmail] = useState('');

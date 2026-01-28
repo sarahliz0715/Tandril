@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Loader2, ExternalLink, Package } from 'lucide-react';
 import { toast } from 'sonner';
-import { connectFaire } from '@/api/functions';
+import { connectFaire } from '@/lib/functions';
 
 /**
  * Faire Wholesale Connect Button

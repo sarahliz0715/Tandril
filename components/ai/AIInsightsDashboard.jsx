@@ -15,7 +15,7 @@ import {
   ChevronRight,
   CheckCircle
 } from 'lucide-react';
-import { api } from '@/api/apiClient';
+import { api } from '@/lib/apiClient';
 import { toast } from 'sonner';
 import { handleAuthError } from '@/utils/authHelpers';
 import { useNavigate } from 'react-router-dom';

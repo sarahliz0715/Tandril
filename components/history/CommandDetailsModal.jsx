@@ -5,7 +5,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { CheckCircle, XCircle, RotateCcw, Loader2, Info, ArrowLeft } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { revertShopifyCommand } from '@/api/functions';
+import { revertShopifyCommand } from '@/lib/functions';
 
 export default function CommandDetailsModal({ command, onClose, onCommandUpdate }) {
     const [revertingAction, setRevertingAction] = useState(null);

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { InventoryItem } from '@/api/entities';
+import { InventoryItem } from '@/lib/entities';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
