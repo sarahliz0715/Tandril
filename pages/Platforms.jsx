@@ -30,13 +30,11 @@ import PlatformCard from '../components/platforms/PlatformCard';
 // import RedbubbleConnectButton from '../components/platforms/RedbubbleConnectButton';
 // import FacebookConnectButton from '../components/platforms/FacebookConnectButton';
 import RequestPlatformModal from '../components/platforms/RequestPlatformModal';
-import EtsyConnectionWarning from '../components/platforms/EtsyConnectionWarning';
 import DemoModeToggle from '../components/platforms/DemoModeToggle';
 import BetaGate from '../components/common/BetaGate';
 import { handleAuthError } from '@/utils/authHelpers';
 import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 import { NoDataEmptyState } from '../components/common/EmptyState';
-import EbayConfigChecker from '../components/platforms/EbayConfigChecker';
 
 export default function Platforms() {
     const [platforms, setPlatforms] = useState([]); // This state holds all user's platform instances (connected, pending, disconnected)
@@ -251,11 +249,6 @@ export default function Platforms() {
                     </p>
                 </div>
 
-                {/* Add this right after the header/description */}
-                <div className="mb-6">
-                    <EbayConfigChecker />
-                </div>
-
                 {/* Demo Mode Toggle */}
                 {currentUser && !hasBetaAccess && (
                     <div className="mb-6">
@@ -273,11 +266,6 @@ export default function Platforms() {
                         </AlertDescription>
                     </Alert>
                 )}
-
-                {/* Etsy Restriction Warning */}
-                <div className="mb-6">
-                    <EtsyConnectionWarning />
-                </div>
 
                 {/* Connection Limit Warning */}
                 {isAtLimit && currentUser?.subscription_tier === 'free' && (
