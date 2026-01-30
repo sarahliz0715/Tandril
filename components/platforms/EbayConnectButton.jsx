@@ -14,27 +14,27 @@ export default function EbayConnectButton({ onConnectionSuccess, disabled }) {
         
         try {
             console.log('[EbayConnectButton] Starting eBay connection...');
-            
-            const response = await api.functions.invoke('initiateEbayAuth');
-            console.log('[EbayConnectButton] Response:', response.data);
-            
-            if (!response.data) {
-                throw new Error('No response data from eBay auth initiation');
+
+            const response = await api.functions.invoke('ebay-auth-init', {});
+            console.log('[EbayConnectButton] Response:', response);
+
+            if (!response) {
+                throw new Error('No response from eBay auth initiation');
             }
 
-            if (!response.data.success) {
-                throw new Error(response.data.error || 'Failed to initiate eBay authentication');
+            if (!response.success) {
+                throw new Error(response.error || 'Failed to initiate eBay authentication');
             }
 
-            if (!response.data.auth_url) {
+            if (!response.auth_url) {
                 throw new Error('No authorization URL received from eBay');
             }
 
-            console.log('[EbayConnectButton] Redirecting to:', response.data.auth_url);
-            
+            console.log('[EbayConnectButton] Redirecting to:', response.auth_url);
+
             // IMPORTANT: Use full page redirect, not popup
             // eBay's CSP doesn't allow iframe/popup from non-ebay.com domains
-            window.location.href = response.data.auth_url;
+            window.location.href = response.auth_url;
 
         } catch (error) {
             console.error('[EbayConnectButton] Error:', error);
