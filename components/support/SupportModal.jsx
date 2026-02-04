@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, CheckCircle, LifeBuoy } from 'lucide-react';
-import { api } from '@/api/apiClient';
+import { api } from '@/lib/apiClient';
 import { toast } from 'sonner';
 
 export default function SupportModal({ isOpen, onClose }) {

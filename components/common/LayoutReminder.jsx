@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User } from '@/api/entities';
+import { User } from '@/lib/entities';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Lightbulb, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';

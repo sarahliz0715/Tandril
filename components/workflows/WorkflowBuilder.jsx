@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { AIWorkflow } from '@/api/entities';
+import { AIWorkflow } from '@/lib/entities';
 import { toast } from 'sonner';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { GripVertical, X, Save, Plus, ArrowLeft, Zap, Settings, HelpCircle, Loader2 } from 'lucide-react';

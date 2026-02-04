@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { api } from '@/api/apiClient';
+import { api } from '@/lib/apiClient';
 import BetaOnboardingFlow from '../components/onboarding/BetaOnboardingFlow';
 import { Loader2 } from 'lucide-react';
 

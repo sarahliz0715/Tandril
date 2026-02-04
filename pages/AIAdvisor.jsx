@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation, useNavigate } from "react-router-dom";
 import { createPageUrl } from '@/utils';
-import { User } from '@/api/entities';
+import { User } from '@/lib/entities';
 import ChatInterface from '../components/advisor/ChatInterface';
 import AIAvatar from '../components/advisor/AIAvatar';
 import { useAIAdvisorConversations } from '@/hooks/useAIAdvisorConversations';

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { SavedCommand } from '@/api/entities';
+import { SavedCommand } from '@/lib/entities';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';

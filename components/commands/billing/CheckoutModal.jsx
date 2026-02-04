@@ -11,8 +11,8 @@ import {
   Shield,
   AlertCircle
 } from "lucide-react";
-import { Subscription } from '@/api/entities';
-import { User } from '@/api/entities';
+import { Subscription } from '@/lib/entities';
+import { User } from '@/lib/entities';
 
 export default function CheckoutModal({ isOpen, onClose, plan, isAnnual, onSuccess }) {
   const [isProcessing, setIsProcessing] = useState(false);

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { TrendingUp, TrendingDown, AlertTriangle, Package, DollarSign, Users, ArrowUpRight, ArrowDownRight, Zap } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { User } from '@/api/entities';
+import { User } from '@/lib/entities';
 
 export default function QuickInsights({ orders, products, recommendations, alerts }) {
     const navigate = useNavigate();

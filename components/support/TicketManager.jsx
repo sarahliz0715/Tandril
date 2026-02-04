@@ -6,8 +6,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { LifeBuoy, Send, Sparkles, Clock, User, Package } from 'lucide-react';
 import { toast } from 'sonner';
-import { SupportTicket } from '@/api/entities';
-import { generateAIResponse } from '@/api/functions';
+import { SupportTicket } from '@/lib/entities';
+import { generateAIResponse } from '@/lib/functions';
 
 export default function TicketManager({ tickets, onRefresh, user }) {
     const [selectedTicket, setSelectedTicket] = useState(null);

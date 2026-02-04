@@ -17,7 +17,7 @@ import {
     Lightbulb
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { api } from '@/api/apiClient';
+import { api } from '@/lib/apiClient';
 
 export default function AIResponseSuggestion({ 
     suggestion, 

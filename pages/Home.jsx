@@ -8,8 +8,8 @@ import AnimatedCommandPrompt from '../components/landing/AnimatedCommandPrompt';
 import EmailCapture from '../components/landing/EmailCapture';
 import { CheckCircle, Zap, TrendingUp, Bot, Package, Briefcase, BarChart, Shield, Users, Sparkles, MessageSquare, ArrowRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-import { api } from '@/api/apiClient';
-import { isSupabaseConfigured } from '@/api/supabaseClient';
+import { api } from '@/lib/apiClient';
+import { isSupabaseConfigured } from '@/lib/supabaseClient';
 import { toast } from 'sonner';
 
 const FeatureCard = ({ icon: Icon, title, description }) => (

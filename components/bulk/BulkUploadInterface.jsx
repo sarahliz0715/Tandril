@@ -6,8 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Upload, FileText, Image, Package, Users, Zap, CheckCircle, AlertTriangle, X } from 'lucide-react';
-import { BulkUpload, Platform } from '@/api/entities';
-import { UploadFile, ExtractDataFromUploadedFile } from '@/api/integrations';
+import { BulkUpload, Platform } from '@/lib/entities';
+import { UploadFile, ExtractDataFromUploadedFile } from '@/lib/integrations';
 
 const FILE_TYPES = [
   {

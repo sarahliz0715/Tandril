@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { api } from '@/api/apiClient';
+import { api } from '@/lib/apiClient';
 import { toast } from 'sonner';
 import { Loader2, ShoppingCart, AlertCircle, ExternalLink } from 'lucide-react';
 

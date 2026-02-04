@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { agentSDK } from "@/agents";
-import { User } from '@/api/entities';
+import { User } from '@/lib/entities';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,7 @@ import { Send, Loader2, Bot } from 'lucide-react';
 import { toast } from 'sonner';
 import MessageBubble from './MessageBubble';
 import AIAvatar from './AIAvatar';
-import { updateUserMemory } from '@/api/functions';
+import { updateUserMemory } from '@/lib/functions';
 
 // Custom hook to manage AI advisor conversations
 export const useAIAdvisorConversations = ({ conversationId, user }) => {

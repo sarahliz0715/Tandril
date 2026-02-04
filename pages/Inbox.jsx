@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { SmartAlert } from '@/api/entities';
-import { CustomerMessage } from '@/api/entities';
-import { User } from '@/api/entities';
+import { SmartAlert } from '@/lib/entities';
+import { CustomerMessage } from '@/lib/entities';
+import { User } from '@/lib/entities';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

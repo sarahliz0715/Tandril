@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Order } from '@/api/entities';
-import { InventoryItem } from '@/api/entities';
-import { Platform } from '@/api/entities';
-import { AdCampaign } from '@/api/entities';
-import { User } from '@/api/entities';
+import { Order } from '@/lib/entities';
+import { InventoryItem } from '@/lib/entities';
+import { Platform } from '@/lib/entities';
+import { AdCampaign } from '@/lib/entities';
+import { User } from '@/lib/entities';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

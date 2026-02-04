@@ -1,0 +1,14 @@
+# Ignore Supabase Edge Functions - these deploy to Supabase, not Vercel
+supabase/functions/**
+
+# Ignore Supabase config
+supabase/config.toml
+supabase/.temp/**
+
+# Node modules
+node_modules
+
+# Environment files
+.env
+.env.local
+.env.*.local

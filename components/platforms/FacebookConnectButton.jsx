@@ -3,8 +3,8 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Facebook, Loader2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import { initiateFacebookAuth } from '@/api/functions';
-import { handleFacebookCallback } from '@/api/functions';
+import { initiateFacebookAuth } from '@/lib/functions';
+import { handleFacebookCallback } from '@/lib/functions';
 
 export default function FacebookConnectButton({ onConnectionSuccess, isConnected, platformType }) {
     const [isConnecting, setIsConnecting] = useState(false);

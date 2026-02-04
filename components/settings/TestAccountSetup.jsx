@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { User } from '@/api/entities';
+import { User } from '@/lib/entities';
 import { toast } from 'sonner';
 import { Sparkles, Check, AlertTriangle } from 'lucide-react';
 

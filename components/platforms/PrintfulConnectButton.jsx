@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, CheckCircle, ExternalLink, Shirt } from 'lucide-react';
-import { connectPrintful } from '@/api/functions';
-import { syncPrintfulProducts } from '@/api/functions';
+import { connectPrintful } from '@/lib/functions';
+import { syncPrintfulProducts } from '@/lib/functions';
 import { toast } from 'sonner';
 
 export default function PrintfulConnectButton({ 

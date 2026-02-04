@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { User } from '@/api/entities';
+import { User } from '@/lib/entities';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,7 @@ import {
     Loader2, FlaskConical, Store, Bot, Zap, TrendingUp, 
     CheckCircle, ArrowRight, Sparkles, Shield, Target, MessageSquare
 } from 'lucide-react';
-import { generateDemoData } from '@/api/functions';
+import { generateDemoData } from '@/lib/functions';
 
 const steps = [
   { id: 'welcome', title: 'Meet Your AI Business Partner' },

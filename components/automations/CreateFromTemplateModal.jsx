@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Check, AlertCircle, Sparkles, Clock, Zap } from 'lucide-react';
-import { api } from '@/api/apiClient';
+import { api } from '@/lib/apiClient';
 import { toast } from 'sonner';
 
 export default function CreateFromTemplateModal({ template, isOpen, onClose, onSuccess }) {

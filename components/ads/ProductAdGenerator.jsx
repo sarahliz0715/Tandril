@@ -5,7 +5,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Wand2, Loader2, Send } from 'lucide-react';
-import { AdCreative } from '@/api/entities';
+import { AdCreative } from '@/lib/entities';
 import GeneratedAdPreview from './GeneratedAdPreview';
 
 export default function ProductAdGenerator({ isOpen, onClose, products, campaigns }) {

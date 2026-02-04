@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { FileDown, Loader2 } from 'lucide-react';
-import { generateQAPDF } from '@/api/functions';
+import { generateQAPDF } from '@/lib/functions';
 import { toast } from 'sonner';
 
 export default function PDFDownloadButton() {

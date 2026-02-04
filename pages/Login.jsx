@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Mail, Lock, Chrome, Github } from 'lucide-react';
 import { toast } from 'sonner';
-import { supabaseAuthService } from '@/api/supabaseAuth';
+import { supabaseAuthService } from '@/lib/supabaseAuth';
 import { createPageUrl } from '@/utils';
 import TandrilVineLogo from '@/components/logos/TandrilVineLogo';
 

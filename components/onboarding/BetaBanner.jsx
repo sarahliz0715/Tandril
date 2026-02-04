@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { FlaskConical, Users, Sparkles, X } from 'lucide-react';
-import { User } from '@/api/entities';
+import { User } from '@/lib/entities';
 
 export default function BetaBanner() {
   const [isVisible, setIsVisible] = useState(true);

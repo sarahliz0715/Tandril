@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { User } from '@/api/entities';
+import { User } from '@/lib/entities';
 import { useLocation } from 'react-router-dom';
 
 const SAVE_INTERVAL = 30000; // Save every 30 seconds

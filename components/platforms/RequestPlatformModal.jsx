@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { PlatformRequest } from '@/api/entities';
+import { PlatformRequest } from '@/lib/entities';
 import {
   Dialog,
   DialogContent,

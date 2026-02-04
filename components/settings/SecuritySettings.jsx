@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { User } from '@/api/entities';
-import { supabase } from '@/api/supabaseClient';
+import { User } from '@/lib/entities';
+import { supabase } from '@/lib/supabaseClient';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';

@@ -11,7 +11,7 @@ import {
     Package, TrendingUp, MessageSquareCode, Brain, Plus, Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { UploadFile } from '@/api/integrations'; // Added UploadFile import
+import { UploadFile } from '@/lib/integrations'; // Added UploadFile import
 
 // Command suggestions organized by category
 const commandSuggestions = [

@@ -266,11 +266,11 @@ export default function BetaCapabilities() {
               {/* Getting Started */}
               <h2>Getting Started (Beta Version)</h2>
               
-              <h3>Step 1: Connect Your Shopify Store</h3>
+              <h3>Step 1: Connect Your Platform</h3>
               <ul>
-                <li>Go to <Link to={createPageUrl('Platforms')}>My Shopify Store</Link></li>
-                <li>Click "Connect Shopify"</li>
-                <li>Authorize Tandril in your Shopify admin</li>
+                <li>Go to <Link to={createPageUrl('Platforms')}>Platforms</Link></li>
+                <li>Choose your platform: Shopify, WooCommerce, BigCommerce, or Faire</li>
+                <li>Follow the connection flow for your chosen platform</li>
                 <li>Wait for initial product sync (usually 1-2 minutes)</li>
               </ul>
 

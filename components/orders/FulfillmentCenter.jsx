@@ -17,7 +17,7 @@ import {
     MapPin, User, Calendar, Download 
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Order } from '@/api/entities';
+import { Order } from '@/lib/entities';
 
 export default function FulfillmentCenter({ orders, orderItems, onRefresh }) {
     const [selectedOrders, setSelectedOrders] = useState(new Set());

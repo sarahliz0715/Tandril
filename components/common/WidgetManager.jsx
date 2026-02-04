@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { GripVertical, Eye, EyeOff, Settings as SettingsIcon } from 'lucide-react';
 import { toast } from 'sonner';
-import { User } from '@/api/entities';
+import { User } from '@/lib/entities';
 
 export default function WidgetManager({ 
     pageName, 

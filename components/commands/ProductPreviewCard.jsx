@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { MockProduct } from '@/api/entities';
+import { MockProduct } from '@/lib/entities';
 
 export default function ProductPreviewCard({ productId }) {
   const [product, setProduct] = useState(null);
