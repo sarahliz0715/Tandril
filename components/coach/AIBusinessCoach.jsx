@@ -20,7 +20,12 @@ import {
   CheckCircle,
   ArrowRight,
   DollarSign,
-  Zap
+  Zap,
+  Paperclip,
+  Mic,
+  X,
+  FileText,
+  Image as ImageIcon
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/apiClient';
@@ -34,7 +39,10 @@ export default function AIBusinessCoach() {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [isRecording, setIsRecording] = useState(false);
   const chatEndRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     loadAll();
@@ -83,40 +91,123 @@ export default function AIBusinessCoach() {
   };
 
   const handleSendMessage = async () => {
-    if (!chatInput.trim()) return;
+    if (!chatInput.trim() && uploadedFiles.length === 0) return;
 
     const userMessage = chatInput.trim();
     setChatInput('');
 
+    // Format files for display
+    const filesDisplay = uploadedFiles.length > 0
+      ? `\n📎 ${uploadedFiles.map(f => f.name).join(', ')}`
+      : '';
+
     // Add user message
-    setChatMessages([...chatMessages, { role: 'user', content: userMessage }]);
+    setChatMessages([...chatMessages, {
+      role: 'user',
+      content: userMessage + filesDisplay
+    }]);
     setIsChatLoading(true);
 
     try {
-      // TODO: Call conversational AI endpoint
-      // For now, simulate response
-      setTimeout(() => {
+      // Call real AI endpoint
+      const response = await api.functions.invoke('ai-coach-chat', {
+        message: userMessage,
+        conversation_history: chatMessages,
+        uploaded_files: uploadedFiles,
+      });
+
+      if (response.success) {
         setChatMessages((prev) => [
           ...prev,
           {
             role: 'assistant',
-            content: `I understand you're asking about "${userMessage}". Let me analyze your store data to provide specific advice...
-
-Based on your current metrics, here's what I recommend:
-
-1. Focus on your top-performing products
-2. Consider running a promotion to boost sales
-3. Review your inventory levels
-
-Is there a specific area you'd like me to dive deeper into?`,
+            content: response.response,
           },
         ]);
-        setIsChatLoading(false);
-      }, 1500);
+        setUploadedFiles([]); // Clear uploaded files after sending
+      } else {
+        throw new Error(response.error || 'Failed to get AI response');
+      }
     } catch (error) {
       console.error('Failed to send message:', error);
       toast.error('Failed to get response from AI coach');
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: 'Sorry, I encountered an error. Please try again.',
+        },
+      ]);
+    } finally {
       setIsChatLoading(false);
+    }
+  };
+
+  const handleFileUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    for (const file of files) {
+      try {
+        // Read file as base64
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const base64Data = event.target.result.split(',')[1];
+          setUploadedFiles((prev) => [
+            ...prev,
+            {
+              name: file.name,
+              type: file.type,
+              data: base64Data,
+            },
+          ]);
+        };
+        reader.readAsDataURL(file);
+        toast.success(`Uploaded ${file.name}`);
+      } catch (error) {
+        console.error('File upload error:', error);
+        toast.error(`Failed to upload ${file.name}`);
+      }
+    }
+  };
+
+  const removeFile = (index) => {
+    setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const toggleVoiceInput = () => {
+    // Use Web Speech API (Chrome/Edge)
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onstart = () => {
+        setIsRecording(true);
+        toast.success('Listening...');
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        setChatInput(transcript);
+        setIsRecording(false);
+        toast.success('Voice input captured');
+      };
+
+      recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        setIsRecording(false);
+        toast.error('Voice input failed');
+      };
+
+      recognition.onend = () => {
+        setIsRecording(false);
+      };
+
+      recognition.start();
+    } else {
+      toast.error('Voice input not supported in this browser. Try Chrome or Edge.');
     }
   };
 
@@ -459,9 +550,8 @@ Is there a specific area you'd like me to dive deeper into?`,
                   <h3 className="text-lg font-semibold text-slate-900 mb-2">
                     Your Personal Business Advisor
                   </h3>
-                  <p className="text-sm text-slate-600 max-w-md">
-                    Ask me anything about your store, get strategic advice, or request analysis on
-                    specific products or campaigns.
+                  <p className="text-sm text-slate-600 max-w-md mb-3">
+                    Ask me anything about your store, upload files for analysis, or use voice input for hands-free interaction.
                   </p>
                   <div className="mt-6 grid gap-2">
                     <button
@@ -514,15 +604,72 @@ Is there a specific area you'd like me to dive deeper into?`,
               )}
             </CardContent>
             <div className="border-t p-4">
+              {/* Uploaded Files Display */}
+              {uploadedFiles.length > 0 && (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {uploadedFiles.map((file, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2 text-sm"
+                    >
+                      {file.type.startsWith('image/') ? (
+                        <ImageIcon className="w-4 h-4 text-purple-600" />
+                      ) : (
+                        <FileText className="w-4 h-4 text-purple-600" />
+                      )}
+                      <span className="text-purple-900">{file.name}</span>
+                      <button
+                        onClick={() => removeFile(idx)}
+                        className="text-purple-600 hover:text-purple-800"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Input Area */}
               <div className="flex gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*,.pdf,.csv,.xlsx,.xls"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isChatLoading}
+                  title="Upload file"
+                >
+                  <Paperclip className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={toggleVoiceInput}
+                  disabled={isChatLoading}
+                  className={isRecording ? 'bg-red-100 border-red-300' : ''}
+                  title="Voice input"
+                >
+                  <Mic className={`w-4 h-4 ${isRecording ? 'text-red-600 animate-pulse' : ''}`} />
+                </Button>
                 <Input
                   placeholder="Ask your AI coach anything..."
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && !isChatLoading && handleSendMessage()}
                   disabled={isChatLoading}
+                  className="flex-1"
                 />
-                <Button onClick={handleSendMessage} disabled={isChatLoading || !chatInput.trim()}>
+                <Button
+                  onClick={handleSendMessage}
+                  disabled={isChatLoading || (!chatInput.trim() && uploadedFiles.length === 0)}
+                >
                   <Send className="w-4 h-4" />
                 </Button>
               </div>
