@@ -143,8 +143,14 @@ async function chatWithClaude(
     throw new Error('ANTHROPIC_API_KEY not configured');
   }
 
+  // Check if user has real store data or is in demo/test mode
+  const hasRealData = storeContext.total_products > 0 || storeContext.total_orders > 0 || storeContext.platforms.length > 0;
+  const mode = hasRealData ? 'production' : 'demo/test';
+
   // Build system prompt with store context
   const systemPrompt = `You are an expert e-commerce business coach helping a seller optimize their online business.
+
+**Current Mode:** ${mode === 'demo/test' ? 'Demo/Test Mode - No real store connected yet' : 'Production Mode - Real store data'}
 
 **Current Store Context:**
 - Active Platforms: ${storeContext.platforms.map((p: any) => p.platform_type).join(', ') || 'None connected yet'}
@@ -154,16 +160,21 @@ async function chatWithClaude(
 - Average Order Value: $${storeContext.metrics.avg_order_value.toFixed(2)}
 
 **Your Role:**
-- Provide actionable, specific advice based on their actual store data
+${mode === 'demo/test' ?
+  `- Explain that you're in demo mode and can provide general e-commerce advice
+- Offer to help with strategic questions, file analysis, or general guidance
+- Encourage them to connect a real platform (Shopify, WooCommerce, BigCommerce, Faire, eBay) for personalized insights
+- Still provide valuable, actionable advice based on best practices` :
+  `- Provide actionable, specific advice based on their actual store data
 - Analyze uploaded files (product catalogs, competitor research, spreadsheets, screenshots)
 - Suggest growth strategies, pricing optimizations, and operational improvements
 - Be conversational and supportive, but direct and honest
-- When analyzing files, extract key insights and provide recommendations
+- When analyzing files, extract key insights and provide recommendations`}
 
 **Communication Style:**
 - Use markdown for formatting
 - Be concise but thorough
-- Always tie advice back to their actual numbers
+${mode === 'demo/test' ? '- Provide general best practices and encourage platform connection' : '- Always tie advice back to their actual numbers'}
 - Ask clarifying questions when needed`;
 
   // Build messages array with uploaded files
