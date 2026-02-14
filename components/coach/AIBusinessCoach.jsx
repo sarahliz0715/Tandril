@@ -110,11 +110,13 @@ export default function AIBusinessCoach() {
 
     try {
       // Call real AI endpoint
+      console.log('[AI Coach] Sending message:', userMessage);
       const response = await api.functions.chatWithCoach({
         message: userMessage,
         conversation_history: chatMessages,
         uploaded_files: uploadedFiles,
       });
+      console.log('[AI Coach] Got response:', response);
 
       if (response && response.success) {
         setChatMessages((prev) => [
@@ -126,6 +128,7 @@ export default function AIBusinessCoach() {
         ]);
         setUploadedFiles([]); // Clear uploaded files after sending
       } else {
+        console.error('[AI Coach] Response missing success or response field:', response);
         throw new Error(response?.error || 'Failed to get AI response');
       }
     } catch (error) {
