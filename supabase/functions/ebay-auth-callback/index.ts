@@ -18,59 +18,47 @@ serve(async (req) => {
   }
 
   try {
-    // Get the authorization header
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      throw new Error('Missing authorization header');
-    }
+    console.log('[eBay Callback] Request received:', req.method, req.url);
 
-    // Create Supabase client
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      {
-        global: {
-          headers: { Authorization: authHeader },
-        },
-      }
-    );
+    // Parse query parameters from eBay redirect (GET request)
+    const url = new URL(req.url);
+    const code = url.searchParams.get('code');
+    const state = url.searchParams.get('state');
 
-    // Verify the user is authenticated
-    const {
-      data: { user },
-      error: userError,
-    } = await supabaseClient.auth.getUser();
-
-    if (userError || !user) {
-      throw new Error('Unauthorized');
-    }
-
-    // Get request body
-    const { code, state } = await req.json();
+    console.log('[eBay Callback] Parameters:', { code: code?.substring(0, 10) + '...', state: state?.substring(0, 10) + '...' });
 
     if (!code || !state) {
       throw new Error('Missing authorization code or state');
     }
 
-    console.log(`[eBay Callback] Processing callback for user ${user.id}`);
+    // Create Supabase admin client (no user auth required for callback)
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    if (!serviceRoleKey) {
+      console.error('[eBay Callback] SUPABASE_SERVICE_ROLE_KEY not configured!');
+      throw new Error('Server configuration error - missing service role key');
+    }
 
-    // Verify state token
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      serviceRoleKey
+    );
+
+    // Verify state token to get user_id
     const { data: stateData, error: stateError } = await supabaseClient
       .from('oauth_states')
       .select('*')
-      .eq('user_id', user.id)
       .eq('state', state)
       .eq('platform', 'ebay')
+      .gt('expires_at', new Date().toISOString())
       .single();
 
     if (stateError || !stateData) {
+      console.warn('[eBay Callback] State verification failed:', stateError?.message);
       throw new Error('Invalid or expired state token');
     }
 
-    // Check if state has expired
-    if (new Date(stateData.expires_at) < new Date()) {
-      throw new Error('State token has expired');
-    }
+    const userId = stateData.user_id;
+    console.log(`[eBay Callback] Processing callback for user ${userId}`);
 
     // Delete used state token
     await supabaseClient
@@ -142,7 +130,7 @@ serve(async (req) => {
 
     // Store the platform connection in database
     const platformData = {
-      user_id: user.id,
+      user_id: userId,
       platform_type: 'ebay',
       name: `eBay - ${ebayUsername}`,
       store_url: ebayEnvironment === 'sandbox'
@@ -169,7 +157,7 @@ serve(async (req) => {
     const { data: existingPlatform } = await supabaseClient
       .from('platforms')
       .select('id')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .eq('platform_type', 'ebay')
       .eq('metadata->>username', ebayUsername)
       .single();
@@ -200,31 +188,30 @@ serve(async (req) => {
       console.log(`[eBay Callback] Created new platform ${data.id}`);
     }
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        message: 'eBay account connected successfully!',
-        data: {
-          platform: platform,
-          username: ebayUsername,
-        },
-      }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200,
-      }
-    );
+    console.log(`[eBay Callback] Successfully connected eBay account for user ${userId}`);
+
+    // Redirect back to the app with success
+    const appUrl = Deno.env.get('APP_URL') || 'http://localhost:5173';
+    const redirectUrl = `${appUrl}/Platforms?connected=true&platform=ebay&username=${encodeURIComponent(ebayUsername)}`;
+
+    return new Response(null, {
+      status: 302,
+      headers: {
+        'Location': redirectUrl,
+      },
+    });
   } catch (error) {
     console.error('[eBay Callback] Error:', error);
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: error.message || 'Failed to complete eBay authorization',
-      }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 400,
-      }
-    );
+
+    // Redirect back to app with error
+    const appUrl = Deno.env.get('APP_URL') || 'http://localhost:5173';
+    const redirectUrl = `${appUrl}/Platforms?error=${encodeURIComponent(error.message)}`;
+
+    return new Response(null, {
+      status: 302,
+      headers: {
+        'Location': redirectUrl,
+      },
+    });
   }
 });
