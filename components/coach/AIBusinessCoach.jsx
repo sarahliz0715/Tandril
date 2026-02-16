@@ -111,12 +111,18 @@ export default function AIBusinessCoach() {
     try {
       // Call real AI endpoint
       console.log('[AI Coach] Sending message:', userMessage);
+      console.log('[AI Coach] Uploaded files:', uploadedFiles.map(f => ({ name: f.name, type: f.type })));
+      console.log('[AI Coach] Conversation history length:', chatMessages.length);
+
       const response = await api.functions.chatWithCoach({
         message: userMessage,
         conversation_history: chatMessages,
         uploaded_files: uploadedFiles,
       });
+
       console.log('[AI Coach] Got response:', response);
+      console.log('[AI Coach] Response type:', typeof response);
+      console.log('[AI Coach] Response keys:', response ? Object.keys(response) : 'null/undefined');
 
       if (response && response.success) {
         setChatMessages((prev) => [
@@ -128,11 +134,19 @@ export default function AIBusinessCoach() {
         ]);
         setUploadedFiles([]); // Clear uploaded files after sending
       } else {
-        console.error('[AI Coach] Response missing success or response field:', response);
+        console.error('[AI Coach] Response missing success or response field');
+        console.error('[AI Coach] Full response object:', JSON.stringify(response, null, 2));
         throw new Error(response?.error || 'Failed to get AI response');
       }
     } catch (error) {
-      console.error('Failed to send message:', error);
+      console.error('[AI Coach] Error caught:', error);
+      console.error('[AI Coach] Error name:', error.name);
+      console.error('[AI Coach] Error message:', error.message);
+      console.error('[AI Coach] Error stack:', error.stack);
+      if (error.response) {
+        console.error('[AI Coach] Error response:', error.response);
+      }
+
       toast.error('Failed to get response from AI coach');
       setChatMessages((prev) => [
         ...prev,
