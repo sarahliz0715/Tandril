@@ -20,6 +20,8 @@ serve(async (req) => {
   }
 
   try {
+    console.log('[Shopify Callback] Request received:', req.method, req.url);
+
     // Parse query parameters
     const url = new URL(req.url);
     const code = url.searchParams.get('code');
@@ -27,14 +29,22 @@ serve(async (req) => {
     const state = url.searchParams.get('state');
     const hmac = url.searchParams.get('hmac');
 
+    console.log('[Shopify Callback] Parameters:', { code: code?.substring(0, 10) + '...', shop, state: state?.substring(0, 10) + '...' });
+
     if (!code || !shop || !state) {
       throw new Error('Missing required OAuth parameters');
     }
 
     // Create Supabase admin client (no user auth required for callback)
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    if (!serviceRoleKey) {
+      console.error('[Shopify Callback] SUPABASE_SERVICE_ROLE_KEY not configured!');
+      throw new Error('Server configuration error - missing service role key');
+    }
+
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      serviceRoleKey
     );
 
     // Verify the state parameter (if oauth_states table exists)
