@@ -1,5 +1,5 @@
-// AI Business Coach Chat Edge Function
-// Conversational AI with file upload and multimodal analysis support
+// Orion - AI Business Wingman Edge Function
+// With persistent conversation history and business memory
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -25,80 +25,227 @@ serve(async (req) => {
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      {
-        global: {
-          headers: { Authorization: authHeader },
-        },
-      }
+      { global: { headers: { Authorization: authHeader } } }
     );
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabaseClient.auth.getUser();
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+    if (userError || !user) throw new Error('Unauthorized');
 
-    if (userError || !user) {
-      throw new Error('Unauthorized');
-    }
-
-    const { message, conversation_history = [], uploaded_files = [] } = await req.json();
-
-    if (!message) {
-      throw new Error('Message is required');
-    }
+    const { message, conversation_id = null, uploaded_files = [] } = await req.json();
+    if (!message) throw new Error('Message is required');
 
     console.log(`[Orion] Processing message for user ${user.id}`);
 
-    // Get user's store context
-    const storeContext = await getUserStoreContext(supabaseClient, user.id);
+    // Get or create conversation
+    const conversationId = await getOrCreateConversation(supabaseClient, user.id, conversation_id);
 
-    // Build conversation with context
-    const response = await chatWithClaude(
-      message,
-      conversation_history,
-      uploaded_files,
-      storeContext
+    // Load persistent data in parallel
+    const [storeContext, recentHistory, memoryNotes] = await Promise.all([
+      getUserStoreContext(supabaseClient, user.id),
+      loadConversationHistory(supabaseClient, user.id, conversationId),
+      loadMemoryNotes(supabaseClient, user.id),
+    ]);
+
+    // Save the user's message to DB
+    await saveMessage(supabaseClient, user.id, conversationId, 'user', message);
+
+    // Get Orion's response
+    const response = await chatWithClaude(message, recentHistory, uploaded_files, storeContext, memoryNotes);
+
+    // Save Orion's response to DB
+    await saveMessage(supabaseClient, user.id, conversationId, 'assistant', response);
+
+    // Extract and save any new memory insights (non-blocking)
+    extractAndSaveMemory(supabaseClient, user.id, conversationId, message, response).catch(
+      (e) => console.error('[Orion] Memory extraction failed:', e)
     );
 
     return new Response(
       JSON.stringify({
         success: true,
-        response: response,
+        response,
+        conversation_id: conversationId,
         context_used: {
           platforms: storeContext.platforms.length,
           has_products: storeContext.total_products > 0,
           has_orders: storeContext.total_orders > 0,
+          history_messages: recentHistory.length,
+          memory_notes: memoryNotes.length,
         },
       }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200,
-      }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     );
   } catch (error) {
     console.error('[Orion] Error:', error);
     return new Response(
-      JSON.stringify({
-        success: false,
-        error: error.message || 'Failed to process AI chat',
-      }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 400,
-      }
+      JSON.stringify({ success: false, error: error.message || 'Failed to process AI chat' }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
     );
   }
 });
 
+// ─── Conversation Management ──────────────────────────────────────────────────
+
+async function getOrCreateConversation(supabaseClient: any, userId: string, conversationId: string | null) {
+  if (conversationId) {
+    // Verify it belongs to this user
+    const { data } = await supabaseClient
+      .from('orion_conversations')
+      .select('id')
+      .eq('id', conversationId)
+      .eq('user_id', userId)
+      .single();
+    if (data) return conversationId;
+  }
+
+  // Create a new conversation
+  const { data, error } = await supabaseClient
+    .from('orion_conversations')
+    .insert({ user_id: userId, title: 'New conversation' })
+    .select('id')
+    .single();
+
+  if (error) throw new Error(`Failed to create conversation: ${error.message}`);
+  return data.id;
+}
+
+async function loadConversationHistory(supabaseClient: any, userId: string, conversationId: string) {
+  // Load last 40 messages from current conversation + last 10 from previous sessions for context
+  const { data: currentMessages } = await supabaseClient
+    .from('orion_messages')
+    .select('role, content, created_at')
+    .eq('conversation_id', conversationId)
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true })
+    .limit(40);
+
+  // Also grab a few messages from the most recent previous conversation
+  const { data: prevConversations } = await supabaseClient
+    .from('orion_conversations')
+    .select('id')
+    .eq('user_id', userId)
+    .neq('id', conversationId)
+    .order('updated_at', { ascending: false })
+    .limit(1);
+
+  let previousMessages: any[] = [];
+  if (prevConversations && prevConversations.length > 0) {
+    const { data: prevMsgs } = await supabaseClient
+      .from('orion_messages')
+      .select('role, content, created_at')
+      .eq('conversation_id', prevConversations[0].id)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(10);
+    previousMessages = (prevMsgs || []).reverse();
+  }
+
+  return [...previousMessages, ...(currentMessages || [])];
+}
+
+async function saveMessage(supabaseClient: any, userId: string, conversationId: string, role: string, content: string) {
+  await supabaseClient
+    .from('orion_messages')
+    .insert({ user_id: userId, conversation_id: conversationId, role, content });
+
+  // Update conversation timestamp
+  await supabaseClient
+    .from('orion_conversations')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('id', conversationId);
+}
+
+async function loadMemoryNotes(supabaseClient: any, userId: string) {
+  const { data } = await supabaseClient
+    .from('orion_memory')
+    .select('category, key, value, updated_at')
+    .eq('user_id', userId)
+    .order('updated_at', { ascending: false })
+    .limit(50);
+  return data || [];
+}
+
+async function extractAndSaveMemory(
+  supabaseClient: any,
+  userId: string,
+  conversationId: string,
+  userMessage: string,
+  assistantResponse: string
+) {
+  const anthropicApiKey = Deno.env.get('ANTHROPIC_API_KEY');
+  if (!anthropicApiKey) return;
+
+  const extractionPrompt = `You are analyzing a conversation between a user and Orion (an AI business wingman) to extract memorable business facts.
+
+User said: "${userMessage}"
+Orion responded: "${assistantResponse}"
+
+Extract any notable business facts, preferences, or insights worth remembering for future conversations. Focus on:
+- Owner preferences or business goals
+- Key products, suppliers, or business relationships mentioned
+- Business challenges or opportunities discussed
+- Decisions made or strategies agreed upon
+- Important numbers or benchmarks mentioned
+
+Respond with a JSON array (can be empty [] if nothing notable). Each item:
+{"category": "owner_preference|product_knowledge|business_goal|trend|challenge|decision", "key": "short_identifier", "value": "the insight to remember"}
+
+Only include genuinely useful facts. Return ONLY the JSON array, no other text.`;
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': anthropicApiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-3-haiku-20240307',
+      max_tokens: 512,
+      messages: [{ role: 'user', content: extractionPrompt }],
+    }),
+  });
+
+  if (!response.ok) return;
+
+  const data = await response.json();
+  const text = data.content[0].text.trim();
+
+  let insights: any[] = [];
+  try {
+    insights = JSON.parse(text);
+  } catch {
+    return; // Not valid JSON, skip
+  }
+
+  for (const insight of insights) {
+    if (!insight.category || !insight.key || !insight.value) continue;
+    // Upsert by user_id + key so we update existing facts
+    await supabaseClient
+      .from('orion_memory')
+      .upsert(
+        {
+          user_id: userId,
+          category: insight.category,
+          key: insight.key,
+          value: insight.value,
+          source_conversation_id: conversationId,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id,key' }
+      );
+  }
+}
+
+// ─── Store Context ────────────────────────────────────────────────────────────
+
 async function getUserStoreContext(supabaseClient: any, userId: string) {
-  // Get connected platforms
   const { data: platforms } = await supabaseClient
     .from('platforms')
     .select('*')
     .eq('user_id', userId)
     .eq('status', 'connected');
 
-  // Get products with full inventory detail
   const { data: products, count: productCount } = await supabaseClient
     .from('products')
     .select('*', { count: 'exact' })
@@ -106,7 +253,6 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     .order('created_at', { ascending: false })
     .limit(50);
 
-  // Get recent orders
   const { data: orders, count: orderCount } = await supabaseClient
     .from('orders')
     .select('*', { count: 'exact' })
@@ -114,11 +260,9 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     .order('created_at', { ascending: false })
     .limit(25);
 
-  // Calculate key metrics
   const totalRevenue = orders?.reduce((sum, o) => sum + (parseFloat(o.total_price) || 0), 0) || 0;
   const avgOrderValue = orders && orders.length > 0 ? totalRevenue / orders.length : 0;
 
-  // Find low stock products (inventory <= 5)
   const lowStockProducts = (products || []).filter((p: any) => {
     const qty = p.inventory_quantity ?? p.stock_quantity ?? p.quantity ?? null;
     return qty !== null && qty <= 5;
@@ -139,22 +283,21 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
   };
 }
 
+// ─── Claude Chat ──────────────────────────────────────────────────────────────
+
 async function chatWithClaude(
   message: string,
   conversationHistory: Array<{ role: string; content: string }>,
-  uploadedFiles: Array<{ type: string; url: string; name: string; data?: string }>,
-  storeContext: any
+  uploadedFiles: Array<{ type: string; name: string; data?: string }>,
+  storeContext: any,
+  memoryNotes: Array<{ category: string; key: string; value: string }>
 ) {
   const anthropicApiKey = Deno.env.get('ANTHROPIC_API_KEY');
-  if (!anthropicApiKey) {
-    throw new Error('ANTHROPIC_API_KEY not configured');
-  }
+  if (!anthropicApiKey) throw new Error('ANTHROPIC_API_KEY not configured');
 
-  // Check if user has real store data or is in demo/test mode
   const hasRealData = storeContext.total_products > 0 || storeContext.total_orders > 0 || storeContext.platforms.length > 0;
   const mode = hasRealData ? 'production' : 'demo/test';
 
-  // Format product inventory for the prompt
   const formatProducts = (products: any[]) => {
     if (!products || products.length === 0) return 'No products found.';
     return products.map((p: any) => {
@@ -162,14 +305,13 @@ async function chatWithClaude(
       const sku = p.sku || p.variant_sku || 'N/A';
       const price = p.price != null ? `$${parseFloat(p.price).toFixed(2)}` : 'N/A';
       const stock = p.inventory_quantity ?? p.stock_quantity ?? p.quantity ?? 'N/A';
-      const status = p.status || p.inventory_policy || '';
+      const status = p.status || '';
       const vendor = p.vendor || '';
       const type = p.product_type || p.category || '';
       return `  - ${name} | SKU: ${sku} | Price: ${price} | Stock: ${stock}${vendor ? ` | Vendor: ${vendor}` : ''}${type ? ` | Type: ${type}` : ''}${status ? ` | Status: ${status}` : ''}`;
     }).join('\n');
   };
 
-  // Format recent orders for the prompt
   const formatOrders = (orders: any[]) => {
     if (!orders || orders.length === 0) return 'No orders found.';
     return orders.map((o: any) => {
@@ -180,29 +322,40 @@ async function chatWithClaude(
       const fulfillment = o.fulfillment_status || o.shipping_status || '';
       const items = o.line_items
         ? (Array.isArray(o.line_items)
-            ? o.line_items.map((i: any) => `${i.title || i.name || 'Item'} x${i.quantity || 1}`).join(', ')
-            : JSON.stringify(o.line_items).slice(0, 100))
+          ? o.line_items.map((i: any) => `${i.title || i.name || 'Item'} x${i.quantity || 1}`).join(', ')
+          : JSON.stringify(o.line_items).slice(0, 100))
         : '';
       return `  - Order #${num} | ${date} | ${total}${financial ? ` | ${financial}` : ''}${fulfillment ? ` | ${fulfillment}` : ''}${items ? `\n    Items: ${items}` : ''}`;
     }).join('\n');
   };
 
-  // Format low stock alert
-  const formatLowStock = (products: any[]) => {
-    if (!products || products.length === 0) return '';
-    return products.map((p: any) => {
-      const name = p.title || p.name || 'Unnamed';
-      const stock = p.inventory_quantity ?? p.stock_quantity ?? p.quantity ?? 0;
-      return `  - ${name}: ${stock} remaining`;
-    }).join('\n');
+  const formatLowStock = (products: any[]) => products.map((p: any) => {
+    const name = p.title || p.name || 'Unnamed';
+    const stock = p.inventory_quantity ?? p.stock_quantity ?? p.quantity ?? 0;
+    return `  - ${name}: ${stock} remaining`;
+  }).join('\n');
+
+  const formatMemory = (notes: any[]) => {
+    if (!notes || notes.length === 0) return '';
+    const grouped: Record<string, string[]> = {};
+    notes.forEach((n) => {
+      if (!grouped[n.category]) grouped[n.category] = [];
+      grouped[n.category].push(n.value);
+    });
+    return Object.entries(grouped)
+      .map(([cat, vals]) => `  ${cat.replace(/_/g, ' ')}:\n${vals.map(v => `    - ${v}`).join('\n')}`)
+      .join('\n');
   };
 
   const lowStockSection = storeContext.low_stock_products.length > 0
     ? `\n**⚠️ Low Stock Alert (${storeContext.low_stock_products.length} products at 5 or fewer units):**\n${formatLowStock(storeContext.low_stock_products)}\n`
     : '';
 
-  // Build system prompt with store context
-  const systemPrompt = `You are Orion, an AI business wingman for e-commerce sellers. You're not just an advisor - you're their go-to partner who helps them grow, spot opportunities, and tackle challenges head-on. You're sharp, direct, and genuinely invested in their success. Think of yourself as the experienced wingman who's always got their back.
+  const memorySection = memoryNotes.length > 0
+    ? `\n**What I Know About This Business (from past conversations):**\n${formatMemory(memoryNotes)}\n`
+    : '';
+
+  const systemPrompt = `You are Orion, an AI business wingman for e-commerce sellers. You're not just an advisor - you're their go-to partner who helps them grow, spot opportunities, and tackle challenges head-on. You're sharp, direct, and genuinely invested in their success. You remember past conversations and build on what you've learned over time.
 
 **Current Mode:** ${mode === 'demo/test' ? 'Demo/Test Mode - No real store connected yet' : 'Production Mode - Real store data'}
 
@@ -212,7 +365,7 @@ async function chatWithClaude(
 - Total Orders: ${storeContext.total_orders} (showing last ${storeContext.orders.length} below)
 - Total Revenue (recent): $${storeContext.metrics.total_revenue.toFixed(2)}
 - Average Order Value: $${storeContext.metrics.avg_order_value.toFixed(2)}
-${lowStockSection}
+${lowStockSection}${memorySection}
 ${mode !== 'demo/test' ? `**Product Inventory (${storeContext.products.length} of ${storeContext.total_products} products):**
 ${formatProducts(storeContext.products)}
 
@@ -221,59 +374,39 @@ ${formatOrders(storeContext.orders)}` : ''}
 
 **Your Role:**
 ${mode === 'demo/test' ?
-  `- Let them know you're in demo mode but you're ready to help with general e-commerce strategy
-- Offer to dig into their questions, analyze uploaded files, or brainstorm growth ideas
-- Encourage them to connect a real platform (Shopify, WooCommerce, BigCommerce, Faire, eBay) so you can give personalized insights based on their actual data
+    `- Let them know you're in demo mode but you're ready to help with general e-commerce strategy
+- Encourage them to connect a real platform for personalized insights
 - Still bring real value with actionable advice based on best practices` :
-  `- You have full visibility into their product catalog, inventory levels, and order history above - use it
+    `- You have full visibility into their product catalog, inventory levels, order history, and memory from past conversations - use all of it
+- Reference past conversations and build on what was discussed before when relevant
 - Answer specific questions about products, stock levels, pricing, and orders directly from the data
-- Proactively flag low stock items, pricing opportunities, and trends you spot in the data
-- Analyze uploaded files alongside store data for deeper insights
-- Be direct and honest - a real wingman tells you the truth, not just what you want to hear`}
+- Proactively flag low stock items, pricing opportunities, and trends
+- Be direct and honest - a real wingman tells you the truth`}
 
 **Communication Style:**
 - Use markdown for formatting
 - Be conversational, energetic, and direct - like a trusted partner, not a formal consultant
-- Lead with the most important insight or action, not background
-${mode === 'demo/test' ? '- Share best practices confidently and encourage connecting a real platform for personalized intel' : '- Always reference specific products, order numbers, or real numbers when relevant'}
-- Ask sharp clarifying questions when you need more context to give useful advice`;
+- Reference specific products, past discussions, or real numbers when relevant
+- Ask sharp clarifying questions when you need more context`;
 
-  // Build messages array with uploaded files
-  const messages: any[] = [];
+  // Build messages from persistent history
+  const messages: any[] = conversationHistory.map((msg) => ({
+    role: msg.role === 'user' ? 'user' : 'assistant',
+    content: msg.content,
+  }));
 
-  // Add conversation history
-  conversationHistory.forEach((msg) => {
-    messages.push({
-      role: msg.role === 'user' ? 'user' : 'assistant',
-      content: msg.content,
-    });
-  });
+  // Add current message with any uploaded files
+  const currentContent: any[] = [{ type: 'text', text: message }];
 
-  // Build current message content
-  const currentMessageContent: any[] = [];
-
-  // Add text message
-  currentMessageContent.push({
-    type: 'text',
-    text: message,
-  });
-
-  // Add uploaded files (if any)
   if (uploadedFiles && uploadedFiles.length > 0) {
     for (const file of uploadedFiles) {
-      if (file.type.startsWith('image/')) {
-        // Image file - use vision
-        currentMessageContent.push({
+      if (file.type?.startsWith('image/')) {
+        currentContent.push({
           type: 'image',
-          source: {
-            type: 'base64',
-            media_type: file.type,
-            data: file.data, // Base64 encoded image
-          },
+          source: { type: 'base64', media_type: file.type, data: file.data },
         });
       } else if (file.type === 'text/csv' || file.type === 'application/pdf') {
-        // Text-based file - include content
-        currentMessageContent.push({
+        currentContent.push({
           type: 'text',
           text: `\n\n**Uploaded File: ${file.name}**\n\`\`\`\n${file.data}\n\`\`\``,
         });
@@ -281,12 +414,8 @@ ${mode === 'demo/test' ? '- Share best practices confidently and encourage conne
     }
   }
 
-  messages.push({
-    role: 'user',
-    content: currentMessageContent,
-  });
+  messages.push({ role: 'user', content: currentContent });
 
-  // Call Claude API
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -298,16 +427,12 @@ ${mode === 'demo/test' ? '- Share best practices confidently and encourage conne
       model: 'claude-3-haiku-20240307',
       max_tokens: 2048,
       system: systemPrompt,
-      messages: messages,
+      messages,
     }),
   });
 
-  if (!response.ok) {
-    throw new Error(`Claude API error: ${await response.text()}`);
-  }
+  if (!response.ok) throw new Error(`Claude API error: ${await response.text()}`);
 
   const data = await response.json();
-  const assistantMessage = data.content[0].text;
-
-  return assistantMessage;
+  return data.content[0].text;
 }

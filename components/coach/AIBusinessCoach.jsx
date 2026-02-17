@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/apiClient';
+import { supabase } from '@/lib/supabaseClient';
 
 export default function AIBusinessCoach() {
   const [activeTab, setActiveTab] = useState('chat');
@@ -39,11 +40,61 @@ export default function AIBusinessCoach() {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(true);
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [isRecording, setIsRecording] = useState(false);
+  const [conversationId, setConversationId] = useState(null);
   const chatEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const loadedTabsRef = useRef(new Set());
+
+  // Load most recent conversation history on mount
+  useEffect(() => {
+    loadRecentHistory();
+  }, []);
+
+  const loadRecentHistory = async () => {
+    setIsHistoryLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Get the most recent conversation
+      const { data: conversations } = await supabase
+        .from('orion_conversations')
+        .select('id')
+        .eq('user_id', user.id)
+        .order('updated_at', { ascending: false })
+        .limit(1);
+
+      if (!conversations || conversations.length === 0) return;
+
+      const latestConvId = conversations[0].id;
+      setConversationId(latestConvId);
+
+      // Load its messages
+      const { data: messages } = await supabase
+        .from('orion_messages')
+        .select('role, content, created_at')
+        .eq('conversation_id', latestConvId)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: true })
+        .limit(50);
+
+      if (messages && messages.length > 0) {
+        setChatMessages(messages.map(m => ({ role: m.role, content: m.content })));
+      }
+    } catch (error) {
+      console.error('[Orion] Failed to load history:', error);
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  };
+
+  const startNewConversation = () => {
+    setConversationId(null);
+    setChatMessages([]);
+  };
 
   // Auto-load each tab's data the first time the user visits it
   useEffect(() => {
@@ -105,57 +156,38 @@ export default function AIBusinessCoach() {
     const userMessage = chatInput.trim();
     setChatInput('');
 
-    // Format files for display
     const filesDisplay = uploadedFiles.length > 0
       ? `\n📎 ${uploadedFiles.map(f => f.name).join(', ')}`
       : '';
 
-    // Add user message
-    setChatMessages([...chatMessages, {
-      role: 'user',
-      content: userMessage + filesDisplay
-    }]);
+    setChatMessages(prev => [...prev, { role: 'user', content: userMessage + filesDisplay }]);
     setIsChatLoading(true);
 
     try {
-      // Call real AI endpoint
-      console.log('[AI Coach] Sending message:', userMessage);
-      console.log('[AI Coach] Uploaded files:', uploadedFiles.map(f => ({ name: f.name, type: f.type })));
-      console.log('[AI Coach] Conversation history length:', chatMessages.length);
-
       const response = await api.functions.chatWithCoach({
         message: userMessage,
-        conversation_history: chatMessages,
+        conversation_id: conversationId,
         uploaded_files: uploadedFiles,
       });
 
-      console.log('[AI Coach] Got response:', response);
-      console.log('[AI Coach] Response type:', typeof response);
+      console.log('[Orion] Got response:', response);
       console.log('[AI Coach] Response keys:', response ? Object.keys(response) : 'null/undefined');
 
       if (response && response.success) {
         setChatMessages((prev) => [
           ...prev,
-          {
-            role: 'assistant',
-            content: response.response,
-          },
+          { role: 'assistant', content: response.response },
         ]);
-        setUploadedFiles([]); // Clear uploaded files after sending
+        // Persist the conversation ID returned by the Edge Function
+        if (response.conversation_id) {
+          setConversationId(response.conversation_id);
+        }
+        setUploadedFiles([]);
       } else {
-        console.error('[AI Coach] Response missing success or response field');
-        console.error('[AI Coach] Full response object:', JSON.stringify(response, null, 2));
         throw new Error(response?.error || 'Failed to get AI response');
       }
     } catch (error) {
-      console.error('[AI Coach] Error caught:', error);
-      console.error('[AI Coach] Error name:', error.name);
-      console.error('[AI Coach] Error message:', error.message);
-      console.error('[AI Coach] Error stack:', error.stack);
-      if (error.response) {
-        console.error('[AI Coach] Error response:', error.response);
-      }
-
+      console.error('[Orion] Error:', error);
       toast.error('Failed to get response from Orion');
       setChatMessages((prev) => [
         ...prev,
@@ -574,13 +606,25 @@ export default function AIBusinessCoach() {
         <TabsContent value="chat" className="space-y-4">
           <Card className="h-[600px] flex flex-col">
             <CardHeader className="border-b">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Zap className="w-4 h-4" />
-                Ask Orion Anything
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Zap className="w-4 h-4" />
+                  Ask Orion Anything
+                </CardTitle>
+                {chatMessages.length > 0 && (
+                  <Button variant="outline" size="sm" onClick={startNewConversation}>
+                    + New Chat
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="flex-1 overflow-y-auto p-4 space-y-4">
-              {chatMessages.length === 0 ? (
+              {isHistoryLoading ? (
+                <div className="flex flex-col items-center justify-center h-full gap-3">
+                  <Loader2 className="w-8 h-8 animate-spin text-green-600" />
+                  <p className="text-sm text-slate-500">Loading your conversation history...</p>
+                </div>
+              ) : chatMessages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-center">
                   <Zap className="w-16 h-16 text-purple-400 mb-4" />
                   <h3 className="text-lg font-semibold text-slate-900 mb-2">
