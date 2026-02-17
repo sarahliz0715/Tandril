@@ -36,29 +36,49 @@ serve(async (req) => {
 
     console.log(`[Orion] Processing message for user ${user.id}`);
 
-    // Get or create conversation
-    const conversationId = await getOrCreateConversation(supabaseClient, user.id, conversation_id);
+    // Try to get/create conversation — if tables don't exist yet, fall back gracefully
+    let conversationId: string | null = null;
+    try {
+      conversationId = await getOrCreateConversation(supabaseClient, user.id, conversation_id);
+    } catch (e) {
+      console.warn('[Orion] Conversation table unavailable, running without persistence:', e.message);
+    }
 
-    // Load persistent data in parallel
-    const [storeContext, recentHistory, memoryNotes] = await Promise.all([
-      getUserStoreContext(supabaseClient, user.id),
-      loadConversationHistory(supabaseClient, user.id, conversationId),
-      loadMemoryNotes(supabaseClient, user.id),
-    ]);
+    // Load store context (always) + history/memory (only if conversation table available)
+    let recentHistory: any[] = [];
+    let memoryNotes: any[] = [];
+    const storeContext = await getUserStoreContext(supabaseClient, user.id);
 
-    // Save the user's message to DB
-    await saveMessage(supabaseClient, user.id, conversationId, 'user', message);
+    if (conversationId) {
+      try {
+        [recentHistory, memoryNotes] = await Promise.all([
+          loadConversationHistory(supabaseClient, user.id, conversationId),
+          loadMemoryNotes(supabaseClient, user.id),
+        ]);
+      } catch (e) {
+        console.warn('[Orion] Could not load history/memory:', e.message);
+      }
+
+      // Save the user's message to DB (non-fatal if it fails)
+      saveMessage(supabaseClient, user.id, conversationId, 'user', message).catch(
+        (e) => console.warn('[Orion] Could not save user message:', e.message)
+      );
+    }
 
     // Get Orion's response
     const response = await chatWithClaude(message, recentHistory, uploaded_files, storeContext, memoryNotes);
 
-    // Save Orion's response to DB
-    await saveMessage(supabaseClient, user.id, conversationId, 'assistant', response);
+    if (conversationId) {
+      // Save Orion's response to DB (non-fatal)
+      saveMessage(supabaseClient, user.id, conversationId, 'assistant', response).catch(
+        (e) => console.warn('[Orion] Could not save assistant message:', e.message)
+      );
 
-    // Extract and save any new memory insights (non-blocking)
-    extractAndSaveMemory(supabaseClient, user.id, conversationId, message, response).catch(
-      (e) => console.error('[Orion] Memory extraction failed:', e)
-    );
+      // Extract and save any new memory insights (non-blocking)
+      extractAndSaveMemory(supabaseClient, user.id, conversationId, message, response).catch(
+        (e) => console.error('[Orion] Memory extraction failed:', e)
+      );
+    }
 
     return new Response(
       JSON.stringify({
