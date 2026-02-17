@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
-  GraduationCap,
+  Zap,
   TrendingUp,
   AlertTriangle,
   Send,
@@ -20,7 +19,6 @@ import {
   CheckCircle,
   ArrowRight,
   DollarSign,
-  Zap,
   Paperclip,
   Mic,
   X,
@@ -146,7 +144,7 @@ export default function AIBusinessCoach() {
         console.error('[AI Coach] Error response:', error.response);
       }
 
-      toast.error('Failed to get response from AI coach');
+      toast.error('Failed to get response from Orion');
       setChatMessages((prev) => [
         ...prev,
         {
@@ -262,11 +260,11 @@ export default function AIBusinessCoach() {
       <Card className="bg-gradient-to-r from-purple-600 to-blue-600 text-white border-0">
         <CardHeader>
           <CardTitle className="flex items-center gap-3">
-            <GraduationCap className="w-8 h-8" />
+            <Zap className="w-8 h-8" />
             <div>
-              <h2 className="text-2xl font-bold">Your AI Business Coach</h2>
+              <h2 className="text-2xl font-bold">Orion - Your AI Business Wingman</h2>
               <p className="text-purple-100 text-sm font-normal">
-                Personalized insights, growth strategies, and risk management
+                Your wingman for growth, strategy, and business success
               </p>
             </div>
           </CardTitle>
@@ -286,7 +284,7 @@ export default function AIBusinessCoach() {
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="chat">
             <MessageSquare className="w-4 h-4 mr-2" />
-            Ask Coach
+            Ask Orion
           </TabsTrigger>
           <TabsTrigger value="briefing">
             <Sun className="w-4 h-4 mr-2" />
@@ -555,38 +553,38 @@ export default function AIBusinessCoach() {
           <Card className="h-[600px] flex flex-col">
             <CardHeader className="border-b">
               <CardTitle className="text-base flex items-center gap-2">
-                <MessageSquare className="w-4 h-4" />
-                Ask Your AI Coach Anything
+                <Zap className="w-4 h-4" />
+                Ask Orion Anything
               </CardTitle>
             </CardHeader>
             <CardContent className="flex-1 overflow-y-auto p-4 space-y-4">
               {chatMessages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-center">
-                  <GraduationCap className="w-16 h-16 text-purple-400 mb-4" />
+                  <Zap className="w-16 h-16 text-purple-400 mb-4" />
                   <h3 className="text-lg font-semibold text-slate-900 mb-2">
-                    Your Personal Business Advisor
+                    Hey, I'm Orion - Your Business Wingman
                   </h3>
                   <p className="text-sm text-slate-600 max-w-md mb-3">
-                    Ask me anything about your store, upload files for analysis, or use voice input for hands-free interaction.
+                    Ask me anything about your business. I'm here to help you grow, spot opportunities, and tackle challenges head-on.
                   </p>
                   <div className="mt-6 grid gap-2">
                     <button
                       className="text-sm text-left px-4 py-2 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-900 transition-colors"
                       onClick={() => setChatInput('How can I increase my average order value?')}
                     >
-                      💰 How can I increase my average order value?
+                      💰 How can I grow my average order value?
                     </button>
                     <button
                       className="text-sm text-left px-4 py-2 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-900 transition-colors"
                       onClick={() => setChatInput('What products should I focus on promoting?')}
                     >
-                      🎯 What products should I focus on promoting?
+                      🚀 What should I be promoting right now?
                     </button>
                     <button
                       className="text-sm text-left px-4 py-2 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-900 transition-colors"
-                      onClick={() => setChatInput('Analyze my inventory levels')}
+                      onClick={() => setChatInput('Give me a quick analysis of my business')}
                     >
-                      📦 Analyze my inventory levels
+                      📊 Give me a quick business analysis
                     </button>
                   </div>
                 </div>
@@ -646,7 +644,7 @@ export default function AIBusinessCoach() {
               )}
 
               {/* Input Area */}
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-end">
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -655,36 +653,45 @@ export default function AIBusinessCoach() {
                   onChange={handleFileUpload}
                   className="hidden"
                 />
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isChatLoading}
-                  title="Upload file"
-                >
-                  <Paperclip className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={toggleVoiceInput}
-                  disabled={isChatLoading}
-                  className={isRecording ? 'bg-red-100 border-red-300' : ''}
-                  title="Voice input"
-                >
-                  <Mic className={`w-4 h-4 ${isRecording ? 'text-red-600 animate-pulse' : ''}`} />
-                </Button>
-                <Input
-                  placeholder="Ask your AI coach anything..."
+                <div className="flex flex-col gap-1">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isChatLoading}
+                    title="Upload file"
+                  >
+                    <Paperclip className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={toggleVoiceInput}
+                    disabled={isChatLoading}
+                    className={isRecording ? 'bg-red-100 border-red-300' : ''}
+                    title="Voice input"
+                  >
+                    <Mic className={`w-4 h-4 ${isRecording ? 'text-red-600 animate-pulse' : ''}`} />
+                  </Button>
+                </div>
+                <textarea
+                  placeholder="Ask Orion anything... (Shift+Enter for new line)"
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && !isChatLoading && handleSendMessage()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey && !isChatLoading) {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }
+                  }}
                   disabled={isChatLoading}
-                  className="flex-1"
+                  rows={4}
+                  className="flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 />
                 <Button
                   onClick={handleSendMessage}
                   disabled={isChatLoading || (!chatInput.trim() && uploadedFiles.length === 0)}
+                  className="self-end"
                 >
                   <Send className="w-4 h-4" />
                 </Button>
