@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 
-export default function InventoryItemFormModal({ item, onClose, onSaveSuccess }) {
+export default function InventoryItemFormModal({ isOpen, item, onClose, onSave, onSaveSuccess }) {
     const [formData, setFormData] = useState(item || {
         product_name: '',
         sku: '',
@@ -33,12 +33,18 @@ export default function InventoryItemFormModal({ item, onClose, onSaveSuccess })
 
         setIsSaving(true);
         try {
-            if (formData.id) {
-                await InventoryItem.update(formData.id, formData);
+            const saveHandler = onSave || onSaveSuccess;
+            if (saveHandler) {
+                // Parent handles the API call
+                await saveHandler(formData);
             } else {
-                await InventoryItem.create(formData);
+                // Standalone usage: modal handles the API call itself
+                if (formData.id) {
+                    await InventoryItem.update(formData.id, formData);
+                } else {
+                    await InventoryItem.create(formData);
+                }
             }
-            onSaveSuccess();
         } catch (error) {
             toast.error("Save Failed", { description: `Could not save the item. ${error.message}` });
             console.error('Failed to save inventory item', error);
@@ -48,7 +54,7 @@ export default function InventoryItemFormModal({ item, onClose, onSaveSuccess })
     };
 
     return (
-        <Dialog open={true} onOpenChange={onClose}>
+        <Dialog open={isOpen} onOpenChange={onClose}>
             <DialogContent className="sm:max-w-[425px]">
                 <DialogHeader>
                     <DialogTitle>{formData.id ? 'Edit' : 'Add New'} Product</DialogTitle>
