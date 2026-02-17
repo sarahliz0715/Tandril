@@ -269,13 +269,13 @@ export default function AIBusinessCoach() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <Card className="bg-gradient-to-r from-purple-600 to-blue-600 text-white border-0">
+      <Card className="bg-gradient-to-r from-green-600 to-emerald-500 text-white border-0">
         <CardHeader>
           <CardTitle className="flex items-center gap-3">
             <Zap className="w-8 h-8" />
             <div>
               <h2 className="text-2xl font-bold">Orion - Your AI Business Wingman</h2>
-              <p className="text-purple-100 text-sm font-normal">
+              <p className="text-green-100 text-sm font-normal">
                 Your wingman for growth, strategy, and business success
               </p>
             </div>
