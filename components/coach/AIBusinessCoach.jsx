@@ -31,7 +31,7 @@ import { toast } from 'sonner';
 import { api } from '@/lib/apiClient';
 
 export default function AIBusinessCoach() {
-  const [activeTab, setActiveTab] = useState('briefing');
+  const [activeTab, setActiveTab] = useState('chat');
   const [briefing, setBriefing] = useState(null);
   const [opportunities, setOpportunities] = useState([]);
   const [risks, setRisks] = useState([]);
@@ -44,9 +44,8 @@ export default function AIBusinessCoach() {
   const chatEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  useEffect(() => {
-    loadAll();
-  }, []);
+  // Auto-load data only when user navigates to those specific tabs
+  // Removed automatic loading on mount to improve performance
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -285,6 +284,10 @@ export default function AIBusinessCoach() {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="chat">
+            <MessageSquare className="w-4 h-4 mr-2" />
+            Ask Coach
+          </TabsTrigger>
           <TabsTrigger value="briefing">
             <Sun className="w-4 h-4 mr-2" />
             Daily Briefing
@@ -296,10 +299,6 @@ export default function AIBusinessCoach() {
           <TabsTrigger value="risks">
             <Shield className="w-4 h-4 mr-2" />
             Risk Alerts
-          </TabsTrigger>
-          <TabsTrigger value="chat">
-            <MessageSquare className="w-4 h-4 mr-2" />
-            Ask Coach
           </TabsTrigger>
         </TabsList>
 
