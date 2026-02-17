@@ -33,7 +33,9 @@ export default function AIBusinessCoach() {
   const [briefing, setBriefing] = useState(null);
   const [opportunities, setOpportunities] = useState([]);
   const [risks, setRisks] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isBriefingLoading, setIsBriefingLoading] = useState(false);
+  const [isOpportunitiesLoading, setIsOpportunitiesLoading] = useState(false);
+  const [isRisksLoading, setIsRisksLoading] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -41,49 +43,59 @@ export default function AIBusinessCoach() {
   const [isRecording, setIsRecording] = useState(false);
   const chatEndRef = useRef(null);
   const fileInputRef = useRef(null);
+  const loadedTabsRef = useRef(new Set());
 
-  // Auto-load data only when user navigates to those specific tabs
-  // Removed automatic loading on mount to improve performance
+  // Auto-load each tab's data the first time the user visits it
+  useEffect(() => {
+    if (activeTab === 'briefing' && !loadedTabsRef.current.has('briefing')) {
+      loadedTabsRef.current.add('briefing');
+      loadBriefing();
+    } else if (activeTab === 'opportunities' && !loadedTabsRef.current.has('opportunities')) {
+      loadedTabsRef.current.add('opportunities');
+      loadOpportunities();
+    } else if (activeTab === 'risks' && !loadedTabsRef.current.has('risks')) {
+      loadedTabsRef.current.add('risks');
+      loadRisks();
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
 
-  const loadAll = async () => {
-    setIsLoading(true);
-    try {
-      await Promise.all([loadBriefing(), loadOpportunities(), loadRisks()]);
-    } catch (error) {
-      console.error('Failed to load coach data:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const loadBriefing = async () => {
+    setIsBriefingLoading(true);
     try {
       const data = await api.functions.invoke('daily-business-briefing', {});
       setBriefing(data.data || data);
     } catch (error) {
       console.error('Failed to load briefing:', error);
+    } finally {
+      setIsBriefingLoading(false);
     }
   };
 
   const loadOpportunities = async () => {
+    setIsOpportunitiesLoading(true);
     try {
       const data = await api.functions.invoke('growth-opportunity-detector', {});
       setOpportunities(data.data?.opportunities || data.opportunities || []);
     } catch (error) {
       console.error('Failed to load opportunities:', error);
+    } finally {
+      setIsOpportunitiesLoading(false);
     }
   };
 
   const loadRisks = async () => {
+    setIsRisksLoading(true);
     try {
       const data = await api.functions.invoke('risk-alert-analyzer', {});
       setRisks(data.data?.risks || data.risks || []);
     } catch (error) {
       console.error('Failed to load risks:', error);
+    } finally {
+      setIsRisksLoading(false);
     }
   };
 
@@ -269,14 +281,6 @@ export default function AIBusinessCoach() {
             </div>
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="flex gap-2">
-            <Button variant="secondary" size="sm" onClick={loadAll} disabled={isLoading}>
-              <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-              Refresh All
-            </Button>
-          </div>
-        </CardContent>
       </Card>
 
       {/* Tabs */}
@@ -302,6 +306,12 @@ export default function AIBusinessCoach() {
 
         {/* Daily Briefing Tab */}
         <TabsContent value="briefing" className="space-y-4">
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={loadBriefing} disabled={isBriefingLoading}>
+              <RefreshCw className={`w-4 h-4 mr-2 ${isBriefingLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
           {briefing ? (
             <>
               {/* Greeting */}
@@ -432,6 +442,12 @@ export default function AIBusinessCoach() {
 
         {/* Growth Opportunities Tab */}
         <TabsContent value="opportunities" className="space-y-4">
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={loadOpportunities} disabled={isOpportunitiesLoading}>
+              <RefreshCw className={`w-4 h-4 mr-2 ${isOpportunitiesLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
           {opportunities.length > 0 ? (
             opportunities.map((opp, idx) => (
               <Card key={idx} className="border-l-4 border-l-green-500">
@@ -487,6 +503,12 @@ export default function AIBusinessCoach() {
 
         {/* Risk Alerts Tab */}
         <TabsContent value="risks" className="space-y-4">
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={loadRisks} disabled={isRisksLoading}>
+              <RefreshCw className={`w-4 h-4 mr-2 ${isRisksLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
           {risks.length > 0 ? (
             risks.map((risk, idx) => (
               <Card key={idx} className={`border-l-4 ${
