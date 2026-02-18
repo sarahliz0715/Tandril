@@ -143,9 +143,9 @@ function CommandsPage() {
     setIsProcessing(true);
 
     try {
-      const { data: interpretation } = await api.functions.invoke('interpretCommand', {
+      const { data: interpretation } = await api.functions.invoke('interpret-command', {
         command_text: commandText,
-        platform_targets: getSelectedPlatformObjects().map(p => p.name),
+        platform_targets: getSelectedPlatformObjects().map(p => p.shop_name || p.platform_type),
         file_urls: attachments
       });
 
@@ -157,7 +157,7 @@ function CommandsPage() {
 
       const command = await api.entities.AICommand.create({
         command_text: commandText,
-        platform_targets: getSelectedPlatformObjects().map(p => p.name),
+        platform_targets: getSelectedPlatformObjects().map(p => p.shop_name || p.platform_type),
         actions_planned: interpretation.actions || [],
         status: 'interpreting',
         confidence_score: interpretation.confidence_score || 0.8
@@ -221,7 +221,7 @@ function CommandsPage() {
     setCommandText(savedCommand.command_text);
     if (savedCommand.platform_targets && savedCommand.platform_targets.length > 0) {
       const platformIds = platforms
-        .filter(p => savedCommand.platform_targets.includes(p.name))
+        .filter(p => savedCommand.platform_targets.includes(p.shop_name || p.platform_type))
         .map(p => p.id);
       setSelectedPlatforms(platformIds);
     }
@@ -365,7 +365,7 @@ function CommandsPage() {
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" className="w-full justify-between">
                       {selectedPlatforms.length === 0 ? 'Select platforms...' :
-                       selectedPlatforms.length === 1 ? platforms.find(p => p.id === selectedPlatforms[0])?.name :
+                       selectedPlatforms.length === 1 ? (platforms.find(p => p.id === selectedPlatforms[0])?.shop_name || platforms.find(p => p.id === selectedPlatforms[0])?.platform_type) :
                        `${selectedPlatforms.length} platforms selected`}
                       <ChevronDown className="ml-2 h-4 w-4" />
                     </Button>
@@ -385,7 +385,7 @@ function CommandsPage() {
                           }
                         }}
                       >
-                        {platform.name}
+                        {platform.shop_name || platform.platform_type}
                       </DropdownMenuCheckboxItem>
                     ))}
                   </DropdownMenuContent>
@@ -485,16 +485,7 @@ function CommandsPage() {
         </div>
 
         <div className="lg:col-span-1">
-          {/* TEMPORARILY DISABLED - Testing if this causes crash */}
-          {/* <SavedCommandsPanel onUseCommand={handleUseSavedCommand} /> */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Saved Commands</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-slate-600">Temporarily disabled for testing</p>
-            </CardContent>
-          </Card>
+          <SavedCommandsPanel onUseCommand={handleUseSavedCommand} />
         </div>
       </div>
 
