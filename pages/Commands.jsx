@@ -143,9 +143,9 @@ function CommandsPage() {
     setIsProcessing(true);
 
     try {
-      const { data: interpretation } = await api.functions.invoke('interpretCommand', {
+      const { data: interpretation } = await api.functions.invoke('interpret-command', {
         command_text: commandText,
-        platform_targets: getSelectedPlatformObjects().map(p => p.name),
+        platform_targets: getSelectedPlatformObjects().map(p => p.shop_name || p.platform_type),
         file_urls: attachments
       });
 

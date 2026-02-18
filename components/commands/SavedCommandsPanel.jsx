@@ -19,7 +19,7 @@ export default function SavedCommandsPanel({ onRunCommand }) {
 
     const loadSavedCommands = async () => {
         try {
-            const commands = await SavedCommand.list('-usage_count');
+            const commands = await SavedCommand.list('-use_count');
             // Filter out any malformed commands
             const validCommands = (commands || []).filter(cmd =>
                 cmd && typeof cmd === 'object' && cmd.name && cmd.command_text
@@ -34,7 +34,7 @@ export default function SavedCommandsPanel({ onRunCommand }) {
     const handleRun = async (command) => {
         try {
             await SavedCommand.update(command.id, {
-                usage_count: (command.usage_count || 0) + 1
+                use_count: (command.use_count || 0) + 1
             });
             onRunCommand(command.command_text);
             loadSavedCommands();
@@ -112,8 +112,8 @@ export default function SavedCommandsPanel({ onRunCommand }) {
                         <Badge className={categoryColors[command.category] || categoryColors.general}>
                             {command.category}
                         </Badge>
-                        {command.usage_count > 0 && (
-                            <span className="text-xs text-slate-500">Used {command.usage_count} times</span>
+                        {command.use_count > 0 && (
+                            <span className="text-xs text-slate-500">Used {command.use_count} times</span>
                         )}
                     </div>
                     <div className="flex gap-2">
