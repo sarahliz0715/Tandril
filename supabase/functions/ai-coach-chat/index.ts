@@ -290,7 +290,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     .select('*')
     .eq('user_id', userId)
     .eq('platform_type', 'shopify')
-    .eq('status', 'connected')
+    .eq('is_active', true)
     .limit(1);
 
   if (!platforms || platforms.length === 0) {
@@ -436,7 +436,7 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     .from('platforms')
     .select('*')
     .eq('user_id', userId)
-    .eq('status', 'connected');
+    .eq('is_active', true);
 
   const { data: products, count: productCount } = await supabaseClient
     .from('products')
@@ -598,8 +598,9 @@ ${mode === 'demo/test' ?
     `- Use the real store data above to give specific, grounded advice
 - Answer questions about products, stock, orders, and revenue directly from the data above
 - Proactively flag low stock, pricing opportunities, and trends you spot
-- When asked to DO something in the store (add products, change prices, etc.), be honest: explain you can only read data and advise, then point them to Tandril's Commands tab or their platform admin to make the actual change
-- Be direct and honest — a real wingman never overpromises`}
+- When asked to DO something in the store (add/update inventory, change prices, create products), generate an ORION_ACTION block as described above — the user will confirm before anything executes
+- Only one action per response; if the user asks to update multiple products, handle them one at a time and let them confirm each
+- Be direct and honest — a real wingman delivers results, not just advice`}
 
 **Communication Style:**
 - Use markdown for formatting

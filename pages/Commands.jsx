@@ -355,7 +355,7 @@ function CommandsPage() {
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" className="w-full justify-between">
                       {selectedPlatforms.length === 0 ? 'Select platforms...' :
-                       selectedPlatforms.length === 1 ? platforms.find(p => p.id === selectedPlatforms[0])?.name :
+                       selectedPlatforms.length === 1 ? (platforms.find(p => p.id === selectedPlatforms[0])?.shop_name || platforms.find(p => p.id === selectedPlatforms[0])?.platform_type) :
                        `${selectedPlatforms.length} platforms selected`}
                       <ChevronDown className="ml-2 h-4 w-4" />
                     </Button>
@@ -375,7 +375,7 @@ function CommandsPage() {
                           }
                         }}
                       >
-                        {platform.name}
+                        {platform.shop_name || platform.platform_type}
                       </DropdownMenuCheckboxItem>
                     ))}
                   </DropdownMenuContent>
