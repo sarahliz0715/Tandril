@@ -18,7 +18,7 @@ import {
   Info
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { api } from '@/api/apiClient';
+import { api } from '@/lib/apiClient';
 
 export default function SmartTriggerRecommendations({ automationId, onApplyRecommendation }) {
   const [isLoading, setIsLoading] = useState(true);

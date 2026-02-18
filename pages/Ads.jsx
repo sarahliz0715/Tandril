@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { AdCampaign } from '@/api/entities';
-import { AdCreative } from '@/api/entities';
-import { AdTemplate } from '@/api/entities';
-import { User } from '@/api/entities';
+import { AdCampaign } from '@/lib/entities';
+import { AdCreative } from '@/lib/entities';
+import { AdTemplate } from '@/lib/entities';
+import { User } from '@/lib/entities';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

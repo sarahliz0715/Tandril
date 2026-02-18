@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { User } from '@/api/entities';
+import { User } from '@/lib/entities';
 
 const ActionCard = ({ title, description, icon: Icon, onClick, variant = "default", badge = null }) => {
     const variants = {

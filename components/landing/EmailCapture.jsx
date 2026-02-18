@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CheckCircle, Mail, Loader2 } from "lucide-react";
-import { EmailSignup } from '@/api/entities';
+import { EmailSignup } from '@/lib/entities';
 
 export default function EmailCapture({ source = "landing_page", placeholder = "Enter your email", buttonText = "Join Beta", className = "" }) {
   const [email, setEmail] = useState('');

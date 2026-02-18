@@ -20,7 +20,7 @@ import {
   Clock
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { api } from '@/api/apiClient';
+import { api } from '@/lib/apiClient';
 import { useNavigate } from 'react-router-dom';
 import ShopifyConnectButton from '../platforms/ShopifyConnectButton';
 

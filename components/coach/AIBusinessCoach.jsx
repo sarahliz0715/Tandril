@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
-  GraduationCap,
+  Zap,
   TrendingUp,
   AlertTriangle,
   Send,
@@ -20,103 +19,295 @@ import {
   CheckCircle,
   ArrowRight,
   DollarSign,
-  Zap
+  Paperclip,
+  Mic,
+  X,
+  FileText,
+  Image as ImageIcon
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { api } from '@/api/apiClient';
+import { api } from '@/lib/apiClient';
+import { supabase } from '@/lib/supabaseClient';
 
 export default function AIBusinessCoach() {
-  const [activeTab, setActiveTab] = useState('briefing');
+  const [activeTab, setActiveTab] = useState('chat');
   const [briefing, setBriefing] = useState(null);
   const [opportunities, setOpportunities] = useState([]);
   const [risks, setRisks] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isBriefingLoading, setIsBriefingLoading] = useState(false);
+  const [isOpportunitiesLoading, setIsOpportunitiesLoading] = useState(false);
+  const [isRisksLoading, setIsRisksLoading] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(true);
+  const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [isRecording, setIsRecording] = useState(false);
+  const [conversationId, setConversationId] = useState(null);
   const chatEndRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const loadedTabsRef = useRef(new Set());
 
+  // Load most recent conversation history on mount
   useEffect(() => {
-    loadAll();
+    loadRecentHistory();
   }, []);
+
+  const loadRecentHistory = async () => {
+    setIsHistoryLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Get the most recent conversation
+      const { data: conversations } = await supabase
+        .from('orion_conversations')
+        .select('id')
+        .eq('user_id', user.id)
+        .order('updated_at', { ascending: false })
+        .limit(1);
+
+      if (!conversations || conversations.length === 0) return;
+
+      const latestConvId = conversations[0].id;
+      setConversationId(latestConvId);
+
+      // Load its messages
+      const { data: messages } = await supabase
+        .from('orion_messages')
+        .select('role, content, created_at')
+        .eq('conversation_id', latestConvId)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: true })
+        .limit(50);
+
+      if (messages && messages.length > 0) {
+        setChatMessages(messages.map(m => ({ role: m.role, content: m.content })));
+      }
+    } catch (error) {
+      console.error('[Orion] Failed to load history:', error);
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  };
+
+  const startNewConversation = () => {
+    setConversationId(null);
+    setChatMessages([]);
+  };
+
+  // Auto-load each tab's data the first time the user visits it
+  useEffect(() => {
+    if (activeTab === 'briefing' && !loadedTabsRef.current.has('briefing')) {
+      loadedTabsRef.current.add('briefing');
+      loadBriefing();
+    } else if (activeTab === 'opportunities' && !loadedTabsRef.current.has('opportunities')) {
+      loadedTabsRef.current.add('opportunities');
+      loadOpportunities();
+    } else if (activeTab === 'risks' && !loadedTabsRef.current.has('risks')) {
+      loadedTabsRef.current.add('risks');
+      loadRisks();
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
 
-  const loadAll = async () => {
-    setIsLoading(true);
-    try {
-      await Promise.all([loadBriefing(), loadOpportunities(), loadRisks()]);
-    } catch (error) {
-      console.error('Failed to load coach data:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const loadBriefing = async () => {
+    setIsBriefingLoading(true);
     try {
       const data = await api.functions.invoke('daily-business-briefing', {});
       setBriefing(data.data || data);
     } catch (error) {
       console.error('Failed to load briefing:', error);
+    } finally {
+      setIsBriefingLoading(false);
     }
   };
 
   const loadOpportunities = async () => {
+    setIsOpportunitiesLoading(true);
     try {
       const data = await api.functions.invoke('growth-opportunity-detector', {});
       setOpportunities(data.data?.opportunities || data.opportunities || []);
     } catch (error) {
       console.error('Failed to load opportunities:', error);
+    } finally {
+      setIsOpportunitiesLoading(false);
     }
   };
 
   const loadRisks = async () => {
+    setIsRisksLoading(true);
     try {
       const data = await api.functions.invoke('risk-alert-analyzer', {});
       setRisks(data.data?.risks || data.risks || []);
     } catch (error) {
       console.error('Failed to load risks:', error);
+    } finally {
+      setIsRisksLoading(false);
     }
   };
 
   const handleSendMessage = async () => {
-    if (!chatInput.trim()) return;
+    if (!chatInput.trim() && uploadedFiles.length === 0) return;
 
     const userMessage = chatInput.trim();
     setChatInput('');
 
-    // Add user message
-    setChatMessages([...chatMessages, { role: 'user', content: userMessage }]);
+    const filesDisplay = uploadedFiles.length > 0
+      ? `\n📎 ${uploadedFiles.map(f => f.name).join(', ')}`
+      : '';
+
+    setChatMessages(prev => [...prev, { role: 'user', content: userMessage + filesDisplay }]);
     setIsChatLoading(true);
 
     try {
-      // TODO: Call conversational AI endpoint
-      // For now, simulate response
-      setTimeout(() => {
+      const response = await api.functions.chatWithCoach({
+        message: userMessage,
+        conversation_id: conversationId,
+        uploaded_files: uploadedFiles,
+      });
+
+      if (response && response.success) {
         setChatMessages((prev) => [
           ...prev,
           {
             role: 'assistant',
-            content: `I understand you're asking about "${userMessage}". Let me analyze your store data to provide specific advice...
-
-Based on your current metrics, here's what I recommend:
-
-1. Focus on your top-performing products
-2. Consider running a promotion to boost sales
-3. Review your inventory levels
-
-Is there a specific area you'd like me to dive deeper into?`,
+            content: response.response,
+            pendingAction: response.pending_action || null,
           },
         ]);
-        setIsChatLoading(false);
-      }, 1500);
+        if (response.conversation_id) {
+          setConversationId(response.conversation_id);
+        }
+        setUploadedFiles([]);
+      } else {
+        throw new Error(response?.error || 'Failed to get AI response');
+      }
     } catch (error) {
-      console.error('Failed to send message:', error);
-      toast.error('Failed to get response from AI coach');
+      console.error('[Orion] Error:', error);
+      toast.error('Failed to get response from Orion');
+      setChatMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' },
+      ]);
+    } finally {
       setIsChatLoading(false);
+    }
+  };
+
+  const handleConfirmAction = async (messageIdx, action) => {
+    // Mark the action as confirmed so the buttons disappear
+    setChatMessages(prev => prev.map((m, i) =>
+      i === messageIdx ? { ...m, actionConfirmed: true } : m
+    ));
+    setIsChatLoading(true);
+    try {
+      const result = await api.functions.chatWithCoach({ execute_action: action });
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `✅ Done! ${result.execution_result?.message || 'Action completed successfully.'}`,
+      }]);
+      toast.success('Action executed successfully');
+    } catch (error) {
+      console.error('[Orion] Action error:', error);
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `❌ Action failed: ${error.message}`,
+      }]);
+      toast.error('Action failed');
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
+  const handleCancelAction = (messageIdx) => {
+    setChatMessages(prev => prev.map((m, i) =>
+      i === messageIdx ? { ...m, actionCancelled: true } : m
+    ));
+  };
+
+  const getActionDescription = (action) => {
+    if (!action) return '';
+    switch (action.type) {
+      case 'create_product':
+        return `Create product "${action.title}" — SKU: ${action.sku || 'N/A'}, Price: $${action.price || 0}, Qty: ${action.quantity || 0}`;
+      case 'update_inventory':
+        return `Update inventory for "${action.product_name || action.sku}" to ${action.quantity} units`;
+      case 'update_price':
+        return `Update price for "${action.product_name || action.sku}" to $${action.price}`;
+      default:
+        return JSON.stringify(action);
+    }
+  };
+
+  const handleFileUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    for (const file of files) {
+      try {
+        // Read file as base64
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const base64Data = event.target.result.split(',')[1];
+          setUploadedFiles((prev) => [
+            ...prev,
+            {
+              name: file.name,
+              type: file.type,
+              data: base64Data,
+            },
+          ]);
+        };
+        reader.readAsDataURL(file);
+        toast.success(`Uploaded ${file.name}`);
+      } catch (error) {
+        console.error('File upload error:', error);
+        toast.error(`Failed to upload ${file.name}`);
+      }
+    }
+  };
+
+  const removeFile = (index) => {
+    setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const toggleVoiceInput = () => {
+    // Use Web Speech API (Chrome/Edge)
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onstart = () => {
+        setIsRecording(true);
+        toast.success('Listening...');
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        setChatInput(transcript);
+        setIsRecording(false);
+        toast.success('Voice input captured');
+      };
+
+      recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        setIsRecording(false);
+        toast.error('Voice input failed');
+      };
+
+      recognition.onend = () => {
+        setIsRecording(false);
+      };
+
+      recognition.start();
+    } else {
+      toast.error('Voice input not supported in this browser. Try Chrome or Edge.');
     }
   };
 
@@ -152,31 +343,27 @@ Is there a specific area you'd like me to dive deeper into?`,
   return (
     <div className="space-y-6">
       {/* Header */}
-      <Card className="bg-gradient-to-r from-purple-600 to-blue-600 text-white border-0">
+      <Card className="bg-gradient-to-r from-green-600 to-emerald-500 text-white border-0">
         <CardHeader>
           <CardTitle className="flex items-center gap-3">
-            <GraduationCap className="w-8 h-8" />
+            <Zap className="w-8 h-8" />
             <div>
-              <h2 className="text-2xl font-bold">Your AI Business Coach</h2>
-              <p className="text-purple-100 text-sm font-normal">
-                Personalized insights, growth strategies, and risk management
+              <h2 className="text-2xl font-bold">Orion - Your AI Business Wingman</h2>
+              <p className="text-green-100 text-sm font-normal">
+                Your wingman for growth, strategy, and business success
               </p>
             </div>
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="flex gap-2">
-            <Button variant="secondary" size="sm" onClick={loadAll} disabled={isLoading}>
-              <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-              Refresh All
-            </Button>
-          </div>
-        </CardContent>
       </Card>
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="chat">
+            <MessageSquare className="w-4 h-4 mr-2" />
+            Ask Orion
+          </TabsTrigger>
           <TabsTrigger value="briefing">
             <Sun className="w-4 h-4 mr-2" />
             Daily Briefing
@@ -189,14 +376,16 @@ Is there a specific area you'd like me to dive deeper into?`,
             <Shield className="w-4 h-4 mr-2" />
             Risk Alerts
           </TabsTrigger>
-          <TabsTrigger value="chat">
-            <MessageSquare className="w-4 h-4 mr-2" />
-            Ask Coach
-          </TabsTrigger>
         </TabsList>
 
         {/* Daily Briefing Tab */}
         <TabsContent value="briefing" className="space-y-4">
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={loadBriefing} disabled={isBriefingLoading}>
+              <RefreshCw className={`w-4 h-4 mr-2 ${isBriefingLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
           {briefing ? (
             <>
               {/* Greeting */}
@@ -327,6 +516,12 @@ Is there a specific area you'd like me to dive deeper into?`,
 
         {/* Growth Opportunities Tab */}
         <TabsContent value="opportunities" className="space-y-4">
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={loadOpportunities} disabled={isOpportunitiesLoading}>
+              <RefreshCw className={`w-4 h-4 mr-2 ${isOpportunitiesLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
           {opportunities.length > 0 ? (
             opportunities.map((opp, idx) => (
               <Card key={idx} className="border-l-4 border-l-green-500">
@@ -382,6 +577,12 @@ Is there a specific area you'd like me to dive deeper into?`,
 
         {/* Risk Alerts Tab */}
         <TabsContent value="risks" className="space-y-4">
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={loadRisks} disabled={isRisksLoading}>
+              <RefreshCw className={`w-4 h-4 mr-2 ${isRisksLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
           {risks.length > 0 ? (
             risks.map((risk, idx) => (
               <Card key={idx} className={`border-l-4 ${
@@ -447,40 +648,51 @@ Is there a specific area you'd like me to dive deeper into?`,
         <TabsContent value="chat" className="space-y-4">
           <Card className="h-[600px] flex flex-col">
             <CardHeader className="border-b">
-              <CardTitle className="text-base flex items-center gap-2">
-                <MessageSquare className="w-4 h-4" />
-                Ask Your AI Coach Anything
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Zap className="w-4 h-4" />
+                  Ask Orion Anything
+                </CardTitle>
+                {chatMessages.length > 0 && (
+                  <Button variant="outline" size="sm" onClick={startNewConversation}>
+                    + New Chat
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="flex-1 overflow-y-auto p-4 space-y-4">
-              {chatMessages.length === 0 ? (
+              {isHistoryLoading ? (
+                <div className="flex flex-col items-center justify-center h-full gap-3">
+                  <Loader2 className="w-8 h-8 animate-spin text-green-600" />
+                  <p className="text-sm text-slate-500">Loading your conversation history...</p>
+                </div>
+              ) : chatMessages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-center">
-                  <GraduationCap className="w-16 h-16 text-purple-400 mb-4" />
+                  <Zap className="w-16 h-16 text-purple-400 mb-4" />
                   <h3 className="text-lg font-semibold text-slate-900 mb-2">
-                    Your Personal Business Advisor
+                    Hey, I'm Orion - Your Business Wingman
                   </h3>
-                  <p className="text-sm text-slate-600 max-w-md">
-                    Ask me anything about your store, get strategic advice, or request analysis on
-                    specific products or campaigns.
+                  <p className="text-sm text-slate-600 max-w-md mb-3">
+                    Ask me anything about your business. I'm here to help you grow, spot opportunities, and tackle challenges head-on.
                   </p>
                   <div className="mt-6 grid gap-2">
                     <button
                       className="text-sm text-left px-4 py-2 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-900 transition-colors"
                       onClick={() => setChatInput('How can I increase my average order value?')}
                     >
-                      💰 How can I increase my average order value?
+                      💰 How can I grow my average order value?
                     </button>
                     <button
                       className="text-sm text-left px-4 py-2 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-900 transition-colors"
                       onClick={() => setChatInput('What products should I focus on promoting?')}
                     >
-                      🎯 What products should I focus on promoting?
+                      🚀 What should I be promoting right now?
                     </button>
                     <button
                       className="text-sm text-left px-4 py-2 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-900 transition-colors"
-                      onClick={() => setChatInput('Analyze my inventory levels')}
+                      onClick={() => setChatInput('Give me a quick analysis of my business')}
                     >
-                      📦 Analyze my inventory levels
+                      📊 Give me a quick business analysis
                     </button>
                   </div>
                 </div>
@@ -491,14 +703,42 @@ Is there a specific area you'd like me to dive deeper into?`,
                       key={idx}
                       className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                     >
-                      <div
-                        className={`max-w-[80%] rounded-lg px-4 py-3 ${
-                          msg.role === 'user'
-                            ? 'bg-purple-600 text-white'
-                            : 'bg-slate-100 text-slate-900'
-                        }`}
-                      >
-                        <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                      <div className={`max-w-[80%] ${msg.role === 'user' ? '' : 'w-full'}`}>
+                        <div
+                          className={`rounded-lg px-4 py-3 ${
+                            msg.role === 'user'
+                              ? 'bg-purple-600 text-white'
+                              : 'bg-slate-100 text-slate-900'
+                          }`}
+                        >
+                          <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                        </div>
+                        {msg.pendingAction && !msg.actionConfirmed && !msg.actionCancelled && (
+                          <div className="mt-2 p-3 bg-amber-50 border border-amber-300 rounded-lg">
+                            <p className="text-xs font-semibold text-amber-800 mb-1">⚡ Pending Store Action</p>
+                            <p className="text-sm text-amber-900 mb-3">{getActionDescription(msg.pendingAction)}</p>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleConfirmAction(idx, msg.pendingAction)}
+                                className="px-3 py-1.5 text-xs font-semibold bg-green-600 text-white rounded-md hover:bg-green-700"
+                              >
+                                ✓ Confirm &amp; Execute
+                              </button>
+                              <button
+                                onClick={() => handleCancelAction(idx)}
+                                className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-300 text-slate-700 rounded-md hover:bg-slate-50"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {msg.pendingAction && msg.actionConfirmed && (
+                          <p className="text-xs text-green-600 mt-1 pl-1">✓ Action confirmed, executing...</p>
+                        )}
+                        {msg.pendingAction && msg.actionCancelled && (
+                          <p className="text-xs text-slate-500 mt-1 pl-1">Action cancelled.</p>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -514,15 +754,81 @@ Is there a specific area you'd like me to dive deeper into?`,
               )}
             </CardContent>
             <div className="border-t p-4">
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Ask your AI coach anything..."
+              {/* Uploaded Files Display */}
+              {uploadedFiles.length > 0 && (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {uploadedFiles.map((file, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2 text-sm"
+                    >
+                      {file.type.startsWith('image/') ? (
+                        <ImageIcon className="w-4 h-4 text-purple-600" />
+                      ) : (
+                        <FileText className="w-4 h-4 text-purple-600" />
+                      )}
+                      <span className="text-purple-900">{file.name}</span>
+                      <button
+                        onClick={() => removeFile(idx)}
+                        className="text-purple-600 hover:text-purple-800"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Input Area */}
+              <div className="flex gap-2 items-end">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*,.pdf,.csv,.xlsx,.xls"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                <div className="flex flex-col gap-1">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isChatLoading}
+                    title="Upload file"
+                  >
+                    <Paperclip className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={toggleVoiceInput}
+                    disabled={isChatLoading}
+                    className={isRecording ? 'bg-red-100 border-red-300' : ''}
+                    title="Voice input"
+                  >
+                    <Mic className={`w-4 h-4 ${isRecording ? 'text-red-600 animate-pulse' : ''}`} />
+                  </Button>
+                </div>
+                <textarea
+                  placeholder="Ask Orion anything... (Shift+Enter for new line)"
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && !isChatLoading && handleSendMessage()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey && !isChatLoading) {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }
+                  }}
                   disabled={isChatLoading}
+                  rows={4}
+                  className="flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 />
-                <Button onClick={handleSendMessage} disabled={isChatLoading || !chatInput.trim()}>
+                <Button
+                  onClick={handleSendMessage}
+                  disabled={isChatLoading || (!chatInput.trim() && uploadedFiles.length === 0)}
+                  className="self-end"
+                >
                   <Send className="w-4 h-4" />
                 </Button>
               </div>

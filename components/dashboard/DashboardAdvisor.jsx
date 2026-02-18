@@ -8,7 +8,7 @@ import { Send, Sparkles, Mic, MicOff } from 'lucide-react';
 import { createPageUrl } from '@/utils';
 import AIAvatar from '../advisor/AIAvatar';
 import { toast } from 'sonner';
-import { User } from '@/api/entities';
+import { User } from '@/lib/entities';
 
 export default function DashboardAdvisor() {
     const navigate = useNavigate();

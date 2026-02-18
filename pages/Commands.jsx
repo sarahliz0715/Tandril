@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { User } from '@/api/entities';
-import { AICommand } from '@/api/entities';
-import { Platform } from '@/api/entities';
-import { SavedCommand } from '@/api/entities';
+import { User } from '@/lib/entities';
+import { AICommand } from '@/lib/entities';
+import { Platform } from '@/lib/entities';
+import { SavedCommand } from '@/lib/entities';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -26,7 +26,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { api } from '@/api/apiClient';
+import { api } from '@/lib/apiClient';
 import CommandConfirmation from '../components/commands/CommandConfirmation';
 import ExecutionProgress from '../components/commands/ExecutionProgress';
 import SavedCommandsPanel from '../components/commands/SavedCommandsPanel';
@@ -143,9 +143,9 @@ function CommandsPage() {
     setIsProcessing(true);
 
     try {
-      const { data: interpretation } = await api.functions.invoke('interpretCommand', {
+      const { data: interpretation } = await api.functions.invoke('interpret-command', {
         command_text: commandText,
-        platform_targets: getSelectedPlatformObjects().map(p => p.name),
+        platform_targets: getSelectedPlatformObjects().map(p => p.shop_name || p.platform_type),
         file_urls: attachments
       });
 
@@ -157,7 +157,7 @@ function CommandsPage() {
 
       const command = await api.entities.AICommand.create({
         command_text: commandText,
-        platform_targets: getSelectedPlatformObjects().map(p => p.name),
+        platform_targets: getSelectedPlatformObjects().map(p => p.shop_name || p.platform_type),
         actions_planned: interpretation.actions || [],
         status: 'interpreting',
         confidence_score: interpretation.confidence_score || 0.8
@@ -221,7 +221,7 @@ function CommandsPage() {
     setCommandText(savedCommand.command_text);
     if (savedCommand.platform_targets && savedCommand.platform_targets.length > 0) {
       const platformIds = platforms
-        .filter(p => savedCommand.platform_targets.includes(p.name))
+        .filter(p => savedCommand.platform_targets.includes(p.shop_name || p.platform_type))
         .map(p => p.id);
       setSelectedPlatforms(platformIds);
     }
@@ -319,16 +319,6 @@ function CommandsPage() {
         </Alert>
       )}
 
-      {!hasBetaAccess && (
-        <Alert className="bg-amber-50 border-amber-200">
-          <Info className="h-4 w-4 text-amber-600" />
-          <AlertTitle className="text-amber-800">Beta Feature</AlertTitle>
-          <AlertDescription className="text-amber-700">
-            AI Commands are in beta. Request access in Settings to try them out.
-          </AlertDescription>
-        </Alert>
-      )}
-
       {platforms.length === 0 && (
         <Alert className="bg-blue-50 border-blue-200">
           <Info className="h-4 w-4 text-blue-600" />
@@ -365,7 +355,7 @@ function CommandsPage() {
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" className="w-full justify-between">
                       {selectedPlatforms.length === 0 ? 'Select platforms...' :
-                       selectedPlatforms.length === 1 ? platforms.find(p => p.id === selectedPlatforms[0])?.name :
+                       selectedPlatforms.length === 1 ? (platforms.find(p => p.id === selectedPlatforms[0])?.shop_name || platforms.find(p => p.id === selectedPlatforms[0])?.platform_type) :
                        `${selectedPlatforms.length} platforms selected`}
                       <ChevronDown className="ml-2 h-4 w-4" />
                     </Button>
@@ -385,7 +375,7 @@ function CommandsPage() {
                           }
                         }}
                       >
-                        {platform.name}
+                        {platform.shop_name || platform.platform_type}
                       </DropdownMenuCheckboxItem>
                     ))}
                   </DropdownMenuContent>
@@ -399,7 +389,7 @@ function CommandsPage() {
                   onChange={(e) => setCommandText(e.target.value)}
                   placeholder="e.g., Update all mug prices to $19.99 and set descriptions to emphasize quality"
                   className="min-h-[120px] resize-none"
-                  disabled={isProcessing || !hasBetaAccess || platforms.length === 0}
+                  disabled={isProcessing || platforms.length === 0}
                 />
               </div>
 
@@ -485,16 +475,7 @@ function CommandsPage() {
         </div>
 
         <div className="lg:col-span-1">
-          {/* TEMPORARILY DISABLED - Testing if this causes crash */}
-          {/* <SavedCommandsPanel onUseCommand={handleUseSavedCommand} /> */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Saved Commands</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-slate-600">Temporarily disabled for testing</p>
-            </CardContent>
-          </Card>
+          <SavedCommandsPanel onUseCommand={handleUseSavedCommand} />
         </div>
       </div>
 

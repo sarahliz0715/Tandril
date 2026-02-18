@@ -15,7 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from 'sonner';
-import { api } from '@/api/apiClient';
+import { api } from '@/lib/apiClient';
 import AIResponseSuggestion from '../support/AIResponseSuggestion';
 
 const platformColors = {

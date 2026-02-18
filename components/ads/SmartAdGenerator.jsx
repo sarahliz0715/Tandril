@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { GenerateImage } from '@/api/integrations';
+import { GenerateImage } from '@/lib/integrations';
 import { Sparkles, Loader2, Download, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 

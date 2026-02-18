@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
-import { initiateEtsyAuth } from '@/api/functions';
+import { initiateEtsyAuth } from '@/lib/functions';
 import { toast } from 'sonner';
 
 export default function EtsyConnectButton({ onConnectionStart }) {

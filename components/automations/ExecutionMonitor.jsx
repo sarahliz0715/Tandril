@@ -14,7 +14,7 @@ import {
     Activity,
     ChevronRight
 } from 'lucide-react';
-import { api } from '@/api/apiClient';
+import { api } from '@/lib/apiClient';
 import { toast } from 'sonner';
 
 export default function ExecutionMonitor({ automationId = null }) {

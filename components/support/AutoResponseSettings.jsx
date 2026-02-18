@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Sparkles, Save } from 'lucide-react';
 import { toast } from 'sonner';
-import { User } from '@/api/entities';
+import { User } from '@/lib/entities';
 
 export default function AutoResponseSettings({ user, onUpdate }) {
     const [settings, setSettings] = useState({
