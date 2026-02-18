@@ -1,12 +1,12 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Platform } from '@/api/entities';
+import { Platform } from '@/lib/entities';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ChevronDown, ChevronRight, Package, Loader2, RefreshCw } from 'lucide-react';
-import { getShopifyProducts } from '@/api/functions';
+import { getShopifyProducts } from '@/lib/functions';
 import { toast } from 'sonner';
 
 export default function ProductPreviewPanel() {

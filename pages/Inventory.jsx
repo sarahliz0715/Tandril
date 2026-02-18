@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { InventoryItem } from '@/api/entities';
-import { User } from '@/api/entities';
+import { InventoryItem } from '@/lib/entities';
+import { User } from '@/lib/entities';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,7 +21,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { api } from '@/api/apiClient';
+import { api } from '@/lib/apiClient';
 import InventoryTable from '../components/inventory/InventoryTable';
 import InventoryItemFormModal from '../components/inventory/InventoryItemFormModal';
 import SmartInventoryActions from '../components/inventory/SmartInventoryActions';
@@ -369,9 +369,8 @@ export default function Inventory() {
 
       <ConfirmDialog
         isOpen={isOpen}
-        onConfirm={confirm}
+        config={config}
         onCancel={cancel}
-        {...config}
       />
     </div>
   );

@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { api } from '@/api/apiClient';
+import { api } from '@/lib/apiClient';
 
 export default function AutomationStatus() {
     const navigate = useNavigate();

@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Palette, ExternalLink, AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { connectTeePublic } from '@/api/functions';
+import { connectTeePublic } from '@/lib/functions';
 
 export default function TeePublicConnectButton({ onSuccess }) {
     const [isConnecting, setIsConnecting] = useState(false);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { BusinessStrategy } from '@/api/entities';
-import { User } from '@/api/entities';
-import { api } from '@/api/apiClient';
+import { BusinessStrategy } from '@/lib/entities';
+import { User } from '@/lib/entities';
+import { api } from '@/lib/apiClient';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';

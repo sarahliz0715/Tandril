@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Platform } from '@/api/entities';
-import { PlatformType } from '@/api/entities';
-import { User } from '@/api/entities';
+import { Platform } from '@/lib/entities';
+import { PlatformType } from '@/lib/entities';
+import { User } from '@/lib/entities';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,13 +30,11 @@ import PlatformCard from '../components/platforms/PlatformCard';
 // import RedbubbleConnectButton from '../components/platforms/RedbubbleConnectButton';
 // import FacebookConnectButton from '../components/platforms/FacebookConnectButton';
 import RequestPlatformModal from '../components/platforms/RequestPlatformModal';
-import EtsyConnectionWarning from '../components/platforms/EtsyConnectionWarning';
 import DemoModeToggle from '../components/platforms/DemoModeToggle';
 import BetaGate from '../components/common/BetaGate';
 import { handleAuthError } from '@/utils/authHelpers';
 import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 import { NoDataEmptyState } from '../components/common/EmptyState';
-import EbayConfigChecker from '../components/platforms/EbayConfigChecker';
 
 export default function Platforms() {
     const [platforms, setPlatforms] = useState([]); // This state holds all user's platform instances (connected, pending, disconnected)
@@ -114,36 +112,9 @@ export default function Platforms() {
             });
             
             // Filter out invalid user platform instances
-            let validUserPlatformInstances = userPlatformInstancesData.filter(p => 
+            let validUserPlatformInstances = userPlatformInstancesData.filter(p =>
                 p && typeof p === 'object' && p.id
             );
-
-            // FOR BETA USERS: Only show Shopify connections, filter out everything else
-            if (isBeta) {
-                // Filter platform instances for display to only include Shopify
-                validUserPlatformInstances = validUserPlatformInstances.filter(p => 
-                    p.platform_type === 'shopify'
-                );
-                
-                // Identify any non-Shopify platforms that might exist for beta users
-                // and delete them in the background. This ensures a clean state.
-                const nonShopifyPlatformsToClean = userPlatformInstancesData.filter(p => 
-                    p && p.id && p.platform_type !== 'shopify'
-                );
-                
-                if (nonShopifyPlatformsToClean.length > 0) {
-                    console.log(`Cleaning up ${nonShopifyPlatformsToClean.length} non-Shopify platforms for beta user`);
-                    // Delete them in the background, don't wait for these operations to complete
-                    // as they are not critical for immediate UI rendering.
-                    Promise.all(
-                        nonShopifyPlatformsToClean.map(p => 
-                            Platform.delete(p.id).catch(err => 
-                                console.error(`Failed to delete platform ${p.id}:`, err)
-                            )
-                        )
-                    );
-                }
-            }
 
             setPlatforms(validUserPlatformInstances); // Set the main platforms state
 
@@ -271,19 +242,11 @@ export default function Platforms() {
                 <div className="mb-6">
                     <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 flex items-center gap-3 mb-2">
                         <Briefcase className="w-8 h-8 sm:w-10 sm:h-10 text-indigo-600" />
-                        {hasBetaAccess ? 'My Shopify Store' : 'Platforms'}
+                        Platforms
                     </h1>
                     <p className="text-lg text-slate-600">
-                        {hasBetaAccess 
-                            ? "Connect your Shopify store to get started. More platforms coming in the full version!"
-                            : "Connect and manage your e-commerce platforms for AI-powered automation."
-                        }
+                        Connect and manage your e-commerce platforms including Shopify, WooCommerce, BigCommerce, and Faire for AI-powered automation.
                     </p>
-                </div>
-
-                {/* Add this right after the header/description */}
-                <div className="mb-6">
-                    <EbayConfigChecker />
                 </div>
 
                 {/* Demo Mode Toggle */}
@@ -297,17 +260,12 @@ export default function Platforms() {
                 {hasBetaAccess && (
                     <Alert className="mb-6 border-indigo-200 bg-indigo-50">
                         <Sparkles className="h-4 w-4 text-indigo-600" />
-                        <AlertTitle className="text-indigo-900">Beta Version - Shopify Focus</AlertTitle>
+                        <AlertTitle className="text-indigo-900">Beta Version - Multi-Platform Access</AlertTitle>
                         <AlertDescription className="text-indigo-700">
-                            We're starting with Shopify to perfect the experience. All platforms shown below will be available in the full launch!
+                            You now have access to Shopify, WooCommerce, BigCommerce, and Faire! Connect any of these platforms to get started.
                         </AlertDescription>
                     </Alert>
                 )}
-
-                {/* Etsy Restriction Warning */}
-                <div className="mb-6">
-                    <EtsyConnectionWarning />
-                </div>
 
                 {/* Connection Limit Warning */}
                 {isAtLimit && currentUser?.subscription_tier === 'free' && (
@@ -464,8 +422,8 @@ export default function Platforms() {
                                     </h3>
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                         {connectableTypes.map(platformType => {
-                                            // In beta mode, only Shopify is fully functional for connection
-                                            const isComingSoon = hasBetaAccess && platformType.type_id !== 'shopify';
+                                            // Show all platforms as available for connection
+                                            const isComingSoon = false;
 
                                             return (
                                                 <PlatformCard

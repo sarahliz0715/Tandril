@@ -3,12 +3,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Progress } from "@/components/ui/progress";
 import { Badge } from '@/components/ui/badge';
-import { createBillingPortalSession } from '@/api/functions';
+import { createBillingPortalSession } from '@/lib/functions';
 import { toast } from 'sonner';
 import { Loader2, ExternalLink } from 'lucide-react';
 import { createPageUrl } from '@/utils';
 import { useNavigate } from 'react-router-dom';
-import { User } from '@/api/entities';
+import { User } from '@/lib/entities';
 
 export default function SubscriptionSettings() {
     const [user, setUser] = useState(null);

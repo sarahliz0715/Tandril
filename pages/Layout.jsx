@@ -13,7 +13,7 @@ import TandrilVineLogo from '@/components/logos/TandrilVineLogo';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import InactivityManager from "@/components/auth/InactivityManager";
 import ActivityTracker from "@/components/auth/ActivityTracker";
-import { User } from '@/api/entities';
+import { User } from '@/lib/entities';
 import GlobalCommandBar from "@/components/commands/GlobalCommandBar";
 import { Toaster } from "@/components/ui/toaster";
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -48,9 +48,16 @@ const betaNavigationItems = [
     { name: 'AI Advisor', href: 'AIAdvisor', icon: Bot, color: 'text-purple-600' },
     { name: 'P&L Dashboard', href: 'FinancialDashboard', icon: DollarSign, color: 'text-green-600' },
     { name: 'Order Intelligence', href: 'OrderIntelligence', icon: AlertTriangle, color: 'text-red-600' },
-    { name: 'My Shopify Store', href: 'Platforms', icon: Briefcase, color: 'text-teal-600' },
+    { name: 'Platforms', href: 'Platforms', icon: Briefcase, color: 'text-green-600' },
     { name: 'Commands', href: 'Commands', icon: Command, color: 'text-indigo-600' },
     { name: 'History', href: 'History', icon: History, color: 'text-slate-600' },
+    { name: 'Workflows', href: 'Workflows', icon: Repeat, color: 'text-cyan-600' },
+    { name: 'Custom Alerts', href: 'CustomAlerts', icon: Bell, color: 'text-amber-600' },
+    { name: 'Inbox', href: 'Inbox', icon: MessageSquare, color: 'text-pink-600' },
+    { name: 'Orders', href: 'Orders', icon: ShoppingCart, color: 'text-orange-600' },
+    { name: 'Ads', href: 'Ads', icon: DollarSign, color: 'text-yellow-600' },
+    { name: 'Intelligence', href: 'Intelligence', icon: TrendingUp, color: 'text-emerald-600' },
+    { name: 'Analytics', href: 'Analytics', icon: BarChart3, color: 'text-violet-600' },
     { name: 'Inventory', href: 'Inventory', icon: Package, color: 'text-amber-600' },
     { name: 'Suppliers', href: 'Suppliers', icon: Building2, color: 'text-slate-600' },
     { name: 'Purchase Orders', href: 'PurchaseOrders', icon: FileText, color: 'text-blue-600' },

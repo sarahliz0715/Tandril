@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { User } from '@/api/entities';
-import { AICommand } from '@/api/entities';
-import { Platform } from '@/api/entities';
-import { SavedCommand } from '@/api/entities';
+import { User } from '@/lib/entities';
+import { AICommand } from '@/lib/entities';
+import { Platform } from '@/lib/entities';
+import { SavedCommand } from '@/lib/entities';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -26,7 +26,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { api } from '@/api/apiClient';
+import { api } from '@/lib/apiClient';
 import CommandConfirmation from '../components/commands/CommandConfirmation';
 import ExecutionProgress from '../components/commands/ExecutionProgress';
 import SavedCommandsPanel from '../components/commands/SavedCommandsPanel';
@@ -319,16 +319,6 @@ function CommandsPage() {
         </Alert>
       )}
 
-      {!hasBetaAccess && (
-        <Alert className="bg-amber-50 border-amber-200">
-          <Info className="h-4 w-4 text-amber-600" />
-          <AlertTitle className="text-amber-800">Beta Feature</AlertTitle>
-          <AlertDescription className="text-amber-700">
-            AI Commands are in beta. Request access in Settings to try them out.
-          </AlertDescription>
-        </Alert>
-      )}
-
       {platforms.length === 0 && (
         <Alert className="bg-blue-50 border-blue-200">
           <Info className="h-4 w-4 text-blue-600" />
@@ -399,7 +389,7 @@ function CommandsPage() {
                   onChange={(e) => setCommandText(e.target.value)}
                   placeholder="e.g., Update all mug prices to $19.99 and set descriptions to emphasize quality"
                   className="min-h-[120px] resize-none"
-                  disabled={isProcessing || !hasBetaAccess || platforms.length === 0}
+                  disabled={isProcessing || platforms.length === 0}
                 />
               </div>
 

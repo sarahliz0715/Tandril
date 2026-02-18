@@ -1,70 +1,81 @@
 // Agent SDK — connects ChatInterface to the ai-coach-chat edge function
-// and the business_coaching table for conversation persistence + realtime
+// and the orion_conversations / orion_messages tables for persistence + realtime
 
-import { supabase } from './api/supabaseClient';
+import { supabase } from './lib/supabaseClient';
 
 export const agentSDK = {
   /**
-   * Create a new Orion conversation record in business_coaching
+   * Create a new Orion conversation record in orion_conversations
    */
   async createConversation({ agent_name, metadata = {} }) {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) throw new Error('Not authenticated');
 
+    const title = metadata?.name || 'New conversation';
+
     const { data, error } = await supabase
-      .from('business_coaching')
-      .insert({
-        user_id: user.id,
-        coaching_type: 'conversation',
-        content: { messages: [] },
-        metadata: { agent_name, ...metadata },
-      })
+      .from('orion_conversations')
+      .insert({ user_id: user.id, title })
       .select()
       .single();
 
     if (error) throw new Error(`Failed to create conversation: ${error.message}`);
 
-    return { id: data.id, messages: [], metadata: data.metadata };
+    return { id: data.id, messages: [], metadata: { agent_name, ...metadata } };
   },
 
   /**
-   * Load an existing conversation by ID
+   * Load an existing conversation + its messages
    */
   async getConversation(id) {
-    const { data, error } = await supabase
-      .from('business_coaching')
+    const { data: conv, error: convError } = await supabase
+      .from('orion_conversations')
       .select('*')
       .eq('id', id)
       .single();
 
-    if (error) throw new Error(`Failed to load conversation: ${error.message}`);
+    if (convError) throw new Error(`Failed to load conversation: ${convError.message}`);
+
+    const { data: msgs, error: msgsError } = await supabase
+      .from('orion_messages')
+      .select('role, content, created_at')
+      .eq('conversation_id', id)
+      .order('created_at', { ascending: true });
+
+    if (msgsError) throw new Error(`Failed to load messages: ${msgsError.message}`);
 
     return {
-      id: data.id,
-      messages: data.content?.messages || [],
-      metadata: data.metadata || {},
+      id: conv.id,
+      messages: (msgs || []).map(m => ({ role: m.role, content: m.content, created_date: m.created_at })),
+      metadata: { name: conv.title },
     };
   },
 
   /**
-   * Subscribe to realtime updates on a conversation.
+   * Subscribe to new messages in a conversation via Supabase realtime.
    * Returns an unsubscribe function.
    */
   subscribeToConversation(id, callback) {
     const channel = supabase
-      .channel(`conversation:${id}`)
+      .channel(`orion_messages:${id}`)
       .on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: 'INSERT',
           schema: 'public',
-          table: 'business_coaching',
-          filter: `id=eq.${id}`,
+          table: 'orion_messages',
+          filter: `conversation_id=eq.${id}`,
         },
-        (payload) => {
+        async () => {
+          // Re-fetch all messages so callback always gets the full ordered list
+          const { data: msgs } = await supabase
+            .from('orion_messages')
+            .select('role, content, created_at')
+            .eq('conversation_id', id)
+            .order('created_at', { ascending: true });
+
           callback({
-            messages: payload.new.content?.messages || [],
-            metadata: payload.new.metadata || {},
+            messages: (msgs || []).map(m => ({ role: m.role, content: m.content, created_date: m.created_at })),
           });
         }
       )
@@ -74,14 +85,15 @@ export const agentSDK = {
   },
 
   /**
-   * Add a message to a conversation and get Orion's AI response.
+   * Add a user message and get Orion's response.
    * Calls the ai-coach-chat edge function which handles Claude + DB persistence.
    */
   async addMessage(conversation, { role, content, file_urls = [] }) {
     const { data, error } = await supabase.functions.invoke('ai-coach-chat', {
       body: {
         conversation_id: conversation.id,
-        message: { role, content, file_urls },
+        message: content,
+        uploaded_files: file_urls,
       },
     });
 

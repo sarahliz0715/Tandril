@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { AICommand } from '@/api/entities';
-import { User } from '@/api/entities';
+import { AICommand } from '@/lib/entities';
+import { User } from '@/lib/entities';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

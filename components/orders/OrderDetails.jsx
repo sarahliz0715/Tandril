@@ -13,7 +13,7 @@ import {
     DollarSign, Save 
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Order } from '@/api/entities';
+import { Order } from '@/lib/entities';
 
 const statusColors = {
     pending: 'bg-yellow-100 text-yellow-800',

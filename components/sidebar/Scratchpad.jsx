@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ScratchpadNote } from '@/api/entities';
+import { ScratchpadNote } from '@/lib/entities';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';

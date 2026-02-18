@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { CustomerMessage } from '@/api/entities';
-import { SupportTicket } from '@/api/entities';
-import { Review } from '@/api/entities';
-import { User } from '@/api/entities';
+import { CustomerMessage } from '@/lib/entities';
+import { SupportTicket } from '@/lib/entities';
+import { Review } from '@/lib/entities';
+import { User } from '@/lib/entities';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';

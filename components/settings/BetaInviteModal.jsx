@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Mail, CheckCircle } from 'lucide-react';
-import { api } from '@/api/apiClient';
+import { api } from '@/lib/apiClient';
 import { toast } from 'sonner';
 
 export default function BetaInviteModal({ isOpen, onClose }) {

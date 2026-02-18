@@ -18,7 +18,7 @@ import {
     Copy
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { api } from '@/api/apiClient';
+import { api } from '@/lib/apiClient';
 
 export default function TestingSandbox({ automation }) {
     const [testData, setTestData] = useState('{\n  "product_name": "Test Product",\n  "total_stock": 5,\n  "sku": "TEST-123",\n  "order_total": 599.99\n}');

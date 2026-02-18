@@ -1,11 +1,11 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { AIWorkflow } from '@/api/entities';
-import { WorkflowTemplate } from '@/api/entities';
-import { User } from '@/api/entities';
+import { AIWorkflow } from '@/lib/entities';
+import { WorkflowTemplate } from '@/lib/entities';
+import { User } from '@/lib/entities';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { api } from '@/api/apiClient';
+import { api } from '@/lib/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';

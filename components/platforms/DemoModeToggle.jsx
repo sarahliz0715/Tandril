@@ -3,7 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { ShieldCheck, AlertTriangle } from 'lucide-react';
-import { User } from '@/api/entities';
+import { User } from '@/lib/entities';
 import { toast } from 'sonner';
 import {
     AlertDialog,

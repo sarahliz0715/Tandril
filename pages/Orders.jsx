@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Order } from '@/api/entities';
-import { OrderItem } from '@/api/entities';
-import { User } from '@/api/entities';
+import { Order } from '@/lib/entities';
+import { OrderItem } from '@/lib/entities';
+import { User } from '@/lib/entities';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
-import { api } from '@/api/apiClient';
+import { api } from '@/lib/apiClient';
 import OrderList from '../components/orders/OrderList';
 import OrderDetails from '../components/orders/OrderDetails';
 import { handleAuthError } from '@/utils/authHelpers';
