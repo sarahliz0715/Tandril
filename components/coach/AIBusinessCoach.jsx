@@ -170,15 +170,15 @@ export default function AIBusinessCoach() {
         uploaded_files: uploadedFiles,
       });
 
-      console.log('[Orion] Got response:', response);
-      console.log('[AI Coach] Response keys:', response ? Object.keys(response) : 'null/undefined');
-
       if (response && response.success) {
         setChatMessages((prev) => [
           ...prev,
-          { role: 'assistant', content: response.response },
+          {
+            role: 'assistant',
+            content: response.response,
+            pendingAction: response.pending_action || null,
+          },
         ]);
-        // Persist the conversation ID returned by the Edge Function
         if (response.conversation_id) {
           setConversationId(response.conversation_id);
         }
@@ -191,13 +191,55 @@ export default function AIBusinessCoach() {
       toast.error('Failed to get response from Orion');
       setChatMessages((prev) => [
         ...prev,
-        {
-          role: 'assistant',
-          content: 'Sorry, I encountered an error. Please try again.',
-        },
+        { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' },
       ]);
     } finally {
       setIsChatLoading(false);
+    }
+  };
+
+  const handleConfirmAction = async (messageIdx, action) => {
+    // Mark the action as confirmed so the buttons disappear
+    setChatMessages(prev => prev.map((m, i) =>
+      i === messageIdx ? { ...m, actionConfirmed: true } : m
+    ));
+    setIsChatLoading(true);
+    try {
+      const result = await api.functions.chatWithCoach({ execute_action: action });
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `✅ Done! ${result.execution_result?.message || 'Action completed successfully.'}`,
+      }]);
+      toast.success('Action executed successfully');
+    } catch (error) {
+      console.error('[Orion] Action error:', error);
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `❌ Action failed: ${error.message}`,
+      }]);
+      toast.error('Action failed');
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
+  const handleCancelAction = (messageIdx) => {
+    setChatMessages(prev => prev.map((m, i) =>
+      i === messageIdx ? { ...m, actionCancelled: true } : m
+    ));
+  };
+
+  const getActionDescription = (action) => {
+    if (!action) return '';
+    switch (action.type) {
+      case 'create_product':
+        return `Create product "${action.title}" — SKU: ${action.sku || 'N/A'}, Price: $${action.price || 0}, Qty: ${action.quantity || 0}`;
+      case 'update_inventory':
+        return `Update inventory for "${action.product_name || action.sku}" to ${action.quantity} units`;
+      case 'update_price':
+        return `Update price for "${action.product_name || action.sku}" to $${action.price}`;
+      default:
+        return JSON.stringify(action);
     }
   };
 
@@ -661,14 +703,42 @@ export default function AIBusinessCoach() {
                       key={idx}
                       className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                     >
-                      <div
-                        className={`max-w-[80%] rounded-lg px-4 py-3 ${
-                          msg.role === 'user'
-                            ? 'bg-purple-600 text-white'
-                            : 'bg-slate-100 text-slate-900'
-                        }`}
-                      >
-                        <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                      <div className={`max-w-[80%] ${msg.role === 'user' ? '' : 'w-full'}`}>
+                        <div
+                          className={`rounded-lg px-4 py-3 ${
+                            msg.role === 'user'
+                              ? 'bg-purple-600 text-white'
+                              : 'bg-slate-100 text-slate-900'
+                          }`}
+                        >
+                          <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                        </div>
+                        {msg.pendingAction && !msg.actionConfirmed && !msg.actionCancelled && (
+                          <div className="mt-2 p-3 bg-amber-50 border border-amber-300 rounded-lg">
+                            <p className="text-xs font-semibold text-amber-800 mb-1">⚡ Pending Store Action</p>
+                            <p className="text-sm text-amber-900 mb-3">{getActionDescription(msg.pendingAction)}</p>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleConfirmAction(idx, msg.pendingAction)}
+                                className="px-3 py-1.5 text-xs font-semibold bg-green-600 text-white rounded-md hover:bg-green-700"
+                              >
+                                ✓ Confirm &amp; Execute
+                              </button>
+                              <button
+                                onClick={() => handleCancelAction(idx)}
+                                className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-300 text-slate-700 rounded-md hover:bg-slate-50"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {msg.pendingAction && msg.actionConfirmed && (
+                          <p className="text-xs text-green-600 mt-1 pl-1">✓ Action confirmed, executing...</p>
+                        )}
+                        {msg.pendingAction && msg.actionCancelled && (
+                          <p className="text-xs text-slate-500 mt-1 pl-1">Action cancelled.</p>
+                        )}
                       </div>
                     </div>
                   ))}

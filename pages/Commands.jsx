@@ -319,16 +319,6 @@ function CommandsPage() {
         </Alert>
       )}
 
-      {!hasBetaAccess && (
-        <Alert className="bg-amber-50 border-amber-200">
-          <Info className="h-4 w-4 text-amber-600" />
-          <AlertTitle className="text-amber-800">Beta Feature</AlertTitle>
-          <AlertDescription className="text-amber-700">
-            AI Commands are in beta. Request access in Settings to try them out.
-          </AlertDescription>
-        </Alert>
-      )}
-
       {platforms.length === 0 && (
         <Alert className="bg-blue-50 border-blue-200">
           <Info className="h-4 w-4 text-blue-600" />
@@ -399,7 +389,7 @@ function CommandsPage() {
                   onChange={(e) => setCommandText(e.target.value)}
                   placeholder="e.g., Update all mug prices to $19.99 and set descriptions to emphasize quality"
                   className="min-h-[120px] resize-none"
-                  disabled={isProcessing || !hasBetaAccess || platforms.length === 0}
+                  disabled={isProcessing || platforms.length === 0}
                 />
               </div>
 
@@ -485,16 +475,7 @@ function CommandsPage() {
         </div>
 
         <div className="lg:col-span-1">
-          {/* TEMPORARILY DISABLED - Testing if this causes crash */}
-          {/* <SavedCommandsPanel onUseCommand={handleUseSavedCommand} /> */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Saved Commands</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-slate-600">Temporarily disabled for testing</p>
-            </CardContent>
-          </Card>
+          <SavedCommandsPanel onUseCommand={handleUseSavedCommand} />
         </div>
       </div>
 

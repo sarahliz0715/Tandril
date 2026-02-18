@@ -31,7 +31,17 @@ serve(async (req) => {
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
     if (userError || !user) throw new Error('Unauthorized');
 
-    const { message, conversation_id = null, uploaded_files = [] } = await req.json();
+    const { message, conversation_id = null, uploaded_files = [], execute_action = null } = await req.json();
+
+    // ── Action Execution Mode ────────────────────────────────────────────────
+    if (execute_action) {
+      const result = await executeStoreAction(supabaseClient, user.id, execute_action);
+      return new Response(
+        JSON.stringify({ success: true, execution_result: result }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+      );
+    }
+
     if (!message) throw new Error('Message is required');
 
     console.log(`[Orion] Processing message for user ${user.id}`);
@@ -66,7 +76,20 @@ serve(async (req) => {
     }
 
     // Get Orion's response
-    const response = await chatWithClaude(message, recentHistory, uploaded_files, storeContext, memoryNotes);
+    const rawResponse = await chatWithClaude(message, recentHistory, uploaded_files, storeContext, memoryNotes);
+
+    // Parse any pending store action Orion embedded in its response
+    let response = rawResponse;
+    let pendingAction: any = null;
+    const actionMatch = rawResponse.match(/\[ORION_ACTION:([\s\S]*?)\]$/m);
+    if (actionMatch) {
+      try {
+        pendingAction = JSON.parse(actionMatch[1]);
+        response = rawResponse.replace(/\s*\[ORION_ACTION:[\s\S]*?\]$/m, '').trim();
+      } catch {
+        // Malformed JSON in action block — ignore it, use full response as-is
+      }
+    }
 
     if (conversationId) {
       // Save Orion's response to DB (non-fatal)
@@ -84,6 +107,7 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         response,
+        pending_action: pendingAction,
         conversation_id: conversationId,
         context_used: {
           platforms: storeContext.platforms.length,
@@ -257,6 +281,154 @@ Only include genuinely useful facts. Return ONLY the JSON array, no other text.`
   }
 }
 
+// ─── Store Action Execution ───────────────────────────────────────────────────
+
+async function executeStoreAction(supabaseClient: any, userId: string, action: any) {
+  // Get the connected Shopify platform and its credentials
+  const { data: platforms } = await supabaseClient
+    .from('platforms')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('platform_type', 'shopify')
+    .eq('status', 'connected')
+    .limit(1);
+
+  if (!platforms || platforms.length === 0) {
+    throw new Error('No connected Shopify store found. Connect one in the Platforms tab first.');
+  }
+
+  const platform = platforms[0];
+  const shopDomain = platform.shop_domain || platform.domain || platform.store_domain;
+  if (!shopDomain) throw new Error('Could not determine Shopify store domain.');
+
+  // Decrypt the stored access token
+  let accessToken = platform.access_token;
+  try {
+    // Try to detect and decrypt if encrypted (base64 length heuristic)
+    if (accessToken && accessToken.length > 50 && !accessToken.startsWith('shpat_') && !accessToken.startsWith('shpca_')) {
+      const { decrypt } = await import('../_shared/encryption.ts');
+      accessToken = await decrypt(accessToken);
+    }
+  } catch (e) {
+    console.warn('[Orion] Token decryption failed, using as-is:', e.message);
+  }
+
+  const shopifyBase = `https://${shopDomain}/admin/api/2024-01`;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Shopify-Access-Token': accessToken,
+  };
+
+  switch (action.type) {
+
+    case 'create_product': {
+      const body = {
+        product: {
+          title: action.title,
+          body_html: action.description || '',
+          vendor: action.vendor || '',
+          product_type: action.product_type || '',
+          status: 'active',
+          variants: [{
+            sku: action.sku || '',
+            price: String(action.price ?? '0.00'),
+            inventory_quantity: action.quantity ?? 0,
+            inventory_management: 'shopify',
+            fulfillment_service: 'manual',
+          }],
+        },
+      };
+      const res = await fetch(`${shopifyBase}/products.json`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`Shopify rejected the product: ${err}`);
+      }
+      const data = await res.json();
+      return { message: `Created "${data.product.title}" in your Shopify store (ID: ${data.product.id})` };
+    }
+
+    case 'update_inventory': {
+      // Find product by title or SKU via Shopify search
+      const searchRes = await fetch(
+        `${shopifyBase}/products.json?limit=250`,
+        { headers }
+      );
+      const searchData = await searchRes.json();
+      const allProducts = searchData.products || [];
+
+      // Find matching product by SKU or title
+      let targetVariant: any = null;
+      for (const p of allProducts) {
+        for (const v of (p.variants || [])) {
+          if (action.sku && v.sku === action.sku) { targetVariant = v; break; }
+          if (!action.sku && p.title.toLowerCase() === (action.product_name || '').toLowerCase()) {
+            targetVariant = v; break;
+          }
+        }
+        if (targetVariant) break;
+      }
+
+      if (!targetVariant) throw new Error(`Could not find product with SKU "${action.sku || action.product_name}" in Shopify.`);
+
+      // Get location for inventory update
+      const locRes = await fetch(
+        `${shopifyBase}/inventory_levels.json?inventory_item_ids=${targetVariant.inventory_item_id}&limit=1`,
+        { headers }
+      );
+      const locData = await locRes.json();
+      const locationId = locData.inventory_levels?.[0]?.location_id;
+      if (!locationId) throw new Error('Could not find inventory location for this product.');
+
+      const setRes = await fetch(`${shopifyBase}/inventory_levels/set.json`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          location_id: locationId,
+          inventory_item_id: targetVariant.inventory_item_id,
+          available: action.quantity,
+        }),
+      });
+      if (!setRes.ok) throw new Error(`Shopify inventory update failed: ${await setRes.text()}`);
+      return { message: `Updated inventory for "${action.sku || action.product_name}" to ${action.quantity} units` };
+    }
+
+    case 'update_price': {
+      // Find variant by SKU or title
+      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
+      const searchData = await searchRes.json();
+      const allProducts = searchData.products || [];
+
+      let targetVariant: any = null;
+      for (const p of allProducts) {
+        for (const v of (p.variants || [])) {
+          if (action.sku && v.sku === action.sku) { targetVariant = v; break; }
+          if (!action.sku && p.title.toLowerCase() === (action.product_name || '').toLowerCase()) {
+            targetVariant = v; break;
+          }
+        }
+        if (targetVariant) break;
+      }
+
+      if (!targetVariant) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+
+      const updateRes = await fetch(`${shopifyBase}/variants/${targetVariant.id}.json`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ variant: { id: targetVariant.id, price: String(action.price) } }),
+      });
+      if (!updateRes.ok) throw new Error(`Shopify price update failed: ${await updateRes.text()}`);
+      return { message: `Updated price for "${action.sku || action.product_name}" to $${action.price}` };
+    }
+
+    default:
+      throw new Error(`Unknown action type: ${action.type}`);
+  }
+}
+
 // ─── Store Context ────────────────────────────────────────────────────────────
 
 async function getUserStoreContext(supabaseClient: any, userId: string) {
@@ -378,13 +550,29 @@ async function chatWithClaude(
   const systemPrompt = `You are Orion, an AI business wingman for e-commerce sellers. You're sharp, direct, and genuinely invested in their success. You remember past conversations and build on what you've learned over time.
 
 **CRITICAL - What you can and cannot do:**
-- You CAN: Read and analyze store data (products, orders, inventory, revenue) that Tandril has already synced
+- You CAN: Read and analyze store data (products, orders, inventory, revenue) from the data provided below
 - You CAN: Give advice, spot trends, flag issues, answer questions about their business
-- You CANNOT: Log into Shopify, WooCommerce, or any platform on the user's behalf
-- You CANNOT: Add products, update inventory, place orders, or make any changes in their store
-- You CANNOT: Access any admin panel or request credentials — you already have read access to synced data through Tandril
-- NEVER ask for login credentials, API keys, or admin access — that is a serious security red flag
-- If someone asks you to "add products" or "update inventory", tell them clearly you can't execute store actions, then direct them to use Tandril's Commands feature or do it directly in their platform admin
+- You CAN: Execute store actions — create products, update inventory quantities, update prices — directly on their connected Shopify store
+- You CANNOT: Log into any platform or request credentials — NEVER ask for passwords, API keys, or admin access. You already have the integration through Tandril.
+- You CANNOT: Process payments, refund orders, delete products, or fulfill orders
+
+**How to execute a store action:**
+When the user asks you to create a product, add inventory, or change a price, respond conversationally AND append a single action block on its own line at the very end of your message:
+
+To create a new product:
+[ORION_ACTION:{"type":"create_product","title":"Product Title","sku":"SKU-001","price":29.99,"quantity":10,"description":"Optional description","vendor":"","product_type":""}]
+
+To update inventory quantity (use exact SKU from the product list below):
+[ORION_ACTION:{"type":"update_inventory","product_name":"Product Title","sku":"SKU-001","quantity":25}]
+
+To update a price (use exact SKU from the product list below):
+[ORION_ACTION:{"type":"update_price","product_name":"Product Title","sku":"SKU-001","price":34.99}]
+
+Rules for actions:
+- Always include the SKU when you have it — it's the most reliable way to find the product
+- Only one action block per response
+- The user will see a confirmation card and must approve before anything executes
+- If you don't have enough info (missing price, missing title, etc.), ask for it before generating the action block
 
 **Current Mode:** ${mode === 'demo/test' ? 'Demo/Test Mode - No real store connected yet' : 'Production Mode - Real store data loaded below'}
 
