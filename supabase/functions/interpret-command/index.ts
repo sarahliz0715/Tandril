@@ -145,7 +145,7 @@ Be specific with your actions and parameters. If you're unsure about something, 
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-3-5-sonnet-20241022',
+      model: 'claude-3-haiku-20240307',
       max_tokens: 2048,
       system: systemPrompt,
       messages: [
