@@ -143,13 +143,13 @@ function CommandsPage() {
     setIsProcessing(true);
 
     try {
-      const { data: interpretation } = await api.functions.invoke('interpret-command', {
+      const interpretation = await api.functions.invoke('interpret-command', {
         command_text: commandText,
         platform_targets: getSelectedPlatformObjects().map(p => p.shop_name || p.platform_type),
         file_urls: attachments
       });
 
-      if (!interpretation.success) {
+      if (!interpretation || !interpretation.success) {
         toast.error(interpretation.error || 'Failed to interpret command');
         setIsProcessing(false);
         return;

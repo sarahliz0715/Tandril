@@ -60,7 +60,10 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
-        data: interpretation,
+        actions: interpretation.actions,
+        confidence_score: interpretation.confidence_score,
+        warnings: interpretation.warnings || [],
+        estimated_impact: interpretation.estimated_impact,
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
