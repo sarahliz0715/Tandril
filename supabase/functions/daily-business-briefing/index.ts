@@ -321,7 +321,7 @@ ${recentBriefings.map((b) => b.content?.daily_focus || 'N/A').join(', ')}`;
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-3-5-sonnet-20241022',
+      model: 'claude-3-haiku-20240307',
       max_tokens: 2048,
       system: systemPrompt,
       messages: [
