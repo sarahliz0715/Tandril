@@ -165,6 +165,14 @@ function CommandsPage() {
       });
 
       setCurrentCommand(sanitizeCommand(command));
+
+      // Kick off actual execution now that the record exists
+      api.functions.invoke('execute-command', {
+        command_id: command.id,
+        actions: interpretation.actions || [],
+        platform_targets: getSelectedPlatformObjects().map(p => p.shop_name || p.platform_type)
+      }).catch(err => console.error('[Execute Command] invocation error:', err));
+
       pollCommandStatus(command.id);
 
     } catch (error) {
