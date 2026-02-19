@@ -117,9 +117,11 @@ Your response must be valid JSON with this structure:
   "actions": [
     {
       "type": "get_products" | "update_products" | "apply_discount" | "update_inventory" | "update_seo" | "create_collection" | "conditional_update",
-      "description": "Clear description of what this action does",
+      "description": "Clear description of what this action does — ALWAYS include key values (e.g. 'Set inventory to 15', 'Apply 20% discount')",
       "parameters": {
         // Action-specific parameters
+        // For update_inventory: use "available" for the target quantity, and "product_title" to identify the product by name, or "filters" for complex matching. Do NOT leave quantity undefined.
+        // Example: { "available": 15, "product_title": "Classic Cotton T-Shirt Black" }
         // For complex filters, use:
         "filters": [
           { "field": "title", "operator": "contains", "value": "vintage", "logic": "AND" },
