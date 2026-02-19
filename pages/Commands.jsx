@@ -52,6 +52,7 @@ function CommandsPage() {
   const [commandText, setCommandText] = useState('');
   const [currentCommand, setCurrentCommand] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [pendingInterpretation, setPendingInterpretation] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [platforms, setPlatforms] = useState([]);
   const [attachments, setAttachments] = useState([]);
@@ -155,6 +156,41 @@ function CommandsPage() {
         return;
       }
 
+      // Derive risk level from confidence score and requires_confirmation flags
+      const requiresConfirmation = (interpretation.actions || []).some(a => a.requires_confirmation);
+      const confidence = interpretation.confidence_score || 0.8;
+      const riskLevel = confidence < 0.6 ? 'high' : (confidence < 0.85 || requiresConfirmation) ? 'medium' : 'low';
+
+      // Stop here — show the user the plan and wait for confirmation
+      setPendingInterpretation({
+        interpretation,
+        previewCommand: {
+          command_text: commandText,
+          platform_targets: getSelectedPlatformObjects().map(p => p.shop_name || p.platform_type),
+          actions_planned: (interpretation.actions || []).map(a => ({
+            title: a.type,
+            description: a.description,
+          })),
+          risk_level: riskLevel,
+          risk_warning: interpretation.warnings?.length > 0 ? interpretation.warnings.join(' ') : null,
+        }
+      });
+      setIsProcessing(false);
+
+    } catch (error) {
+      console.error('Error submitting command:', error);
+      toast.error('Failed to submit command');
+      setIsProcessing(false);
+    }
+  };
+
+  const handleConfirmExecution = async () => {
+    if (!pendingInterpretation) return;
+    const { interpretation } = pendingInterpretation;
+    setPendingInterpretation(null);
+    setIsProcessing(true);
+
+    try {
       const command = await api.entities.AICommand.create({
         user_id: currentUser.id,
         command_text: commandText,
@@ -166,7 +202,6 @@ function CommandsPage() {
 
       setCurrentCommand(sanitizeCommand(command));
 
-      // Kick off actual execution now that the record exists
       api.functions.invoke('execute-command', {
         command_id: command.id,
         actions: interpretation.actions || [],
@@ -176,10 +211,16 @@ function CommandsPage() {
       pollCommandStatus(command.id);
 
     } catch (error) {
-      console.error('Error submitting command:', error);
-      toast.error('Failed to submit command');
+      console.error('Error executing command:', error);
+      toast.error('Failed to execute command');
       setIsProcessing(false);
     }
+  };
+
+  const handleEditCommand = () => {
+    setPendingInterpretation(null);
+    setIsProcessing(false);
+    // command text stays in the textarea so the user can modify it
   };
 
   const pollCommandStatus = async (commandId) => {
@@ -493,6 +534,15 @@ function CommandsPage() {
         config={config}
         onCancel={cancel}
       />
+
+      {pendingInterpretation && (
+        <CommandConfirmation
+          command={pendingInterpretation.previewCommand}
+          onConfirm={handleConfirmExecution}
+          onCancel={handleEditCommand}
+          onEdit={handleEditCommand}
+        />
+      )}
     </div>
   );
 }
