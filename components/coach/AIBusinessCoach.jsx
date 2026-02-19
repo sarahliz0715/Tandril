@@ -47,6 +47,7 @@ export default function AIBusinessCoach() {
   const chatEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const loadedTabsRef = useRef(new Set());
+  const lastSentFilesRef = useRef([]);
 
   // Load most recent conversation history on mount
   useEffect(() => {
@@ -164,6 +165,9 @@ export default function AIBusinessCoach() {
     setIsChatLoading(true);
 
     try {
+      // Save files before clearing so upload_image actions can reference them at confirm time
+      lastSentFilesRef.current = uploadedFiles;
+
       const response = await api.functions.chatWithCoach({
         message: userMessage,
         conversation_id: conversationId,
@@ -205,7 +209,20 @@ export default function AIBusinessCoach() {
     ));
     setIsChatLoading(true);
     try {
-      const result = await api.functions.chatWithCoach({ execute_action: action });
+      // For image uploads, attach the base64 data from the last sent files
+      let resolvedAction = action;
+      if (action.type === 'upload_image' && action.image_from_upload) {
+        const imageFile = lastSentFilesRef.current.find(f => f.type?.startsWith('image/'));
+        if (!imageFile) {
+          throw new Error('Could not find the uploaded image. Please re-upload the image and try again.');
+        }
+        resolvedAction = {
+          ...action,
+          image_data: imageFile.data,
+          image_filename: imageFile.name,
+        };
+      }
+      const result = await api.functions.chatWithCoach({ execute_action: resolvedAction });
       setChatMessages(prev => [...prev, {
         role: 'assistant',
         content: `✅ Done! ${result.execution_result?.message || 'Action completed successfully.'}`,
@@ -238,6 +255,10 @@ export default function AIBusinessCoach() {
         return `Update inventory for "${action.product_name || action.sku}" to ${action.quantity} units`;
       case 'update_price':
         return `Update price for "${action.product_name || action.sku}" to $${action.price}`;
+      case 'update_title':
+        return `Rename "${action.product_name || action.sku}" → "${action.new_title}"`;
+      case 'upload_image':
+        return `Upload image to "${action.product_name || action.sku}"`;
       default:
         return JSON.stringify(action);
     }

@@ -396,6 +396,40 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: `Updated inventory for "${action.sku || action.product_name}" to ${action.quantity} units` };
     }
 
+    case 'upload_image': {
+      // Find product by SKU or current title
+      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
+      const searchData = await searchRes.json();
+      const allProducts = searchData.products || [];
+
+      let targetProduct: any = null;
+      for (const p of allProducts) {
+        if (action.sku) {
+          const matchVariant = (p.variants || []).find((v: any) => v.sku === action.sku);
+          if (matchVariant) { targetProduct = p; break; }
+        }
+        if (p.title.toLowerCase() === (action.product_name || '').toLowerCase()) {
+          targetProduct = p; break;
+        }
+      }
+
+      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      if (!action.image_data) throw new Error('No image data provided. Please upload an image and try again.');
+
+      const uploadRes = await fetch(`${shopifyBase}/products/${targetProduct.id}/images.json`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          image: {
+            attachment: action.image_data,
+            filename: action.image_filename || 'product-image.jpg',
+          },
+        }),
+      });
+      if (!uploadRes.ok) throw new Error(`Shopify image upload failed: ${await uploadRes.text()}`);
+      return { message: `Added image to "${targetProduct.title}" successfully` };
+    }
+
     case 'update_title': {
       // Find product by SKU or current title
       const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
@@ -600,11 +634,16 @@ To update a price (use exact SKU from the product list below):
 To rename/update a product title (e.g. for SEO or seasonal refresh):
 [ORION_ACTION:{"type":"update_title","product_name":"Current Product Title","sku":"SKU-001","new_title":"New Product Title"}]
 
+To add/upload an image to a product (only when the user has attached an image file in this conversation):
+[ORION_ACTION:{"type":"upload_image","product_name":"Product Title","sku":"SKU-001","image_from_upload":true}]
+
 Rules for actions:
+- ONLY use these exact action types: create_product, update_inventory, update_price, update_title, upload_image. NEVER invent other action types (e.g. do NOT use update_product, update_seo, bulk_update, etc.) — they will fail.
 - Always include the SKU when you have it — it's the most reliable way to find the product
 - Only one action block per response
 - The user will see a confirmation card and must approve before anything executes
 - If you don't have enough info (missing price, missing title, etc.), ask for it before generating the action block
+- For upload_image: only generate this action when the user has actually uploaded an image file in their message. Never reference image URLs — only use uploaded files.
 
 **Current Mode:** ${mode === 'demo/test' ? 'Demo/Test Mode - No real store connected yet' : 'Production Mode - Real store data loaded below'}
 
