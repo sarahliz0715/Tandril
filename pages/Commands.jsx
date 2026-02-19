@@ -156,6 +156,7 @@ function CommandsPage() {
       }
 
       const command = await api.entities.AICommand.create({
+        user_id: currentUser.id,
         command_text: commandText,
         platform_targets: getSelectedPlatformObjects().map(p => p.shop_name || p.platform_type),
         actions_planned: interpretation.actions || [],
