@@ -396,6 +396,69 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: `Updated inventory for "${action.sku || action.product_name}" to ${action.quantity} units` };
     }
 
+    case 'upload_image': {
+      // Find product by SKU or current title
+      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
+      const searchData = await searchRes.json();
+      const allProducts = searchData.products || [];
+
+      let targetProduct: any = null;
+      for (const p of allProducts) {
+        if (action.sku) {
+          const matchVariant = (p.variants || []).find((v: any) => v.sku === action.sku);
+          if (matchVariant) { targetProduct = p; break; }
+        }
+        if (p.title.toLowerCase() === (action.product_name || '').toLowerCase()) {
+          targetProduct = p; break;
+        }
+      }
+
+      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      if (!action.image_data) throw new Error('No image data provided. Please upload an image and try again.');
+
+      const uploadRes = await fetch(`${shopifyBase}/products/${targetProduct.id}/images.json`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          image: {
+            attachment: action.image_data,
+            filename: action.image_filename || 'product-image.jpg',
+          },
+        }),
+      });
+      if (!uploadRes.ok) throw new Error(`Shopify image upload failed: ${await uploadRes.text()}`);
+      return { message: `Added image to "${targetProduct.title}" successfully` };
+    }
+
+    case 'update_title': {
+      // Find product by SKU or current title
+      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
+      const searchData = await searchRes.json();
+      const allProducts = searchData.products || [];
+
+      let targetProduct: any = null;
+      for (const p of allProducts) {
+        if (action.sku) {
+          const matchVariant = (p.variants || []).find((v: any) => v.sku === action.sku);
+          if (matchVariant) { targetProduct = p; break; }
+        }
+        if (p.title.toLowerCase() === (action.product_name || '').toLowerCase()) {
+          targetProduct = p; break;
+        }
+      }
+
+      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+
+      const updateRes = await fetch(`${shopifyBase}/products/${targetProduct.id}.json`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ product: { id: targetProduct.id, title: action.new_title } }),
+      });
+      if (!updateRes.ok) throw new Error(`Shopify title update failed: ${await updateRes.text()}`);
+      const updatedData = await updateRes.json();
+      return { message: `Updated title from "${targetProduct.title}" to "${updatedData.product.title}"` };
+    }
+
     case 'update_price': {
       // Find variant by SKU or title
       const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
@@ -552,12 +615,22 @@ async function chatWithClaude(
 **CRITICAL - What you can and cannot do:**
 - You CAN: Read and analyze store data (products, orders, inventory, revenue) from the data provided below
 - You CAN: Give advice, spot trends, flag issues, answer questions about their business
-- You CAN: Execute store actions — create products, update inventory quantities, update prices — directly on their connected Shopify store
+- You CAN: Execute store actions — create products, update inventory quantities, update prices, update product titles/SEO, add images to products — directly on their connected Shopify store
 - You CANNOT: Log into any platform or request credentials — NEVER ask for passwords, API keys, or admin access. You already have the integration through Tandril.
 - You CANNOT: Process payments, refund orders, delete products, or fulfill orders
 
 **How to execute a store action:**
-When the user asks you to create a product, add inventory, or change a price, respond conversationally AND append a single action block on its own line at the very end of your message:
+When the user asks you to create a product, add inventory, change a price, rename a title, or add an image, respond conversationally AND append a single action block on its own line at the very end of your message.
+
+⚠️ ALLOWED action types (use ONLY these — any other type will cause an error):
+  • create_product
+  • update_inventory
+  • update_price
+  • update_title
+  • upload_image
+❌ FORBIDDEN (will always fail): update_product, update_seo, bulk_update, add_image, set_image, or any other type not listed above.
+
+Action formats:
 
 To create a new product:
 [ORION_ACTION:{"type":"create_product","title":"Product Title","sku":"SKU-001","price":29.99,"quantity":10,"description":"Optional description","vendor":"","product_type":""}]
@@ -568,11 +641,18 @@ To update inventory quantity (use exact SKU from the product list below):
 To update a price (use exact SKU from the product list below):
 [ORION_ACTION:{"type":"update_price","product_name":"Product Title","sku":"SKU-001","price":34.99}]
 
+To rename/update a product title (e.g. for SEO or seasonal refresh):
+[ORION_ACTION:{"type":"update_title","product_name":"Current Product Title","sku":"SKU-001","new_title":"New Product Title"}]
+
+To add/upload an image to a product (ONLY when the user has attached an image file — use upload_image, NEVER update_product):
+[ORION_ACTION:{"type":"upload_image","product_name":"Product Title","sku":"SKU-001","image_from_upload":true}]
+
 Rules for actions:
 - Always include the SKU when you have it — it's the most reliable way to find the product
 - Only one action block per response
 - The user will see a confirmation card and must approve before anything executes
 - If you don't have enough info (missing price, missing title, etc.), ask for it before generating the action block
+- For upload_image: only generate this action when the user has actually uploaded an image file in their message. Never reference image URLs — only use uploaded files.
 
 **Current Mode:** ${mode === 'demo/test' ? 'Demo/Test Mode - No real store connected yet' : 'Production Mode - Real store data loaded below'}
 
@@ -598,8 +678,8 @@ ${mode === 'demo/test' ?
     `- Use the real store data above to give specific, grounded advice
 - Answer questions about products, stock, orders, and revenue directly from the data above
 - Proactively flag low stock, pricing opportunities, and trends you spot
-- When asked to DO something in the store (add/update inventory, change prices, create products), generate an ORION_ACTION block as described above — the user will confirm before anything executes
-- Only one action per response; if the user asks to update multiple products, handle them one at a time and let them confirm each
+- When asked to DO something in the store (add/update inventory, change prices, create products, rename/SEO-update titles, add images to products), generate an ORION_ACTION block as described above — the user will confirm before anything executes. For image uploads always use type "upload_image", never "update_product".
+- Only one action per response; if the user asks to update multiple products (e.g. spring-theme all titles), propose all the new titles in your message first, then generate an action for the FIRST product — after they approve, you'll do the next one
 - Be direct and honest — a real wingman delivers results, not just advice`}
 
 **Communication Style:**

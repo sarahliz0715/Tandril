@@ -498,32 +498,145 @@ async function updateInventoryEnhanced(
   parameters: any,
   previewMode: boolean
 ): Promise<any> {
-  const { inventory_item_id, location_id, available } = parameters;
+  const { inventory_item_id, location_id, available, quantity, product_title, filters } = parameters;
+  const targetQty = available ?? quantity;
+
+  if (targetQty === undefined || targetQty === null) {
+    throw new Error('Inventory quantity (available/quantity) is required');
+  }
+
+  // Fast path: caller already knows the specific inventory_item_id and location_id
+  if (inventory_item_id && location_id) {
+    if (previewMode) {
+      return {
+        inventory_item_id,
+        location_id,
+        new_quantity: targetQty,
+        message: `Would update inventory to ${targetQty}`,
+        preview_mode: true,
+        changes_made: false,
+      };
+    }
+
+    const response = await shopifyRequest(platform, 'inventory_levels/set.json', 'POST', {
+      inventory_item_id,
+      location_id,
+      available: targetQty,
+    });
+
+    return {
+      inventory_level: response.inventory_level,
+      message: `Updated inventory to ${targetQty}`,
+      preview_mode: false,
+      changes_made: true,
+      affected_resources: [{ type: 'inventory_level', id: inventory_item_id }],
+    };
+  }
+
+  // Lookup path: find products by title or filters
+  const productsResponse = await shopifyRequest(platform, 'products.json?limit=250');
+  let products = productsResponse.products || [];
+
+  if (product_title) {
+    const lowerTitle = product_title.toLowerCase();
+    products = products.filter((p: any) => p.title.toLowerCase().includes(lowerTitle));
+  } else if (filters && filters.length > 0) {
+    products = applyComplexFilters(products, filters);
+  }
+
+  if (products.length === 0) {
+    throw new Error(`No products found matching criteria`);
+  }
+
+  // Get the store's first active location if not provided
+  let resolvedLocationId = location_id;
+  if (!resolvedLocationId) {
+    const locationsResponse = await shopifyRequest(platform, 'locations.json');
+    const locations = (locationsResponse.locations || []).filter((l: any) => l.active);
+    if (locations.length === 0) {
+      throw new Error('No active locations found for this store');
+    }
+    resolvedLocationId = locations[0].id;
+  }
+
+  // Collect all Shopify-managed variants from matching products
+  const variantsToUpdate: any[] = [];
+  for (const product of products) {
+    for (const variant of product.variants || []) {
+      if (variant.inventory_management === 'shopify') {
+        variantsToUpdate.push({
+          product_id: product.id,
+          product_title: product.title,
+          variant_id: variant.id,
+          variant_title: variant.title,
+          inventory_item_id: variant.inventory_item_id,
+          current_quantity: variant.inventory_quantity,
+        });
+      }
+    }
+  }
+
+  if (variantsToUpdate.length === 0) {
+    throw new Error('No Shopify-managed inventory variants found for matching products');
+  }
 
   if (previewMode) {
     return {
-      inventory_item_id,
-      location_id,
-      current_quantity: 'Unknown in preview',
-      new_quantity: available,
-      message: `Would update inventory to ${available}`,
+      affected_count: variantsToUpdate.length,
+      new_quantity: targetQty,
+      message: `Would update inventory to ${targetQty} for ${variantsToUpdate.length} variant(s)`,
+      products: products.map((p: any) => ({ id: p.id, title: p.title })),
       preview_mode: true,
       changes_made: false,
     };
   }
 
-  const response = await shopifyRequest(platform, 'inventory_levels/set.json', 'POST', {
-    inventory_item_id,
-    location_id,
-    available,
-  });
+  // Update each variant
+  const results: any[] = [];
+  for (const variant of variantsToUpdate) {
+    try {
+      const response = await shopifyRequest(platform, 'inventory_levels/set.json', 'POST', {
+        inventory_item_id: variant.inventory_item_id,
+        location_id: resolvedLocationId,
+        available: targetQty,
+      });
+      results.push({
+        product_title: variant.product_title,
+        variant_title: variant.variant_title,
+        success: true,
+        previous_quantity: variant.current_quantity,
+        new_quantity: targetQty,
+        inventory_level: response.inventory_level,
+      });
+    } catch (error) {
+      results.push({
+        product_title: variant.product_title,
+        variant_title: variant.variant_title,
+        success: false,
+        error: error.message,
+      });
+    }
+  }
 
   return {
-    inventory_level: response.inventory_level,
-    message: `Updated inventory to ${available}`,
+    updated: results.filter((r) => r.success).length,
+    failed: results.filter((r) => !r.success).length,
+    results,
+    message: `Updated inventory to ${targetQty} for ${results.filter((r) => r.success).length} variant(s)`,
     preview_mode: false,
     changes_made: true,
-    affected_resources: [{ type: 'inventory_level', id: inventory_item_id }],
+    before_state: variantsToUpdate.map((v) => ({
+      inventory_item_id: v.inventory_item_id,
+      quantity: v.current_quantity,
+    })),
+    after_state: results.filter((r) => r.success).map((r) => ({
+      product_title: r.product_title,
+      quantity: targetQty,
+    })),
+    affected_resources: variantsToUpdate.map((v) => ({
+      type: 'inventory_level',
+      id: v.inventory_item_id,
+    })),
   };
 }
 

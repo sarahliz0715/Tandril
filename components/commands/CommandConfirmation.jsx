@@ -177,6 +177,30 @@ export default function CommandConfirmation({ command, onConfirm, onCancel, onEd
                                                         </Badge>}
                                                     </div>
                                                     <p className="text-sm text-slate-600">{action.description || ''}</p>
+                                                    {action.parameters && (
+                                                        <div className="mt-2 flex flex-wrap gap-1">
+                                                            {(action.parameters.available !== undefined || action.parameters.quantity !== undefined) && (
+                                                                <Badge className="text-xs bg-indigo-100 text-indigo-700 border border-indigo-200">
+                                                                    Qty → {action.parameters.available ?? action.parameters.quantity}
+                                                                </Badge>
+                                                            )}
+                                                            {action.parameters.product_title && (
+                                                                <Badge className="text-xs bg-slate-100 text-slate-700 border border-slate-200">
+                                                                    {action.parameters.product_title}
+                                                                </Badge>
+                                                            )}
+                                                            {action.parameters.updates?.price !== undefined && (
+                                                                <Badge className="text-xs bg-green-100 text-green-700 border border-green-200">
+                                                                    Price → ${action.parameters.updates.price}
+                                                                </Badge>
+                                                            )}
+                                                            {(action.parameters.discount_value !== undefined) && (
+                                                                <Badge className="text-xs bg-yellow-100 text-yellow-700 border border-yellow-200">
+                                                                    Discount → {action.parameters.discount_value}{action.parameters.discount_type === 'percentage' ? '%' : ' off'}
+                                                                </Badge>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
                                         </CardContent>
