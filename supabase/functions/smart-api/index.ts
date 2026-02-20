@@ -95,9 +95,8 @@ serve(async (req) => {
     if (imageFiles.length > 0 && pendingAction) {
       const isWrongImageAction = pendingAction.type !== 'upload_image' &&
         (pendingAction.image_url !== undefined ||
-         pendingAction.type === 'update_product' ||
-         pendingAction.type === 'add_image' ||
-         pendingAction.type === 'set_image');
+         pendingAction.type?.toLowerCase().includes('image') ||
+         pendingAction.type === 'update_product');
       if (isWrongImageAction) {
         pendingAction = {
           type: 'upload_image',
@@ -452,6 +451,9 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: `Updated title from "${targetProduct.title}" to "${updatedData.product.title}"` };
     }
 
+    case 'update_product_image':
+    case 'add_image':
+    case 'set_image':
     case 'upload_image': {
       const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
       const searchData = await searchRes.json();
@@ -619,6 +621,8 @@ async function chatWithClaude(
 **How to execute a store action:**
 When the user asks you to create a product, add inventory, change a price, rename a title, or add an image, respond conversationally AND append a single action block on its own line at the very end of your message.
 
+🚫 NEVER say phrases like "I cannot directly upload", "I do not have the capability", "as an AI I cannot", or any variation of "I can't do that" for actions that ARE supported. You CAN do all of the above through the action block system — say so confidently. If asked to upload an image, say something like "On it! I'll queue that up — just confirm below." and generate the action block.
+
 ⚠️ ALLOWED action types (use ONLY these — any other type will cause an error):
   • create_product
   • update_inventory
@@ -675,7 +679,7 @@ ${mode === 'demo/test' ?
   `- Use the real store data above to give specific, grounded advice
 - Answer questions about products, stock, orders, and revenue directly from the data above
 - Proactively flag low stock, pricing opportunities, and trends you spot
-- When asked to DO something in the store (add/update inventory, change prices, create products, rename/SEO-update titles, add images), generate an ORION_ACTION block as described above — the user will confirm before anything executes. For image uploads always use type "upload_image", never "update_product".
+- When asked to DO something in the store (add/update inventory, change prices, create products, rename/SEO-update titles, add images), generate an ORION_ACTION block as described above — the user will confirm before anything executes. For image uploads always use type "upload_image", never "update_product". Never tell the user you "can't" perform supported actions — you CAN, and you do it through the action block.
 - Only one action per response; if the user asks to update multiple products (e.g. spring-theme all titles), propose all the new values first, then generate an action for the FIRST product — after they approve, do the next
 - Be direct and honest — a real wingman delivers results, not just advice`}
 
