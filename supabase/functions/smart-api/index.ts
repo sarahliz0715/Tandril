@@ -92,30 +92,36 @@ serve(async (req) => {
     // even when explicitly told not to. If the user attached images and the action type
     // is not upload_image, coerce it here so the right backend handler runs.
     const imageFiles = (uploaded_files || []).filter((f: any) => f.type?.startsWith('image/'));
+    let imageActionCoerced = false;
     if (imageFiles.length > 0 && pendingAction) {
       const isWrongImageAction = pendingAction.type !== 'upload_image' &&
         (pendingAction.image_url !== undefined ||
          pendingAction.type?.toLowerCase().includes('image') ||
          pendingAction.type === 'update_product');
       if (isWrongImageAction) {
+        const productLabel = pendingAction.product_name || pendingAction.title || '';
         pendingAction = {
           type: 'upload_image',
-          product_name: pendingAction.product_name || pendingAction.title || '',
+          product_name: productLabel,
           sku: pendingAction.sku || '',
           image_from_upload: true,
         };
+        imageActionCoerced = true;
+        response = `On it! I'll add that image to "${productLabel || 'the product'}" — just confirm below and I'll take care of it.`;
       }
     }
 
     // If images were uploaded but Orion produced no action at all, synthesize one
     if (imageFiles.length > 0 && !pendingAction) {
-      // Try to extract a product name from the message
       pendingAction = {
         type: 'upload_image',
         product_name: '',
         sku: '',
         image_from_upload: true,
       };
+      if (!imageActionCoerced) {
+        response = `I have your image ready to upload — just let me know which product to add it to, then confirm below.`;
+      }
     }
 
     if (conversationId) {
