@@ -307,6 +307,45 @@ Only include genuinely useful facts. Return ONLY the JSON array, no other text.`
 
 // ─── Store Action Execution ───────────────────────────────────────────────────
 
+/** Find a Shopify product by SKU or title, with fuzzy title fallback. */
+function findProduct(allProducts: any[], sku: string, productName: string): any | null {
+  // 1. Exact SKU match (most reliable)
+  if (sku) {
+    for (const p of allProducts) {
+      const match = (p.variants || []).find((v: any) => v.sku === sku);
+      if (match) return p;
+    }
+  }
+  if (!productName) return null;
+  const needle = productName.toLowerCase().trim();
+
+  // 2. Exact title match
+  for (const p of allProducts) {
+    if (p.title.toLowerCase().trim() === needle) return p;
+  }
+  // 3. Shopify title contains the search name
+  for (const p of allProducts) {
+    if (p.title.toLowerCase().includes(needle)) return p;
+  }
+  // 4. Search name contains the Shopify title (model may have added extra words)
+  for (const p of allProducts) {
+    if (needle.includes(p.title.toLowerCase().trim())) return p;
+  }
+  // 5. Significant word overlap (≥2 words matching, ignoring short words)
+  const needleWords = needle.split(/\s+/).filter(w => w.length > 3);
+  if (needleWords.length > 0) {
+    let bestMatch: any = null;
+    let bestScore = 0;
+    for (const p of allProducts) {
+      const titleWords = p.title.toLowerCase().split(/\s+/);
+      const score = needleWords.filter(w => titleWords.some(tw => tw.includes(w) || w.includes(tw))).length;
+      if (score >= 2 && score > bestScore) { bestScore = score; bestMatch = p; }
+    }
+    if (bestMatch) return bestMatch;
+  }
+  return null;
+}
+
 async function executeStoreAction(supabaseClient: any, userId: string, action: any) {
   const { data: platforms } = await supabaseClient
     .from('platforms')
@@ -373,16 +412,12 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const searchData = await searchRes.json();
       const allProducts = searchData.products || [];
 
-      let targetVariant: any = null;
-      for (const p of allProducts) {
-        for (const v of (p.variants || [])) {
-          if (action.sku && v.sku === action.sku) { targetVariant = v; break; }
-          if (!action.sku && p.title.toLowerCase() === (action.product_name || '').toLowerCase()) { targetVariant = v; break; }
-        }
-        if (targetVariant) break;
-      }
-
-      if (!targetVariant) throw new Error(`Could not find product with SKU "${action.sku || action.product_name}" in Shopify.`);
+      const invProduct = findProduct(allProducts, action.sku, action.product_name);
+      if (!invProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      const targetVariant = action.sku
+        ? (invProduct.variants || []).find((v: any) => v.sku === action.sku) || invProduct.variants?.[0]
+        : invProduct.variants?.[0];
+      if (!targetVariant) throw new Error(`Product "${invProduct.title}" has no variants.`);
 
       const locRes = await fetch(
         `${shopifyBase}/inventory_levels.json?inventory_item_ids=${targetVariant.inventory_item_id}&limit=1`,
@@ -410,16 +445,12 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const searchData = await searchRes.json();
       const allProducts = searchData.products || [];
 
-      let targetVariant: any = null;
-      for (const p of allProducts) {
-        for (const v of (p.variants || [])) {
-          if (action.sku && v.sku === action.sku) { targetVariant = v; break; }
-          if (!action.sku && p.title.toLowerCase() === (action.product_name || '').toLowerCase()) { targetVariant = v; break; }
-        }
-        if (targetVariant) break;
-      }
-
-      if (!targetVariant) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      const priceProduct = findProduct(allProducts, action.sku, action.product_name);
+      if (!priceProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      const targetVariant = action.sku
+        ? (priceProduct.variants || []).find((v: any) => v.sku === action.sku) || priceProduct.variants?.[0]
+        : priceProduct.variants?.[0];
+      if (!targetVariant) throw new Error(`Product "${priceProduct.title}" has no variants.`);
 
       const updateRes = await fetch(`${shopifyBase}/variants/${targetVariant.id}.json`, {
         method: 'PUT',
@@ -435,16 +466,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const searchData = await searchRes.json();
       const allProducts = searchData.products || [];
 
-      let targetProduct: any = null;
-      for (const p of allProducts) {
-        if (action.sku) {
-          const matchVariant = (p.variants || []).find((v: any) => v.sku === action.sku);
-          if (matchVariant) { targetProduct = p; break; }
-        }
-        if (p.title.toLowerCase() === (action.product_name || '').toLowerCase()) {
-          targetProduct = p; break;
-        }
-      }
+      const targetProduct = findProduct(allProducts, action.sku, action.product_name);
       if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
 
       const updateRes = await fetch(`${shopifyBase}/products/${targetProduct.id}.json`, {
@@ -465,17 +487,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const searchData = await searchRes.json();
       const allProducts = searchData.products || [];
 
-      let targetProduct: any = null;
-      for (const p of allProducts) {
-        if (action.sku) {
-          const matchVariant = (p.variants || []).find((v: any) => v.sku === action.sku);
-          if (matchVariant) { targetProduct = p; break; }
-        }
-        if (p.title.toLowerCase() === (action.product_name || '').toLowerCase()) {
-          targetProduct = p; break;
-        }
-      }
-      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      const targetProduct = findProduct(allProducts, action.sku, action.product_name);
+      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify. Make sure the product exists and try again.`);
       if (!action.image_data) throw new Error('No image data provided. Please re-upload the image and try again.');
 
       const uploadRes = await fetch(`${shopifyBase}/products/${targetProduct.id}/images.json`, {
