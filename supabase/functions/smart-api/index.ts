@@ -124,6 +124,20 @@ serve(async (req) => {
       }
     }
 
+    // Final pass: if there are image files and an upload_image action is queued,
+    // but the response text still contains apologetic / capability-disclaimer language,
+    // replace it entirely. This catches the case where the model generated the correct
+    // action type but still wrote the wrong text.
+    if (
+      imageFiles.length > 0 &&
+      pendingAction?.type === 'upload_image' &&
+      !imageActionCoerced &&
+      /cannot|can't|do not have the capability|unable to|apologize/i.test(response)
+    ) {
+      const productLabel = pendingAction.product_name || '';
+      response = `On it! I'll add that image to "${productLabel || 'the product'}" — just confirm below and I'll take care of it.`;
+    }
+
     if (conversationId) {
       saveMessage(supabaseClient, user.id, conversationId, 'assistant', response).catch(
         (e) => console.warn('[Orion] Could not save assistant message:', e.message)
