@@ -655,10 +655,19 @@ ${mode === 'demo/test' ?
 - Ask sharp clarifying questions when you need more context
 - Keep responses focused and actionable`;
 
-  const messages: any[] = conversationHistory.map((msg) => ({
-    role: msg.role === 'user' ? 'user' : 'assistant',
-    content: msg.content,
-  }));
+  // Build messages from persistent history.
+  // Strip [ORION_ACTION:...] blocks from historical assistant messages — old action
+  // blocks (especially invalid ones like update_product) teach the model wrong patterns.
+  const messages: any[] = conversationHistory.map((msg) => {
+    let content = msg.content;
+    if (msg.role !== 'user') {
+      content = content.replace(/\s*\[ORION_ACTION:[\s\S]*?\](\s*)$/m, '').trim();
+    }
+    return {
+      role: msg.role === 'user' ? 'user' : 'assistant',
+      content,
+    };
+  });
 
   const currentContent: any[] = [{ type: 'text', text: message }];
 

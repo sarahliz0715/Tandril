@@ -264,32 +264,30 @@ export default function AIBusinessCoach() {
     }
   };
 
+  const readFileAsBase64 = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result.split(',')[1]);
+      reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
+      reader.readAsDataURL(file);
+    });
+
   const handleFileUpload = async (e) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
 
     for (const file of files) {
       try {
-        // Read file as base64
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          const base64Data = event.target.result.split(',')[1];
-          setUploadedFiles((prev) => [
-            ...prev,
-            {
-              name: file.name,
-              type: file.type,
-              data: base64Data,
-            },
-          ]);
-        };
-        reader.readAsDataURL(file);
-        toast.success(`Uploaded ${file.name}`);
+        const base64Data = await readFileAsBase64(file);
+        setUploadedFiles((prev) => [...prev, { name: file.name, type: file.type, data: base64Data }]);
+        toast.success(`Ready: ${file.name}`);
       } catch (error) {
         console.error('File upload error:', error);
-        toast.error(`Failed to upload ${file.name}`);
+        toast.error(`Failed to read ${file.name}`);
       }
     }
+    // Reset input so the same file can be re-selected if needed
+    e.target.value = '';
   };
 
   const removeFile = (index) => {
