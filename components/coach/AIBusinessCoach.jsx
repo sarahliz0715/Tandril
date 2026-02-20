@@ -223,17 +223,16 @@ export default function AIBusinessCoach() {
         };
       }
       const result = await api.functions.chatWithCoach({ execute_action: resolvedAction });
-      setChatMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `✅ Done! ${result.execution_result?.message || 'Action completed successfully.'}`,
-      }]);
+      const resultMsg = result.execution_result?.message || 'Action completed successfully.';
+      setChatMessages(prev => prev.map((m, i) =>
+        i === messageIdx ? { ...m, actionCompleted: true, actionResult: resultMsg } : m
+      ));
       toast.success('Action executed successfully');
     } catch (error) {
       console.error('[Orion] Action error:', error);
-      setChatMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `❌ Action failed: ${error.message}`,
-      }]);
+      setChatMessages(prev => prev.map((m, i) =>
+        i === messageIdx ? { ...m, actionFailed: true, actionError: error.message } : m
+      ));
       toast.error('Action failed');
     } finally {
       setIsChatLoading(false);
@@ -752,8 +751,20 @@ export default function AIBusinessCoach() {
                             </div>
                           </div>
                         )}
-                        {msg.pendingAction && msg.actionConfirmed && (
+                        {msg.pendingAction && msg.actionConfirmed && !msg.actionCompleted && !msg.actionFailed && (
                           <p className="text-xs text-green-600 mt-1 pl-1">✓ Action confirmed, executing...</p>
+                        )}
+                        {msg.pendingAction && msg.actionCompleted && (
+                          <div className="mt-2 p-3 bg-green-50 border border-green-300 rounded-lg">
+                            <p className="text-xs font-semibold text-green-800 mb-1">✅ Completed</p>
+                            <p className="text-sm text-green-900">{msg.actionResult}</p>
+                          </div>
+                        )}
+                        {msg.pendingAction && msg.actionFailed && (
+                          <div className="mt-2 p-3 bg-red-50 border border-red-300 rounded-lg">
+                            <p className="text-xs font-semibold text-red-800 mb-1">❌ Action failed</p>
+                            <p className="text-sm text-red-900">{msg.actionError}</p>
+                          </div>
                         )}
                         {msg.pendingAction && msg.actionCancelled && (
                           <p className="text-xs text-slate-500 mt-1 pl-1">Action cancelled.</p>
