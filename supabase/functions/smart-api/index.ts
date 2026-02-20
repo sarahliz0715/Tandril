@@ -88,6 +88,37 @@ serve(async (req) => {
       }
     }
 
+    // Safety net: the model often generates "update_product" or similar for image uploads
+    // even when explicitly told not to. If the user attached images and the action type
+    // is not upload_image, coerce it here so the right backend handler runs.
+    const imageFiles = (uploaded_files || []).filter((f: any) => f.type?.startsWith('image/'));
+    if (imageFiles.length > 0 && pendingAction) {
+      const isWrongImageAction = pendingAction.type !== 'upload_image' &&
+        (pendingAction.image_url !== undefined ||
+         pendingAction.type === 'update_product' ||
+         pendingAction.type === 'add_image' ||
+         pendingAction.type === 'set_image');
+      if (isWrongImageAction) {
+        pendingAction = {
+          type: 'upload_image',
+          product_name: pendingAction.product_name || pendingAction.title || '',
+          sku: pendingAction.sku || '',
+          image_from_upload: true,
+        };
+      }
+    }
+
+    // If images were uploaded but Orion produced no action at all, synthesize one
+    if (imageFiles.length > 0 && !pendingAction) {
+      // Try to extract a product name from the message
+      pendingAction = {
+        type: 'upload_image',
+        product_name: '',
+        sku: '',
+        image_from_upload: true,
+      };
+    }
+
     if (conversationId) {
       saveMessage(supabaseClient, user.id, conversationId, 'assistant', response).catch(
         (e) => console.warn('[Orion] Could not save assistant message:', e.message)
