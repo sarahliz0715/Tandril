@@ -258,6 +258,17 @@ export default function AIBusinessCoach() {
         return `Rename "${action.product_name || action.sku}" → "${action.new_title}"`;
       case 'upload_image':
         return `Upload image to "${action.product_name || action.sku}"`;
+      case 'update_metafield':
+        return `Set metafield "${action.metafield_key}" on "${action.product_name || action.sku}" to "${action.metafield_value}"`;
+      case 'update_image_alt':
+        return `Update image alt text for "${action.product_name || action.sku}" to "${action.alt_text}"`;
+      case 'woo_create_product':
+        return `Create WooCommerce product "${action.name || action.title}" — SKU: ${action.sku || 'N/A'}, Price: $${action.price || 0}, Qty: ${action.quantity || 0}`;
+      case 'woo_bulk_create_products': {
+        const count = (action.products || []).length;
+        const names = (action.products || []).slice(0, 3).map(p => p.name || p.title).join(', ');
+        return `Bulk create ${count} products in WooCommerce: ${names}${count > 3 ? ` + ${count - 3} more` : ''}`;
+      }
       default:
         return JSON.stringify(action);
     }

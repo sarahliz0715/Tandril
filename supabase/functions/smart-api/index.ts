@@ -582,6 +582,123 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: `Updated image alt text for "${targetProduct.title}" to "${action.alt_text}"` };
     }
 
+    case 'woo_create_product': {
+      const { data: wooPlats } = await supabaseClient
+        .from('platforms')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('platform_type', 'woocommerce')
+        .eq('status', 'connected')
+        .limit(1);
+
+      if (!wooPlats || wooPlats.length === 0) {
+        throw new Error('No connected WooCommerce store found. Connect one in the Platforms tab first.');
+      }
+
+      const woo = wooPlats[0];
+      const { consumer_key, consumer_secret } = woo.credentials;
+      const wooBase = `${woo.store_url}/wp-json/wc/v3`;
+      const wooHeaders = {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${btoa(`${consumer_key}:${consumer_secret}`)}`,
+      };
+
+      const images = (action.images || []).filter(Boolean).map((src: string) => ({ src }));
+      const tags = (action.tags || []).filter(Boolean).map((name: string) => ({ name }));
+
+      const productBody: any = {
+        name: action.name || action.title,
+        type: action.product_type || 'simple',
+        regular_price: String(action.price ?? '0.00'),
+        description: action.description || '',
+        short_description: action.short_description || '',
+        sku: action.sku || '',
+        manage_stock: true,
+        stock_quantity: action.quantity ?? 0,
+        status: 'publish',
+        images,
+        tags,
+      };
+
+      const res = await fetch(`${wooBase}/products`, {
+        method: 'POST',
+        headers: wooHeaders,
+        body: JSON.stringify(productBody),
+      });
+      if (!res.ok) throw new Error(`WooCommerce rejected the product: ${await res.text()}`);
+      const data = await res.json();
+      return { message: `Created "${data.name}" in your WooCommerce store (ID: ${data.id})` };
+    }
+
+    case 'woo_bulk_create_products': {
+      const { data: wooPlats } = await supabaseClient
+        .from('platforms')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('platform_type', 'woocommerce')
+        .eq('status', 'connected')
+        .limit(1);
+
+      if (!wooPlats || wooPlats.length === 0) {
+        throw new Error('No connected WooCommerce store found. Connect one in the Platforms tab first.');
+      }
+
+      const woo = wooPlats[0];
+      const { consumer_key, consumer_secret } = woo.credentials;
+      const wooBase = `${woo.store_url}/wp-json/wc/v3`;
+      const wooHeaders = {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${btoa(`${consumer_key}:${consumer_secret}`)}`,
+      };
+
+      const products: any[] = action.products || [];
+      if (products.length === 0) throw new Error('No products provided for bulk create.');
+
+      let successCount = 0;
+      let failCount = 0;
+      const failedProducts: string[] = [];
+
+      for (const p of products) {
+        try {
+          const images = (p.images || []).filter(Boolean).map((src: string) => ({ src }));
+          const tags = (p.tags || []).filter(Boolean).map((name: string) => ({ name }));
+
+          const productBody: any = {
+            name: p.name || p.title,
+            type: p.product_type || 'simple',
+            regular_price: String(p.price ?? '0.00'),
+            description: p.description || '',
+            short_description: p.short_description || '',
+            sku: p.sku || '',
+            manage_stock: true,
+            stock_quantity: p.quantity ?? 0,
+            status: 'publish',
+            images,
+            tags,
+          };
+
+          const res = await fetch(`${wooBase}/products`, {
+            method: 'POST',
+            headers: wooHeaders,
+            body: JSON.stringify(productBody),
+          });
+
+          if (res.ok) {
+            successCount++;
+          } else {
+            failCount++;
+            failedProducts.push(p.name || p.title || 'Unknown');
+          }
+        } catch {
+          failCount++;
+          failedProducts.push(p.name || p.title || 'Unknown');
+        }
+      }
+
+      const summary = `Created ${successCount} of ${products.length} products in WooCommerce.${failCount > 0 ? ` ${failCount} failed: ${failedProducts.slice(0, 3).join(', ')}${failedProducts.length > 3 ? '...' : ''}` : ''}`;
+      return { message: summary, success_count: successCount, fail_count: failCount };
+    }
+
     default:
       throw new Error(`Unknown action type: ${action.type}`);
   }
@@ -720,6 +837,7 @@ When the user asks you to create a product, add inventory, change a price, renam
 🚫 NEVER say phrases like "I cannot directly upload", "I do not have the capability", "as an AI I cannot", or any variation of "I can't do that" for actions that ARE supported. You CAN do all of the above through the action block system — say so confidently. If asked to upload an image, say something like "On it! I'll queue that up — just confirm below." and generate the action block.
 
 ⚠️ ALLOWED action types (use ONLY these exact strings — any other type will fail with "Unknown action type"):
+  Shopify actions:
   • create_product
   • update_inventory
   • update_price
@@ -727,7 +845,10 @@ When the user asks you to create a product, add inventory, change a price, renam
   • upload_image
   • update_metafield
   • update_image_alt
-❌ FORBIDDEN (will always fail): update_product, update_seo, bulk_update, add_image, set_image, add_tags, update_tags, or any other type not in the list above.
+  WooCommerce actions:
+  • woo_create_product
+  • woo_bulk_create_products
+❌ FORBIDDEN (will always fail): update_product, update_seo, bulk_update, add_image, set_image, add_tags, update_tags, woo_update_product, or any other type not in the list above.
 
 Action formats:
 
@@ -751,6 +872,21 @@ To set or update a product metafield (material, care instructions, custom data, 
 
 To update the alt text on a product's first image (for SEO):
 [ORION_ACTION:{"type":"update_image_alt","product_name":"Product Title","sku":"SKU-001","alt_text":"Descriptive keyword-rich alt text here"}]
+
+To create a single product on WooCommerce:
+[ORION_ACTION:{"type":"woo_create_product","name":"Product Title","sku":"SKU-001","price":"29.99","quantity":10,"description":"Full description here","images":["https://image-url-1.jpg","https://image-url-2.jpg"],"tags":["tag1","tag2"],"product_type":"simple"}]
+
+To bulk-create multiple products on WooCommerce (e.g. from an Etsy CSV migration — single confirmation for the whole batch):
+[ORION_ACTION:{"type":"woo_bulk_create_products","products":[{"name":"Product 1","sku":"SKU-001","price":"19.99","quantity":5,"description":"...","images":["https://..."],"tags":["spring","cotton"]},{"name":"Product 2","sku":"SKU-002","price":"24.99","quantity":10,"description":"...","images":["https://..."],"tags":["summer"]}]}]
+
+**Etsy CSV Migration Workflow:**
+When a user uploads an Etsy CSV file and wants to migrate to WooCommerce, follow these steps:
+1. Parse the CSV — Etsy's columns are: TITLE, DESCRIPTION, PRICE, CURRENCY_CODE, QUANTITY, SKU, TAGS, MATERIALS, IMAGE1 through IMAGE10, WHO_MADE, WHEN_MADE
+2. Transform each row: TITLE→name, DESCRIPTION→description, PRICE→price, QUANTITY→quantity, SKU→sku, TAGS→tags (split by comma), IMAGE1-10→images array (collect all non-empty image URLs)
+3. Group rows with the same TITLE — Etsy repeats rows for variations but omits per-variation price/quantity. Treat each unique TITLE as one product; use the price and quantity from the first row.
+4. Show the user a summary: "I found X products in your Etsy CSV. Here's what I'll create: [list first 5 titles]. Ready to migrate all X to WooCommerce?"
+5. On confirmation, generate a single woo_bulk_create_products action with ALL products in the array — do NOT create them one by one.
+6. Note any products with variations that had incomplete data so the user knows to review those in WooCommerce afterward.
 
 Rules for actions:
 - Always include the SKU when you have it — it's the most reliable way to find the product
