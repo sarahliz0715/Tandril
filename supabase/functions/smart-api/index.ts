@@ -75,16 +75,21 @@ serve(async (req) => {
     // Get Orion's response
     const rawResponse = await chatWithClaude(message, recentHistory, uploaded_files, storeContext, memoryNotes);
 
-    // Parse any pending store action Orion embedded in its response
+    // Parse any pending store action Orion embedded in its response.
+    // Strip ALL [ORION_ACTION:...] blocks from the visible text (the model
+    // sometimes emits multiple despite instructions) and use the first valid one.
     let response = rawResponse;
     let pendingAction: any = null;
-    const actionMatch = rawResponse.match(/\[ORION_ACTION:([\s\S]*?)\]$/m);
-    if (actionMatch) {
-      try {
-        pendingAction = JSON.parse(actionMatch[1]);
-        response = rawResponse.replace(/\s*\[ORION_ACTION:[\s\S]*?\]$/m, '').trim();
-      } catch {
-        // Malformed JSON in action block — ignore it, use full response as-is
+    const allActionMatches = [...rawResponse.matchAll(/\[ORION_ACTION:([\s\S]*?)\]/gm)];
+    if (allActionMatches.length > 0) {
+      response = rawResponse.replace(/\s*\[ORION_ACTION:[\s\S]*?\]/gm, '').trim();
+      for (const match of allActionMatches) {
+        try {
+          pendingAction = JSON.parse(match[1]);
+          break; // use first valid block
+        } catch {
+          // skip malformed blocks
+        }
       }
     }
 
@@ -559,6 +564,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: `Set "${namespace}.${key}" metafield on "${targetProduct.title}" to "${value}"` };
     }
 
+    case 'update_image_alt_text':
     case 'update_image_alt': {
       const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
       const searchData = await searchRes.json();

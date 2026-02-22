@@ -245,32 +245,100 @@ export default function AIBusinessCoach() {
     ));
   };
 
-  const getActionDescription = (action) => {
-    if (!action) return '';
+  const getActionInfo = (action) => {
+    if (!action) return { icon: '⚡', title: 'Store Action', fields: [] };
     switch (action.type) {
       case 'create_product':
-        return `Create product "${action.title}" — SKU: ${action.sku || 'N/A'}, Price: $${action.price || 0}, Qty: ${action.quantity || 0}`;
+        return {
+          icon: '➕', title: 'Create New Product (Shopify)',
+          fields: [
+            { label: 'Title', value: action.title },
+            { label: 'SKU', value: action.sku || 'N/A' },
+            { label: 'Price', value: `$${action.price || 0}` },
+            { label: 'Quantity', value: action.quantity ?? 0 },
+            action.description && { label: 'Description', value: action.description.slice(0, 120) + (action.description.length > 120 ? '…' : '') },
+          ].filter(Boolean),
+        };
       case 'update_inventory':
-        return `Update inventory for "${action.product_name || action.sku}" to ${action.quantity} units`;
+        return {
+          icon: '📦', title: 'Update Inventory',
+          fields: [
+            { label: 'Product', value: action.product_name || action.sku },
+            { label: 'New quantity', value: `${action.quantity} units` },
+          ],
+        };
       case 'update_price':
-        return `Update price for "${action.product_name || action.sku}" to $${action.price}`;
+        return {
+          icon: '💰', title: 'Update Price',
+          fields: [
+            { label: 'Product', value: action.product_name || action.sku },
+            { label: 'New price', value: `$${action.price}` },
+          ],
+        };
       case 'update_title':
-        return `Rename "${action.product_name || action.sku}" → "${action.new_title}"`;
+        return {
+          icon: '✏️', title: 'Update Product Title',
+          fields: [
+            { label: 'Product', value: action.product_name || action.sku },
+            { label: 'New title', value: action.new_title },
+          ],
+        };
       case 'upload_image':
-        return `Upload image to "${action.product_name || action.sku}"`;
+        return {
+          icon: '🖼️', title: 'Upload Product Image',
+          fields: [
+            { label: 'Product', value: action.product_name || action.sku },
+          ],
+        };
       case 'update_metafield':
-        return `Set metafield "${action.metafield_key}" on "${action.product_name || action.sku}" to "${action.metafield_value}"`;
+        return {
+          icon: '🔧', title: 'Update Product Data Field',
+          fields: [
+            { label: 'Product', value: action.product_name || action.sku },
+            { label: 'Field', value: (action.metafield_key || '').replace(/_/g, ' ') },
+            { label: 'Value', value: action.metafield_value },
+          ],
+        };
       case 'update_image_alt':
-        return `Update image alt text for "${action.product_name || action.sku}" to "${action.alt_text}"`;
+      case 'update_image_alt_text':
+        return {
+          icon: '🔍', title: 'Update Image Alt Text (SEO)',
+          fields: [
+            { label: 'Product', value: action.product_name || action.sku },
+            { label: 'Alt text', value: action.alt_text },
+          ],
+        };
       case 'woo_create_product':
-        return `Create WooCommerce product "${action.name || action.title}" — SKU: ${action.sku || 'N/A'}, Price: $${action.price || 0}, Qty: ${action.quantity || 0}`;
+        return {
+          icon: '➕', title: 'Create New Product (WooCommerce)',
+          fields: [
+            { label: 'Title', value: action.name || action.title },
+            { label: 'SKU', value: action.sku || 'N/A' },
+            { label: 'Price', value: `$${action.price || 0}` },
+            { label: 'Quantity', value: action.quantity ?? 0 },
+            (action.images?.length > 0) && { label: 'Images', value: `${action.images.length} image(s) included` },
+          ].filter(Boolean),
+        };
       case 'woo_bulk_create_products': {
         const count = (action.products || []).length;
-        const names = (action.products || []).slice(0, 3).map(p => p.name || p.title).join(', ');
-        return `Bulk create ${count} products in WooCommerce: ${names}${count > 3 ? ` + ${count - 3} more` : ''}`;
+        return {
+          icon: '📦', title: `Bulk Create ${count} Products (WooCommerce)`,
+          fields: [
+            ...(action.products || []).slice(0, 5).map((p, i) => ({
+              label: `${i + 1}.`,
+              value: `${p.name || p.title}${p.price ? ` — $${p.price}` : ''}`,
+            })),
+            count > 5 && { label: '', value: `+ ${count - 5} more products` },
+          ].filter(Boolean),
+        };
       }
       default:
-        return JSON.stringify(action);
+        return {
+          icon: '⚡', title: 'Store Action',
+          fields: Object.entries(action)
+            .filter(([k]) => k !== 'type')
+            .map(([k, v]) => ({ label: k, value: String(v) })),
+        };
     }
   };
 
@@ -742,26 +810,40 @@ export default function AIBusinessCoach() {
                         >
                           <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
                         </div>
-                        {msg.pendingAction && !msg.actionConfirmed && !msg.actionCancelled && (
-                          <div className="mt-2 p-3 bg-amber-50 border border-amber-300 rounded-lg">
-                            <p className="text-xs font-semibold text-amber-800 mb-1">⚡ Pending Store Action</p>
-                            <p className="text-sm text-amber-900 mb-3">{getActionDescription(msg.pendingAction)}</p>
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => handleConfirmAction(idx, msg.pendingAction)}
-                                className="px-3 py-1.5 text-xs font-semibold bg-green-600 text-white rounded-md hover:bg-green-700"
-                              >
-                                ✓ Confirm &amp; Execute
-                              </button>
-                              <button
-                                onClick={() => handleCancelAction(idx)}
-                                className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-300 text-slate-700 rounded-md hover:bg-slate-50"
-                              >
-                                Cancel
-                              </button>
+                        {msg.pendingAction && !msg.actionConfirmed && !msg.actionCancelled && (() => {
+                          const info = getActionInfo(msg.pendingAction);
+                          return (
+                            <div className="mt-3 rounded-xl border border-amber-200 bg-white shadow-sm overflow-hidden">
+                              <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 border-b border-amber-200">
+                                <span className="text-base">{info.icon}</span>
+                                <span className="text-sm font-semibold text-amber-900">{info.title}</span>
+                                <span className="ml-auto text-xs text-amber-600 font-medium">Awaiting approval</span>
+                              </div>
+                              <div className="px-4 py-3 space-y-2">
+                                {info.fields.map((field, i) => (
+                                  <div key={i} className="flex gap-3 text-sm">
+                                    <span className="text-slate-500 font-medium shrink-0 w-24">{field.label}</span>
+                                    <span className="text-slate-800 break-words">{field.value}</span>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="flex gap-2 px-4 py-3 bg-slate-50 border-t border-slate-100">
+                                <button
+                                  onClick={() => handleConfirmAction(idx, msg.pendingAction)}
+                                  className="px-4 py-2 text-sm font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                                >
+                                  Confirm &amp; Execute
+                                </button>
+                                <button
+                                  onClick={() => handleCancelAction(idx)}
+                                  className="px-4 py-2 text-sm font-medium bg-white border border-slate-300 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          );
+                        })()}
                         {msg.pendingAction && msg.actionConfirmed && !msg.actionCompleted && !msg.actionFailed && (
                           <p className="text-xs text-green-600 mt-1 pl-1">✓ Action confirmed, executing...</p>
                         )}
