@@ -75,23 +75,22 @@ serve(async (req) => {
     // Get Orion's response
     const rawResponse = await chatWithClaude(message, recentHistory, uploaded_files, storeContext, memoryNotes);
 
-    // Parse any pending store action Orion embedded in its response.
-    // Strip ALL [ORION_ACTION:...] blocks from the visible text (the model
-    // sometimes emits multiple despite instructions) and use the first valid one.
+    // Parse ALL [ORION_ACTION:...] blocks from the response.
+    // Strip them all from visible text, collect valid ones as an ordered queue.
     let response = rawResponse;
-    let pendingAction: any = null;
+    let pendingActions: any[] = [];
     const allActionMatches = [...rawResponse.matchAll(/\[ORION_ACTION:([\s\S]*?)\]/gm)];
     if (allActionMatches.length > 0) {
       response = rawResponse.replace(/\s*\[ORION_ACTION:[\s\S]*?\]/gm, '').trim();
       for (const match of allActionMatches) {
         try {
-          pendingAction = JSON.parse(match[1]);
-          break; // use first valid block
+          pendingActions.push(JSON.parse(match[1]));
         } catch {
           // skip malformed blocks
         }
       }
     }
+    const pendingAction = pendingActions[0] || null; // backwards compat
 
     // Safety net: the model often generates "update_product" or similar for image uploads
     // even when explicitly told not to. If the user attached images and the action type
@@ -156,7 +155,8 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         response,
-        pending_action: pendingAction,
+        pending_action: pendingAction,       // backwards compat (first action)
+        pending_actions: pendingActions,     // full queue
         conversation_id: conversationId,
         context_used: {
           platforms: storeContext.platforms.length,
@@ -705,6 +705,95 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: summary, success_count: successCount, fail_count: failCount };
     }
 
+    // ── multi_action: multiple changes on ONE product in one confirmation ──────
+    case 'multi_action': {
+      const subActions: any[] = action.actions || [];
+      if (subActions.length === 0) throw new Error('multi_action requires at least one action in the actions array.');
+
+      const results: string[] = [];
+      const errors: string[] = [];
+
+      for (const subAction of subActions) {
+        // Inherit product identity from the parent action if the sub-action omits it
+        const resolved = {
+          product_name: action.product_name,
+          sku: action.sku,
+          ...subAction,
+        };
+        try {
+          const r = await executeStoreAction(supabaseClient, userId, resolved);
+          results.push(r.message || 'Done');
+        } catch (e: any) {
+          errors.push(`${subAction.type}: ${e.message}`);
+        }
+      }
+
+      const successCount = results.length;
+      const failCount = errors.length;
+      const lines = [
+        `${successCount}/${subActions.length} changes applied to "${action.product_name || action.sku}".`,
+        ...results.map((r) => `✅ ${r}`),
+        ...errors.map((e) => `❌ ${e}`),
+      ];
+      return { message: lines.join('\n'), success_count: successCount, fail_count: failCount, results, errors };
+    }
+
+    // ── batch_update: same field across MULTIPLE products in one confirmation ──
+    case 'batch_update': {
+      const updates: any[] = action.updates || [];
+      const field: string = action.field; // "title" | "price" | "inventory" | "image_alt" | "metafield"
+      if (updates.length === 0) throw new Error('batch_update requires at least one entry in the updates array.');
+      if (!field) throw new Error('batch_update requires a "field" property (e.g. "title", "price", "inventory", "image_alt", "metafield").');
+
+      const results: string[] = [];
+      const errors: string[] = [];
+
+      for (const upd of updates) {
+        let subAction: any;
+        switch (field) {
+          case 'title':
+            subAction = { type: 'update_title', product_name: upd.product_name, sku: upd.sku, new_title: upd.new_value };
+            break;
+          case 'price':
+            subAction = { type: 'update_price', product_name: upd.product_name, sku: upd.sku, price: upd.new_value };
+            break;
+          case 'inventory':
+            subAction = { type: 'update_inventory', product_name: upd.product_name, sku: upd.sku, quantity: upd.new_value };
+            break;
+          case 'image_alt':
+            subAction = { type: 'update_image_alt', product_name: upd.product_name, sku: upd.sku, alt_text: upd.new_value };
+            break;
+          case 'metafield':
+            subAction = {
+              type: 'update_metafield',
+              product_name: upd.product_name,
+              sku: upd.sku,
+              metafield_key: upd.metafield_key || action.metafield_key,
+              metafield_value: upd.new_value,
+              metafield_namespace: upd.metafield_namespace || action.metafield_namespace || 'custom',
+              metafield_type: upd.metafield_type || action.metafield_type || 'single_line_text_field',
+            };
+            break;
+          default:
+            errors.push(`Unknown batch field: ${field}`);
+            continue;
+        }
+        try {
+          const r = await executeStoreAction(supabaseClient, userId, subAction);
+          results.push(r.message || 'Done');
+        } catch (e: any) {
+          errors.push(`${upd.product_name || upd.sku}: ${e.message}`);
+        }
+      }
+
+      const summary = [
+        `Batch update complete: ${results.length}/${updates.length} succeeded.`,
+        ...results.map((r) => `✅ ${r}`),
+        ...errors.map((e) => `❌ ${e}`),
+      ].join('\n');
+      return { message: summary, success_count: results.length, fail_count: errors.length, results, errors };
+    }
+
     default:
       throw new Error(`Unknown action type: ${action.type}`);
   }
@@ -843,7 +932,7 @@ When the user asks you to create a product, add inventory, change a price, renam
 🚫 NEVER say phrases like "I cannot directly upload", "I do not have the capability", "as an AI I cannot", or any variation of "I can't do that" for actions that ARE supported. You CAN do all of the above through the action block system — say so confidently. If asked to upload an image, say something like "On it! I'll queue that up — just confirm below." and generate the action block.
 
 ⚠️ ALLOWED action types (use ONLY these exact strings — any other type will fail with "Unknown action type"):
-  Shopify actions:
+  Shopify single actions:
   • create_product
   • update_inventory
   • update_price
@@ -851,6 +940,9 @@ When the user asks you to create a product, add inventory, change a price, renam
   • upload_image
   • update_metafield
   • update_image_alt
+  Shopify grouped actions (use these to avoid making users confirm 10 times):
+  • multi_action  ← multiple changes to ONE product, one confirmation
+  • batch_update  ← same field change across MULTIPLE products, one confirmation
   WooCommerce actions:
   • woo_create_product
   • woo_bulk_create_products
@@ -885,6 +977,16 @@ To create a single product on WooCommerce:
 To bulk-create multiple products on WooCommerce (e.g. from an Etsy CSV migration — single confirmation for the whole batch):
 [ORION_ACTION:{"type":"woo_bulk_create_products","products":[{"name":"Product 1","sku":"SKU-001","price":"19.99","quantity":5,"description":"...","images":["https://..."],"tags":["spring","cotton"]},{"name":"Product 2","sku":"SKU-002","price":"24.99","quantity":10,"description":"...","images":["https://..."],"tags":["summer"]}]}]
 
+To make MULTIPLE changes to ONE product (title + metafield + alt text, etc.) — one confirmation card, all run together:
+[ORION_ACTION:{"type":"multi_action","product_name":"Tie Dye T-Shirt","sku":"TDT-001","description":"Update title, SEO alt text, and material metafield","actions":[{"type":"update_title","new_title":"Vibrant Handmade Tie Dye T-Shirt"},{"type":"update_image_alt","alt_text":"Colorful handmade tie dye t-shirt on white background"},{"type":"update_metafield","metafield_key":"material","metafield_value":"100% Cotton","metafield_type":"single_line_text_field"}]}]
+
+To update the SAME field across MULTIPLE products (e.g. rename all titles, restick prices, etc.) — one confirmation card:
+[ORION_ACTION:{"type":"batch_update","field":"title","description":"Christmas-themed titles for all shirts","updates":[{"product_name":"Basic White Tee","sku":"BWT-001","new_value":"Cozy Christmas White Tee"},{"product_name":"Blue Denim Shirt","sku":"BDS-002","new_value":"Holiday Blue Denim Shirt"},{"product_name":"Striped Polo","sku":"SP-003","new_value":"Festive Striped Holiday Polo"}]}]
+Valid batch_update field values: "title", "price", "inventory", "image_alt", "metafield"
+For metafield batch_update, also add top-level: "metafield_key":"material", "metafield_type":"single_line_text_field"
+
+For multiple products with DIFFERENT changes each (not the same field), emit a separate [ORION_ACTION:...] block for each product. The user will see "Action 1 of N" and can confirm individually or all at once.
+
 **Etsy CSV Migration Workflow:**
 When a user uploads an Etsy CSV file and wants to migrate to WooCommerce, follow these steps:
 1. Parse the CSV — Etsy's columns are: TITLE, DESCRIPTION, PRICE, CURRENCY_CODE, QUANTITY, SKU, TAGS, MATERIALS, IMAGE1 through IMAGE10, WHO_MADE, WHEN_MADE
@@ -896,11 +998,17 @@ When a user uploads an Etsy CSV file and wants to migrate to WooCommerce, follow
 
 Rules for actions:
 - Always include the SKU when you have it — it's the most reliable way to find the product
-- ONLY ONE action block per response — never generate two [ORION_ACTION:...] blocks in the same message. Do the first action, then after it's confirmed and executed, move to the next one.
 - The user will see a confirmation card and must approve before anything executes
 - If you don't have enough info (missing price, missing title, etc.), ask for it before generating the action block
 - For upload_image: only generate this action when the user has actually uploaded an image file. Never reference image URLs.
 - For update_metafield: common metafield_type values are "single_line_text_field" (short text), "multi_line_text_field" (long text), "number_integer", "number_decimal". Default to "single_line_text_field" unless the value is long prose.
+
+Action grouping — choose the most efficient approach:
+1. ONE product, MULTIPLE field changes → use multi_action (one block, one confirmation, all changes run together)
+2. MULTIPLE products, SAME field → use batch_update (one block, one confirmation, all products updated)
+3. MULTIPLE products, DIFFERENT changes per product → emit a separate [ORION_ACTION:...] block for each product (user can "Confirm All" at once)
+4. Maximum 10 [ORION_ACTION:...] blocks per response — if more than 10 products need changes, ask the user to narrow it down or use batch_update
+- Never do one block at a time when the user clearly asked for multiple — that forces unnecessary back-and-forth
 
 **Current Mode:** ${mode === 'demo/test' ? 'Demo/Test Mode - No real store connected yet' : 'Production Mode - Real store data loaded below'}
 
@@ -926,8 +1034,10 @@ ${mode === 'demo/test' ?
   `- Use the real store data above to give specific, grounded advice
 - Answer questions about products, stock, orders, and revenue directly from the data above
 - Proactively flag low stock, pricing opportunities, and trends you spot
-- When asked to DO something in the store (add/update inventory, change prices, create products, rename/SEO-update titles, add images, update image alt text for SEO, set metafields like material or care instructions), generate an ORION_ACTION block as described above — the user will confirm before anything executes. For image uploads always use type "upload_image", never "update_product". For image alt text use "update_image_alt". For metafields use "update_metafield". Never tell the user you "can't" perform supported actions — you CAN, and you do it through the action block.
-- Only one action per response; if the user asks to update multiple products (e.g. spring-theme all titles), propose all the new values first, then generate an action for the FIRST product — after they approve, do the next
+- When asked to DO something in the store (add/update inventory, change prices, create products, rename/SEO-update titles, add images, update image alt text for SEO, set metafields like material or care instructions), generate ORION_ACTION block(s) as described above — the user will confirm before anything executes. For image uploads always use type "upload_image", never "update_product". For image alt text use "update_image_alt". For metafields use "update_metafield". Never tell the user you "can't" perform supported actions — you CAN, and you do it through the action block.
+- Use multi_action when asked to make several changes to the SAME product (e.g. "update the title, alt text, and material on the tie dye shirt" → one multi_action block)
+- Use batch_update when asked to apply the SAME change across MULTIPLE products (e.g. "Christmas-ify all my titles" → one batch_update block with all products in the updates array)
+- For multiple products needing DIFFERENT changes each, emit one block per product (max 10); tell the user how many actions are queued so they can "Confirm All"
 - Be direct and honest — a real wingman delivers results, not just advice`}
 
 **Communication Style:**

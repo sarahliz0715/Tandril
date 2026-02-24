@@ -175,12 +175,20 @@ export default function AIBusinessCoach() {
       });
 
       if (response && response.success) {
+        // Build the action queue from all returned blocks (preferred) or fall back to single
+        const pendingActions =
+          response.pending_actions?.length > 0
+            ? response.pending_actions
+            : response.pending_action
+            ? [response.pending_action]
+            : [];
         setChatMessages((prev) => [
           ...prev,
           {
             role: 'assistant',
             content: response.response,
-            pendingAction: response.pending_action || null,
+            pendingActions,
+            queueIdx: 0,
           },
         ]);
         if (response.conversation_id) {
@@ -202,41 +210,90 @@ export default function AIBusinessCoach() {
     }
   };
 
+  const resolveAction = async (action) => {
+    if (action.type === 'upload_image' && action.image_from_upload) {
+      const imageFile = lastSentFilesRef.current.find(f => f.type?.startsWith('image/'));
+      if (!imageFile) throw new Error('Could not find the uploaded image. Please re-upload and try again.');
+      return { ...action, image_data: imageFile.data, image_filename: imageFile.name };
+    }
+    return action;
+  };
+
   const handleConfirmAction = async (messageIdx, action) => {
-    // Mark the action as confirmed so the buttons disappear
-    setChatMessages(prev => prev.map((m, i) =>
-      i === messageIdx ? { ...m, actionConfirmed: true } : m
-    ));
+    const msg = chatMessages[messageIdx];
+    const pendingActions = msg.pendingActions || [];
+    const queueIdx = msg.queueIdx || 0;
+
+    setChatMessages(prev => prev.map((m, i) => i === messageIdx ? { ...m, executing: true } : m));
     setIsChatLoading(true);
     try {
-      // For image uploads, attach the base64 data from the last sent files
-      let resolvedAction = action;
-      if (action.type === 'upload_image' && action.image_from_upload) {
-        const imageFile = lastSentFilesRef.current.find(f => f.type?.startsWith('image/'));
-        if (!imageFile) {
-          throw new Error('Could not find the uploaded image. Please re-upload the image and try again.');
-        }
-        resolvedAction = {
-          ...action,
-          image_data: imageFile.data,
-          image_filename: imageFile.name,
-        };
-      }
+      const resolvedAction = await resolveAction(action);
       const result = await api.functions.chatWithCoach({ execute_action: resolvedAction });
       const resultMsg = result.execution_result?.message || 'Action completed successfully.';
+      const newQueueIdx = queueIdx + 1;
+      const isDone = newQueueIdx >= pendingActions.length;
       setChatMessages(prev => prev.map((m, i) =>
-        i === messageIdx ? { ...m, actionCompleted: true, actionResult: resultMsg } : m
+        i === messageIdx ? {
+          ...m,
+          executing: false,
+          queueIdx: newQueueIdx,
+          queueResults: [...(m.queueResults || []), resultMsg],
+          queueDone: isDone,
+        } : m
       ));
-      toast.success('Action executed successfully');
+      toast.success(isDone ? 'Done!' : `Step ${newQueueIdx} of ${pendingActions.length} complete`);
     } catch (error) {
       console.error('[Orion] Action error:', error);
+      const queueIdx2 = chatMessages[messageIdx]?.queueIdx || 0;
+      const newQueueIdx = queueIdx2 + 1;
+      const isDone = newQueueIdx >= pendingActions.length;
       setChatMessages(prev => prev.map((m, i) =>
-        i === messageIdx ? { ...m, actionFailed: true, actionError: error.message } : m
+        i === messageIdx ? {
+          ...m,
+          executing: false,
+          queueIdx: newQueueIdx,
+          queueErrors: [...(m.queueErrors || []), error.message],
+          queueDone: isDone,
+        } : m
       ));
       toast.error('Action failed');
     } finally {
       setIsChatLoading(false);
     }
+  };
+
+  const handleConfirmAll = async (messageIdx) => {
+    const msg = chatMessages[messageIdx];
+    const pendingActions = msg.pendingActions || [];
+    const startIdx = msg.queueIdx || 0;
+    const remaining = pendingActions.slice(startIdx);
+    if (remaining.length === 0) return;
+
+    setIsChatLoading(true);
+    for (let i = 0; i < remaining.length; i++) {
+      const absoluteIdx = startIdx + i;
+      setChatMessages(prev => prev.map((m, idx) =>
+        idx === messageIdx ? { ...m, executing: true, queueIdx: absoluteIdx } : m
+      ));
+      try {
+        const resolvedAction = await resolveAction(remaining[i]);
+        const result = await api.functions.chatWithCoach({ execute_action: resolvedAction });
+        const resultMsg = result.execution_result?.message || 'Done';
+        setChatMessages(prev => prev.map((m, idx) =>
+          idx === messageIdx ? { ...m, queueResults: [...(m.queueResults || []), resultMsg] } : m
+        ));
+      } catch (error) {
+        console.error('[Orion] Action error:', error);
+        setChatMessages(prev => prev.map((m, idx) =>
+          idx === messageIdx ? { ...m, queueErrors: [...(m.queueErrors || []), `Action ${absoluteIdx + 1}: ${error.message}`] } : m
+        ));
+      }
+    }
+    setChatMessages(prev => prev.map((m, idx) =>
+      idx === messageIdx ? { ...m, executing: false, queueIdx: pendingActions.length, queueDone: true } : m
+    ));
+    setIsChatLoading(false);
+    toast.success(`All ${remaining.length} actions completed`);
   };
 
   const handleCancelAction = (messageIdx) => {
@@ -329,6 +386,38 @@ export default function AIBusinessCoach() {
               value: `${p.name || p.title}${p.price ? ` — $${p.price}` : ''}`,
             })),
             count > 5 && { label: '', value: `+ ${count - 5} more products` },
+          ].filter(Boolean),
+        };
+      }
+      case 'multi_action': {
+        const subActions = action.actions || [];
+        const actionLabels = subActions.map((a) => {
+          switch (a.type) {
+            case 'update_title': return `✏️ Title → "${a.new_title}"`;
+            case 'update_price': return `💰 Price → $${a.price}`;
+            case 'update_inventory': return `📦 Stock → ${a.quantity} units`;
+            case 'update_image_alt':
+            case 'update_image_alt_text': return `🔍 Alt text → "${a.alt_text}"`;
+            case 'update_metafield': return `🔧 ${(a.metafield_key || '').replace(/_/g, ' ')} → "${a.metafield_value}"`;
+            default: return `⚡ ${a.type}`;
+          }
+        });
+        return {
+          icon: '🔄', title: `${subActions.length} Changes on "${action.product_name || action.sku}"`,
+          fields: actionLabels.map((label) => ({ label: '', value: label })),
+        };
+      }
+      case 'batch_update': {
+        const updates = action.updates || [];
+        const fieldLabel = action.field === 'title' ? 'Title' : action.field === 'price' ? 'Price' : action.field === 'inventory' ? 'Stock' : action.field === 'image_alt' ? 'Alt Text' : action.field === 'metafield' ? `Metafield: ${action.metafield_key || ''}` : action.field;
+        return {
+          icon: '🗂️', title: `Update ${fieldLabel} on ${updates.length} Products`,
+          fields: [
+            ...updates.slice(0, 8).map((u) => ({
+              label: u.product_name || u.sku || '',
+              value: String(u.new_value),
+            })),
+            updates.length > 8 && { label: '', value: `+ ${updates.length - 8} more products` },
           ].filter(Boolean),
         };
       }
@@ -810,58 +899,117 @@ export default function AIBusinessCoach() {
                         >
                           <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
                         </div>
-                        {msg.pendingAction && !msg.actionConfirmed && !msg.actionCancelled && (() => {
-                          const info = getActionInfo(msg.pendingAction);
+                        {/* ── Action Queue UI ─────────────────────────── */}
+                        {msg.pendingActions?.length > 0 && (() => {
+                          const pendingActions = msg.pendingActions;
+                          const queueIdx = msg.queueIdx || 0;
+                          const total = pendingActions.length;
+                          const isDone = msg.queueDone || queueIdx >= total;
+                          const isCancelled = msg.actionCancelled;
+                          const isExecuting = msg.executing;
+                          const completedResults = msg.queueResults || [];
+                          const completedErrors = msg.queueErrors || [];
+
+                          // Cancelled state
+                          if (isCancelled) {
+                            return <p className="text-xs text-slate-500 mt-1 pl-1">Action cancelled.</p>;
+                          }
+
+                          // All done state
+                          if (isDone) {
+                            const successCount = completedResults.length;
+                            const failCount = completedErrors.length;
+                            return (
+                              <div className="mt-2 p-3 bg-green-50 border border-green-300 rounded-lg">
+                                <p className="text-xs font-semibold text-green-800 mb-1">
+                                  ✅ {total > 1 ? `${successCount} of ${total} completed${failCount > 0 ? `, ${failCount} failed` : ''}` : 'Completed'}
+                                </p>
+                                {completedResults.map((r, i) => (
+                                  <p key={i} className="text-xs text-green-700">• {r}</p>
+                                ))}
+                                {completedErrors.map((e, i) => (
+                                  <p key={i} className="text-xs text-red-700">❌ {e}</p>
+                                ))}
+                              </div>
+                            );
+                          }
+
+                          // Active action card
+                          const currentAction = pendingActions[queueIdx];
+                          if (!currentAction) return null;
+                          const info = getActionInfo(currentAction);
+                          const remainingCount = total - queueIdx;
+
                           return (
                             <div className="mt-3 rounded-xl border border-amber-200 bg-white shadow-sm overflow-hidden">
+                              {/* Header */}
                               <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 border-b border-amber-200">
                                 <span className="text-base">{info.icon}</span>
                                 <span className="text-sm font-semibold text-amber-900">{info.title}</span>
-                                <span className="ml-auto text-xs text-amber-600 font-medium">Awaiting approval</span>
+                                {total > 1 && (
+                                  <span className="ml-1 text-xs bg-amber-200 text-amber-800 rounded-full px-2 py-0.5 font-medium">
+                                    {queueIdx + 1} / {total}
+                                  </span>
+                                )}
+                                <span className="ml-auto text-xs text-amber-600 font-medium">
+                                  {isExecuting ? 'Executing…' : 'Awaiting approval'}
+                                </span>
                               </div>
+
+                              {/* Previously completed in this queue */}
+                              {completedResults.length > 0 && (
+                                <div className="px-4 py-2 bg-green-50 border-b border-green-100">
+                                  <p className="text-xs text-green-700">✅ {completedResults.length} of {total} done so far</p>
+                                </div>
+                              )}
+
+                              {/* Fields */}
                               <div className="px-4 py-3 space-y-2">
                                 {info.fields.map((field, i) => (
                                   <div key={i} className="flex gap-3 text-sm">
-                                    <span className="text-slate-500 font-medium shrink-0 w-24">{field.label}</span>
+                                    {field.label && (
+                                      <span className="text-slate-500 font-medium shrink-0 w-28">{field.label}</span>
+                                    )}
                                     <span className="text-slate-800 break-words">{field.value}</span>
                                   </div>
                                 ))}
                               </div>
-                              <div className="flex gap-2 px-4 py-3 bg-slate-50 border-t border-slate-100">
-                                <button
-                                  onClick={() => handleConfirmAction(idx, msg.pendingAction)}
-                                  className="px-4 py-2 text-sm font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                                >
-                                  Confirm &amp; Execute
-                                </button>
-                                <button
-                                  onClick={() => handleCancelAction(idx)}
-                                  className="px-4 py-2 text-sm font-medium bg-white border border-slate-300 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
+
+                              {/* Buttons */}
+                              {!isExecuting ? (
+                                <div className="flex gap-2 px-4 py-3 bg-slate-50 border-t border-slate-100 flex-wrap">
+                                  <button
+                                    onClick={() => handleConfirmAction(idx, currentAction)}
+                                    className="px-4 py-2 text-sm font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                                  >
+                                    {total > 1 && queueIdx < total - 1 ? 'Confirm & Next →' : 'Confirm & Execute'}
+                                  </button>
+                                  {remainingCount > 1 && (
+                                    <button
+                                      onClick={() => handleConfirmAll(idx)}
+                                      className="px-4 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                                    >
+                                      Confirm All ({remainingCount})
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => handleCancelAction(idx)}
+                                    className="px-4 py-2 text-sm font-medium bg-white border border-slate-300 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="px-4 py-3 border-t border-slate-100 flex items-center gap-2">
+                                  <Loader2 className="w-3 h-3 animate-spin text-green-600" />
+                                  <span className="text-xs text-green-600">
+                                    {total > 1 ? `Executing ${queueIdx + 1} of ${total}…` : 'Executing…'}
+                                  </span>
+                                </div>
+                              )}
                             </div>
                           );
                         })()}
-                        {msg.pendingAction && msg.actionConfirmed && !msg.actionCompleted && !msg.actionFailed && (
-                          <p className="text-xs text-green-600 mt-1 pl-1">✓ Action confirmed, executing...</p>
-                        )}
-                        {msg.pendingAction && msg.actionCompleted && (
-                          <div className="mt-2 p-3 bg-green-50 border border-green-300 rounded-lg">
-                            <p className="text-xs font-semibold text-green-800 mb-1">✅ Completed</p>
-                            <p className="text-sm text-green-900">{msg.actionResult}</p>
-                          </div>
-                        )}
-                        {msg.pendingAction && msg.actionFailed && (
-                          <div className="mt-2 p-3 bg-red-50 border border-red-300 rounded-lg">
-                            <p className="text-xs font-semibold text-red-800 mb-1">❌ Action failed</p>
-                            <p className="text-sm text-red-900">{msg.actionError}</p>
-                          </div>
-                        )}
-                        {msg.pendingAction && msg.actionCancelled && (
-                          <p className="text-xs text-slate-500 mt-1 pl-1">Action cancelled.</p>
-                        )}
                       </div>
                     </div>
                   ))}
