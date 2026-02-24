@@ -75,18 +75,22 @@ serve(async (req) => {
     // Get Orion's response
     const rawResponse = await chatWithClaude(message, recentHistory, uploaded_files, storeContext, memoryNotes);
 
-    // Parse any pending store action Orion embedded in its response
+    // Parse ALL [ORION_ACTION:...] blocks from the response.
+    // Strip them all from visible text, collect valid ones as an ordered queue.
     let response = rawResponse;
-    let pendingAction: any = null;
-    const actionMatch = rawResponse.match(/\[ORION_ACTION:([\s\S]*?)\]$/m);
-    if (actionMatch) {
-      try {
-        pendingAction = JSON.parse(actionMatch[1]);
-        response = rawResponse.replace(/\s*\[ORION_ACTION:[\s\S]*?\]$/m, '').trim();
-      } catch {
-        // Malformed JSON in action block — ignore it, use full response as-is
+    let pendingActions: any[] = [];
+    const allActionMatches = [...rawResponse.matchAll(/\[ORION_ACTION:([\s\S]*?)\]/gm)];
+    if (allActionMatches.length > 0) {
+      response = rawResponse.replace(/\s*\[ORION_ACTION:[\s\S]*?\]/gm, '').trim();
+      for (const match of allActionMatches) {
+        try {
+          pendingActions.push(JSON.parse(match[1]));
+        } catch {
+          // skip malformed blocks
+        }
       }
     }
+    const pendingAction = pendingActions[0] || null; // backwards compat
 
     // Safety net: the model often generates "update_product" or similar for image uploads
     // even when explicitly told not to. If the user attached images and the action type
@@ -124,6 +128,20 @@ serve(async (req) => {
       }
     }
 
+    // Final pass: if there are image files and an upload_image action is queued,
+    // but the response text still contains apologetic / capability-disclaimer language,
+    // replace it entirely. This catches the case where the model generated the correct
+    // action type but still wrote the wrong text.
+    if (
+      imageFiles.length > 0 &&
+      pendingAction?.type === 'upload_image' &&
+      !imageActionCoerced &&
+      /cannot|can't|do not have the capability|unable to|apologize/i.test(response)
+    ) {
+      const productLabel = pendingAction.product_name || '';
+      response = `On it! I'll add that image to "${productLabel || 'the product'}" — just confirm below and I'll take care of it.`;
+    }
+
     if (conversationId) {
       saveMessage(supabaseClient, user.id, conversationId, 'assistant', response).catch(
         (e) => console.warn('[Orion] Could not save assistant message:', e.message)
@@ -137,7 +155,8 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         response,
-        pending_action: pendingAction,
+        pending_action: pendingAction,       // backwards compat (first action)
+        pending_actions: pendingActions,     // full queue
         conversation_id: conversationId,
         context_used: {
           platforms: storeContext.platforms.length,
@@ -307,6 +326,45 @@ Only include genuinely useful facts. Return ONLY the JSON array, no other text.`
 
 // ─── Store Action Execution ───────────────────────────────────────────────────
 
+/** Find a Shopify product by SKU or title, with fuzzy title fallback. */
+function findProduct(allProducts: any[], sku: string, productName: string): any | null {
+  // 1. Exact SKU match (most reliable)
+  if (sku) {
+    for (const p of allProducts) {
+      const match = (p.variants || []).find((v: any) => v.sku === sku);
+      if (match) return p;
+    }
+  }
+  if (!productName) return null;
+  const needle = productName.toLowerCase().trim();
+
+  // 2. Exact title match
+  for (const p of allProducts) {
+    if (p.title.toLowerCase().trim() === needle) return p;
+  }
+  // 3. Shopify title contains the search name
+  for (const p of allProducts) {
+    if (p.title.toLowerCase().includes(needle)) return p;
+  }
+  // 4. Search name contains the Shopify title (model may have added extra words)
+  for (const p of allProducts) {
+    if (needle.includes(p.title.toLowerCase().trim())) return p;
+  }
+  // 5. Significant word overlap (≥2 words matching, ignoring short words)
+  const needleWords = needle.split(/\s+/).filter(w => w.length > 3);
+  if (needleWords.length > 0) {
+    let bestMatch: any = null;
+    let bestScore = 0;
+    for (const p of allProducts) {
+      const titleWords = p.title.toLowerCase().split(/\s+/);
+      const score = needleWords.filter(w => titleWords.some(tw => tw.includes(w) || w.includes(tw))).length;
+      if (score >= 2 && score > bestScore) { bestScore = score; bestMatch = p; }
+    }
+    if (bestMatch) return bestMatch;
+  }
+  return null;
+}
+
 async function executeStoreAction(supabaseClient: any, userId: string, action: any) {
   const { data: platforms } = await supabaseClient
     .from('platforms')
@@ -373,16 +431,12 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const searchData = await searchRes.json();
       const allProducts = searchData.products || [];
 
-      let targetVariant: any = null;
-      for (const p of allProducts) {
-        for (const v of (p.variants || [])) {
-          if (action.sku && v.sku === action.sku) { targetVariant = v; break; }
-          if (!action.sku && p.title.toLowerCase() === (action.product_name || '').toLowerCase()) { targetVariant = v; break; }
-        }
-        if (targetVariant) break;
-      }
-
-      if (!targetVariant) throw new Error(`Could not find product with SKU "${action.sku || action.product_name}" in Shopify.`);
+      const invProduct = findProduct(allProducts, action.sku, action.product_name);
+      if (!invProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      const targetVariant = action.sku
+        ? (invProduct.variants || []).find((v: any) => v.sku === action.sku) || invProduct.variants?.[0]
+        : invProduct.variants?.[0];
+      if (!targetVariant) throw new Error(`Product "${invProduct.title}" has no variants.`);
 
       const locRes = await fetch(
         `${shopifyBase}/inventory_levels.json?inventory_item_ids=${targetVariant.inventory_item_id}&limit=1`,
@@ -410,16 +464,12 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const searchData = await searchRes.json();
       const allProducts = searchData.products || [];
 
-      let targetVariant: any = null;
-      for (const p of allProducts) {
-        for (const v of (p.variants || [])) {
-          if (action.sku && v.sku === action.sku) { targetVariant = v; break; }
-          if (!action.sku && p.title.toLowerCase() === (action.product_name || '').toLowerCase()) { targetVariant = v; break; }
-        }
-        if (targetVariant) break;
-      }
-
-      if (!targetVariant) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      const priceProduct = findProduct(allProducts, action.sku, action.product_name);
+      if (!priceProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      const targetVariant = action.sku
+        ? (priceProduct.variants || []).find((v: any) => v.sku === action.sku) || priceProduct.variants?.[0]
+        : priceProduct.variants?.[0];
+      if (!targetVariant) throw new Error(`Product "${priceProduct.title}" has no variants.`);
 
       const updateRes = await fetch(`${shopifyBase}/variants/${targetVariant.id}.json`, {
         method: 'PUT',
@@ -435,16 +485,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const searchData = await searchRes.json();
       const allProducts = searchData.products || [];
 
-      let targetProduct: any = null;
-      for (const p of allProducts) {
-        if (action.sku) {
-          const matchVariant = (p.variants || []).find((v: any) => v.sku === action.sku);
-          if (matchVariant) { targetProduct = p; break; }
-        }
-        if (p.title.toLowerCase() === (action.product_name || '').toLowerCase()) {
-          targetProduct = p; break;
-        }
-      }
+      const targetProduct = findProduct(allProducts, action.sku, action.product_name);
       if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
 
       const updateRes = await fetch(`${shopifyBase}/products/${targetProduct.id}.json`, {
@@ -465,17 +506,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const searchData = await searchRes.json();
       const allProducts = searchData.products || [];
 
-      let targetProduct: any = null;
-      for (const p of allProducts) {
-        if (action.sku) {
-          const matchVariant = (p.variants || []).find((v: any) => v.sku === action.sku);
-          if (matchVariant) { targetProduct = p; break; }
-        }
-        if (p.title.toLowerCase() === (action.product_name || '').toLowerCase()) {
-          targetProduct = p; break;
-        }
-      }
-      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      const targetProduct = findProduct(allProducts, action.sku, action.product_name);
+      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify. Make sure the product exists and try again.`);
       if (!action.image_data) throw new Error('No image data provided. Please re-upload the image and try again.');
 
       const uploadRes = await fetch(`${shopifyBase}/products/${targetProduct.id}/images.json`, {
@@ -490,6 +522,276 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       });
       if (!uploadRes.ok) throw new Error(`Shopify image upload failed: ${await uploadRes.text()}`);
       return { message: `Added image to "${targetProduct.title}" successfully` };
+    }
+
+    case 'update_metafield': {
+      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
+      const searchData = await searchRes.json();
+      const allProducts = searchData.products || [];
+
+      const targetProduct = findProduct(allProducts, action.sku, action.product_name);
+      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+
+      const namespace = action.metafield_namespace || 'custom';
+      const key = action.metafield_key;
+      const value = action.metafield_value;
+      const type = action.metafield_type || 'single_line_text_field';
+      if (!key || value === undefined) throw new Error('metafield_key and metafield_value are required.');
+
+      // Check if the metafield already exists so we can update rather than duplicate
+      const listRes = await fetch(
+        `${shopifyBase}/products/${targetProduct.id}/metafields.json?namespace=${namespace}&key=${key}`,
+        { headers }
+      );
+      const listData = await listRes.json();
+      const existing = listData.metafields?.[0];
+
+      if (existing) {
+        const updateRes = await fetch(`${shopifyBase}/metafields/${existing.id}.json`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ metafield: { id: existing.id, value, type } }),
+        });
+        if (!updateRes.ok) throw new Error(`Shopify metafield update failed: ${await updateRes.text()}`);
+      } else {
+        const createRes = await fetch(`${shopifyBase}/products/${targetProduct.id}/metafields.json`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ metafield: { namespace, key, value, type } }),
+        });
+        if (!createRes.ok) throw new Error(`Shopify metafield create failed: ${await createRes.text()}`);
+      }
+      return { message: `Set "${namespace}.${key}" metafield on "${targetProduct.title}" to "${value}"` };
+    }
+
+    case 'update_image_alt_text':
+    case 'update_image_alt': {
+      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
+      const searchData = await searchRes.json();
+      const allProducts = searchData.products || [];
+
+      const targetProduct = findProduct(allProducts, action.sku, action.product_name);
+      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      if (!action.alt_text) throw new Error('alt_text is required for update_image_alt.');
+
+      const imagesRes = await fetch(`${shopifyBase}/products/${targetProduct.id}/images.json`, { headers });
+      const imagesData = await imagesRes.json();
+      const firstImage = imagesData.images?.[0];
+      if (!firstImage) throw new Error(`Product "${targetProduct.title}" has no images.`);
+
+      const updateRes = await fetch(`${shopifyBase}/products/${targetProduct.id}/images/${firstImage.id}.json`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ image: { id: firstImage.id, alt: action.alt_text } }),
+      });
+      if (!updateRes.ok) throw new Error(`Shopify image alt update failed: ${await updateRes.text()}`);
+      return { message: `Updated image alt text for "${targetProduct.title}" to "${action.alt_text}"` };
+    }
+
+    case 'woo_create_product': {
+      const { data: wooPlats } = await supabaseClient
+        .from('platforms')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('platform_type', 'woocommerce')
+        .eq('status', 'connected')
+        .limit(1);
+
+      if (!wooPlats || wooPlats.length === 0) {
+        throw new Error('No connected WooCommerce store found. Connect one in the Platforms tab first.');
+      }
+
+      const woo = wooPlats[0];
+      const { consumer_key, consumer_secret } = woo.credentials;
+      const wooBase = `${woo.store_url}/wp-json/wc/v3`;
+      const wooHeaders = {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${btoa(`${consumer_key}:${consumer_secret}`)}`,
+      };
+
+      const images = (action.images || []).filter(Boolean).map((src: string) => ({ src }));
+      const tags = (action.tags || []).filter(Boolean).map((name: string) => ({ name }));
+
+      const productBody: any = {
+        name: action.name || action.title,
+        type: action.product_type || 'simple',
+        regular_price: String(action.price ?? '0.00'),
+        description: action.description || '',
+        short_description: action.short_description || '',
+        sku: action.sku || '',
+        manage_stock: true,
+        stock_quantity: action.quantity ?? 0,
+        status: 'publish',
+        images,
+        tags,
+      };
+
+      const res = await fetch(`${wooBase}/products`, {
+        method: 'POST',
+        headers: wooHeaders,
+        body: JSON.stringify(productBody),
+      });
+      if (!res.ok) throw new Error(`WooCommerce rejected the product: ${await res.text()}`);
+      const data = await res.json();
+      return { message: `Created "${data.name}" in your WooCommerce store (ID: ${data.id})` };
+    }
+
+    case 'woo_bulk_create_products': {
+      const { data: wooPlats } = await supabaseClient
+        .from('platforms')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('platform_type', 'woocommerce')
+        .eq('status', 'connected')
+        .limit(1);
+
+      if (!wooPlats || wooPlats.length === 0) {
+        throw new Error('No connected WooCommerce store found. Connect one in the Platforms tab first.');
+      }
+
+      const woo = wooPlats[0];
+      const { consumer_key, consumer_secret } = woo.credentials;
+      const wooBase = `${woo.store_url}/wp-json/wc/v3`;
+      const wooHeaders = {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${btoa(`${consumer_key}:${consumer_secret}`)}`,
+      };
+
+      const products: any[] = action.products || [];
+      if (products.length === 0) throw new Error('No products provided for bulk create.');
+
+      let successCount = 0;
+      let failCount = 0;
+      const failedProducts: string[] = [];
+
+      for (const p of products) {
+        try {
+          const images = (p.images || []).filter(Boolean).map((src: string) => ({ src }));
+          const tags = (p.tags || []).filter(Boolean).map((name: string) => ({ name }));
+
+          const productBody: any = {
+            name: p.name || p.title,
+            type: p.product_type || 'simple',
+            regular_price: String(p.price ?? '0.00'),
+            description: p.description || '',
+            short_description: p.short_description || '',
+            sku: p.sku || '',
+            manage_stock: true,
+            stock_quantity: p.quantity ?? 0,
+            status: 'publish',
+            images,
+            tags,
+          };
+
+          const res = await fetch(`${wooBase}/products`, {
+            method: 'POST',
+            headers: wooHeaders,
+            body: JSON.stringify(productBody),
+          });
+
+          if (res.ok) {
+            successCount++;
+          } else {
+            failCount++;
+            failedProducts.push(p.name || p.title || 'Unknown');
+          }
+        } catch {
+          failCount++;
+          failedProducts.push(p.name || p.title || 'Unknown');
+        }
+      }
+
+      const summary = `Created ${successCount} of ${products.length} products in WooCommerce.${failCount > 0 ? ` ${failCount} failed: ${failedProducts.slice(0, 3).join(', ')}${failedProducts.length > 3 ? '...' : ''}` : ''}`;
+      return { message: summary, success_count: successCount, fail_count: failCount };
+    }
+
+    // ── multi_action: multiple changes on ONE product in one confirmation ──────
+    case 'multi_action': {
+      const subActions: any[] = action.actions || [];
+      if (subActions.length === 0) throw new Error('multi_action requires at least one action in the actions array.');
+
+      const results: string[] = [];
+      const errors: string[] = [];
+
+      for (const subAction of subActions) {
+        // Inherit product identity from the parent action if the sub-action omits it
+        const resolved = {
+          product_name: action.product_name,
+          sku: action.sku,
+          ...subAction,
+        };
+        try {
+          const r = await executeStoreAction(supabaseClient, userId, resolved);
+          results.push(r.message || 'Done');
+        } catch (e: any) {
+          errors.push(`${subAction.type}: ${e.message}`);
+        }
+      }
+
+      const successCount = results.length;
+      const failCount = errors.length;
+      const lines = [
+        `${successCount}/${subActions.length} changes applied to "${action.product_name || action.sku}".`,
+        ...results.map((r) => `✅ ${r}`),
+        ...errors.map((e) => `❌ ${e}`),
+      ];
+      return { message: lines.join('\n'), success_count: successCount, fail_count: failCount, results, errors };
+    }
+
+    // ── batch_update: same field across MULTIPLE products in one confirmation ──
+    case 'batch_update': {
+      const updates: any[] = action.updates || [];
+      const field: string = action.field; // "title" | "price" | "inventory" | "image_alt" | "metafield"
+      if (updates.length === 0) throw new Error('batch_update requires at least one entry in the updates array.');
+      if (!field) throw new Error('batch_update requires a "field" property (e.g. "title", "price", "inventory", "image_alt", "metafield").');
+
+      const results: string[] = [];
+      const errors: string[] = [];
+
+      for (const upd of updates) {
+        let subAction: any;
+        switch (field) {
+          case 'title':
+            subAction = { type: 'update_title', product_name: upd.product_name, sku: upd.sku, new_title: upd.new_value };
+            break;
+          case 'price':
+            subAction = { type: 'update_price', product_name: upd.product_name, sku: upd.sku, price: upd.new_value };
+            break;
+          case 'inventory':
+            subAction = { type: 'update_inventory', product_name: upd.product_name, sku: upd.sku, quantity: upd.new_value };
+            break;
+          case 'image_alt':
+            subAction = { type: 'update_image_alt', product_name: upd.product_name, sku: upd.sku, alt_text: upd.new_value };
+            break;
+          case 'metafield':
+            subAction = {
+              type: 'update_metafield',
+              product_name: upd.product_name,
+              sku: upd.sku,
+              metafield_key: upd.metafield_key || action.metafield_key,
+              metafield_value: upd.new_value,
+              metafield_namespace: upd.metafield_namespace || action.metafield_namespace || 'custom',
+              metafield_type: upd.metafield_type || action.metafield_type || 'single_line_text_field',
+            };
+            break;
+          default:
+            errors.push(`Unknown batch field: ${field}`);
+            continue;
+        }
+        try {
+          const r = await executeStoreAction(supabaseClient, userId, subAction);
+          results.push(r.message || 'Done');
+        } catch (e: any) {
+          errors.push(`${upd.product_name || upd.sku}: ${e.message}`);
+        }
+      }
+
+      const summary = [
+        `Batch update complete: ${results.length}/${updates.length} succeeded.`,
+        ...results.map((r) => `✅ ${r}`),
+        ...errors.map((e) => `❌ ${e}`),
+      ].join('\n');
+      return { message: summary, success_count: results.length, fail_count: errors.length, results, errors };
     }
 
     default:
@@ -620,7 +922,7 @@ async function chatWithClaude(
 **CRITICAL - What you can and cannot do:**
 - You CAN: Read and analyze store data (products, orders, inventory, revenue) from the data provided below
 - You CAN: Give advice, spot trends, flag issues, answer questions about their business
-- You CAN: Execute store actions — create products, update inventory quantities, update prices, update product titles/SEO, add images to products — directly on their connected Shopify store
+- You CAN: Execute store actions — create products, update inventory quantities, update prices, update product titles/SEO, add images to products, update image alt text, set/update product metafields — directly on their connected Shopify store
 - You CANNOT: Log into any platform or request credentials — NEVER ask for passwords, API keys, or admin access. You already have the integration through Tandril.
 - You CANNOT: Process payments, refund orders, delete products, or fulfill orders
 
@@ -629,13 +931,22 @@ When the user asks you to create a product, add inventory, change a price, renam
 
 🚫 NEVER say phrases like "I cannot directly upload", "I do not have the capability", "as an AI I cannot", or any variation of "I can't do that" for actions that ARE supported. You CAN do all of the above through the action block system — say so confidently. If asked to upload an image, say something like "On it! I'll queue that up — just confirm below." and generate the action block.
 
-⚠️ ALLOWED action types (use ONLY these — any other type will cause an error):
+⚠️ ALLOWED action types (use ONLY these exact strings — any other type will fail with "Unknown action type"):
+  Shopify single actions:
   • create_product
   • update_inventory
   • update_price
   • update_title
   • upload_image
-❌ FORBIDDEN (will always fail): update_product, update_seo, bulk_update, add_image, set_image, or any other type not listed above.
+  • update_metafield
+  • update_image_alt
+  Shopify grouped actions (use these to avoid making users confirm 10 times):
+  • multi_action  ← multiple changes to ONE product, one confirmation
+  • batch_update  ← same field change across MULTIPLE products, one confirmation
+  WooCommerce actions:
+  • woo_create_product
+  • woo_bulk_create_products
+❌ FORBIDDEN (will always fail): update_product, update_seo, bulk_update, add_image, set_image, add_tags, update_tags, woo_update_product, or any other type not in the list above.
 
 Action formats:
 
@@ -654,12 +965,50 @@ To rename/update a product title (e.g. for SEO or seasonal refresh):
 To add/upload an image to a product (ONLY when the user has attached an image file — use upload_image, NEVER update_product):
 [ORION_ACTION:{"type":"upload_image","product_name":"Product Title","sku":"SKU-001","image_from_upload":true}]
 
+To set or update a product metafield (material, care instructions, custom data, etc.):
+[ORION_ACTION:{"type":"update_metafield","product_name":"Product Title","sku":"SKU-001","metafield_namespace":"custom","metafield_key":"material","metafield_value":"100% cotton","metafield_type":"single_line_text_field"}]
+
+To update the alt text on a product's first image (for SEO):
+[ORION_ACTION:{"type":"update_image_alt","product_name":"Product Title","sku":"SKU-001","alt_text":"Descriptive keyword-rich alt text here"}]
+
+To create a single product on WooCommerce:
+[ORION_ACTION:{"type":"woo_create_product","name":"Product Title","sku":"SKU-001","price":"29.99","quantity":10,"description":"Full description here","images":["https://image-url-1.jpg","https://image-url-2.jpg"],"tags":["tag1","tag2"],"product_type":"simple"}]
+
+To bulk-create multiple products on WooCommerce (e.g. from an Etsy CSV migration — single confirmation for the whole batch):
+[ORION_ACTION:{"type":"woo_bulk_create_products","products":[{"name":"Product 1","sku":"SKU-001","price":"19.99","quantity":5,"description":"...","images":["https://..."],"tags":["spring","cotton"]},{"name":"Product 2","sku":"SKU-002","price":"24.99","quantity":10,"description":"...","images":["https://..."],"tags":["summer"]}]}]
+
+To make MULTIPLE changes to ONE product (title + metafield + alt text, etc.) — one confirmation card, all run together:
+[ORION_ACTION:{"type":"multi_action","product_name":"Tie Dye T-Shirt","sku":"TDT-001","description":"Update title, SEO alt text, and material metafield","actions":[{"type":"update_title","new_title":"Vibrant Handmade Tie Dye T-Shirt"},{"type":"update_image_alt","alt_text":"Colorful handmade tie dye t-shirt on white background"},{"type":"update_metafield","metafield_key":"material","metafield_value":"100% Cotton","metafield_type":"single_line_text_field"}]}]
+
+To update the SAME field across MULTIPLE products (e.g. rename all titles, restick prices, etc.) — one confirmation card:
+[ORION_ACTION:{"type":"batch_update","field":"title","description":"Christmas-themed titles for all shirts","updates":[{"product_name":"Basic White Tee","sku":"BWT-001","new_value":"Cozy Christmas White Tee"},{"product_name":"Blue Denim Shirt","sku":"BDS-002","new_value":"Holiday Blue Denim Shirt"},{"product_name":"Striped Polo","sku":"SP-003","new_value":"Festive Striped Holiday Polo"}]}]
+Valid batch_update field values: "title", "price", "inventory", "image_alt", "metafield"
+For metafield batch_update, also add top-level: "metafield_key":"material", "metafield_type":"single_line_text_field"
+
+For multiple products with DIFFERENT changes each (not the same field), emit a separate [ORION_ACTION:...] block for each product. The user will see "Action 1 of N" and can confirm individually or all at once.
+
+**Etsy CSV Migration Workflow:**
+When a user uploads an Etsy CSV file and wants to migrate to WooCommerce, follow these steps:
+1. Parse the CSV — Etsy's columns are: TITLE, DESCRIPTION, PRICE, CURRENCY_CODE, QUANTITY, SKU, TAGS, MATERIALS, IMAGE1 through IMAGE10, WHO_MADE, WHEN_MADE
+2. Transform each row: TITLE→name, DESCRIPTION→description, PRICE→price, QUANTITY→quantity, SKU→sku, TAGS→tags (split by comma), IMAGE1-10→images array (collect all non-empty image URLs)
+3. Group rows with the same TITLE — Etsy repeats rows for variations but omits per-variation price/quantity. Treat each unique TITLE as one product; use the price and quantity from the first row.
+4. Show the user a summary: "I found X products in your Etsy CSV. Here's what I'll create: [list first 5 titles]. Ready to migrate all X to WooCommerce?"
+5. On confirmation, generate a single woo_bulk_create_products action with ALL products in the array — do NOT create them one by one.
+6. Note any products with variations that had incomplete data so the user knows to review those in WooCommerce afterward.
+
 Rules for actions:
 - Always include the SKU when you have it — it's the most reliable way to find the product
-- Only one action block per response
 - The user will see a confirmation card and must approve before anything executes
 - If you don't have enough info (missing price, missing title, etc.), ask for it before generating the action block
 - For upload_image: only generate this action when the user has actually uploaded an image file. Never reference image URLs.
+- For update_metafield: common metafield_type values are "single_line_text_field" (short text), "multi_line_text_field" (long text), "number_integer", "number_decimal". Default to "single_line_text_field" unless the value is long prose.
+
+Action grouping — choose the most efficient approach:
+1. ONE product, MULTIPLE field changes → use multi_action (one block, one confirmation, all changes run together)
+2. MULTIPLE products, SAME field → use batch_update (one block, one confirmation, all products updated)
+3. MULTIPLE products, DIFFERENT changes per product → emit a separate [ORION_ACTION:...] block for each product (user can "Confirm All" at once)
+4. Maximum 10 [ORION_ACTION:...] blocks per response — if more than 10 products need changes, ask the user to narrow it down or use batch_update
+- Never do one block at a time when the user clearly asked for multiple — that forces unnecessary back-and-forth
 
 **Current Mode:** ${mode === 'demo/test' ? 'Demo/Test Mode - No real store connected yet' : 'Production Mode - Real store data loaded below'}
 
@@ -685,8 +1034,10 @@ ${mode === 'demo/test' ?
   `- Use the real store data above to give specific, grounded advice
 - Answer questions about products, stock, orders, and revenue directly from the data above
 - Proactively flag low stock, pricing opportunities, and trends you spot
-- When asked to DO something in the store (add/update inventory, change prices, create products, rename/SEO-update titles, add images), generate an ORION_ACTION block as described above — the user will confirm before anything executes. For image uploads always use type "upload_image", never "update_product". Never tell the user you "can't" perform supported actions — you CAN, and you do it through the action block.
-- Only one action per response; if the user asks to update multiple products (e.g. spring-theme all titles), propose all the new values first, then generate an action for the FIRST product — after they approve, do the next
+- When asked to DO something in the store (add/update inventory, change prices, create products, rename/SEO-update titles, add images, update image alt text for SEO, set metafields like material or care instructions), generate ORION_ACTION block(s) as described above — the user will confirm before anything executes. For image uploads always use type "upload_image", never "update_product". For image alt text use "update_image_alt". For metafields use "update_metafield". Never tell the user you "can't" perform supported actions — you CAN, and you do it through the action block.
+- Use multi_action when asked to make several changes to the SAME product (e.g. "update the title, alt text, and material on the tie dye shirt" → one multi_action block)
+- Use batch_update when asked to apply the SAME change across MULTIPLE products (e.g. "Christmas-ify all my titles" → one batch_update block with all products in the updates array)
+- For multiple products needing DIFFERENT changes each, emit one block per product (max 10); tell the user how many actions are queued so they can "Confirm All"
 - Be direct and honest — a real wingman delivers results, not just advice`}
 
 **Communication Style:**
