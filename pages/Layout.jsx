@@ -127,27 +127,20 @@ export default function Layout({ children, currentPageName }) {
             return;
         }
 
-        if (hasBetaAccess) {
-            setCurrentNavItems(betaNavigationItems);
-        } else {
-            const userOrder = user.menu_order || [];
-            const sortedNav = [...defaultNavigationItems].sort((a, b) => {
-                const aIndex = userOrder.indexOf(a.href);
-                const bIndex = userOrder.indexOf(b.href);
-                if (aIndex === -1 && bIndex === -1) return 0;
-                if (aIndex === -1) return 1;
-                if (bIndex === -1) return -1;
-                return aIndex - bIndex;
-            });
-            setCurrentNavItems(sortedNav);
-        }
+        const baseItems = hasBetaAccess ? betaNavigationItems : defaultNavigationItems;
+        const userOrder = user.menu_order || [];
+        const sortedNav = [...baseItems].sort((a, b) => {
+            const aIndex = userOrder.indexOf(a.href);
+            const bIndex = userOrder.indexOf(b.href);
+            if (aIndex === -1 && bIndex === -1) return 0;
+            if (aIndex === -1) return 1;
+            if (bIndex === -1) return -1;
+            return aIndex - bIndex;
+        });
+        setCurrentNavItems(sortedNav);
     }, [user, hasBetaAccess]);
 
     const handleOnDragEnd = async (result) => {
-        if (hasBetaAccess) {
-            toast.info("Menu reordering is not available in beta mode.");
-            return;
-        }
         if (!result.destination) return;
 
         const items = Array.from(currentNavItems);
@@ -262,7 +255,7 @@ export default function Layout({ children, currentPageName }) {
                                                                     key={item.href}
                                                                     draggableId={item.href}
                                                                     index={index}
-                                                                    isDragDisabled={hasBetaAccess}
+                                                                    isDragDisabled={false}
                                                                 >
                                                                     {(provided, snapshot) => (
                                                                         <div
@@ -281,11 +274,9 @@ export default function Layout({ children, currentPageName }) {
                                                                                 `}
                                                                                 onClick={() => setSidebarOpen(false)}
                                                                             >
-                                                                                {!hasBetaAccess && (
-                                                                                    <div {...provided.dragHandleProps}>
-                                                                                        <GripVertical className="w-4 h-4 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                                                                    </div>
-                                                                                )}
+                                                                                <div {...provided.dragHandleProps}>
+                                                                                    <GripVertical className="w-4 h-4 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                                                </div>
                                                                                 <item.icon className={`w-5 h-5 flex-shrink-0 ${isActive ? 'text-indigo-600' : item.color || 'text-slate-600'}`} />
                                                                                 <span className="font-medium">{item.name}</span>
                                                                             </Link>
