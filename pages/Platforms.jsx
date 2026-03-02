@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Platform } from '@/lib/entities';
 import { PlatformType } from '@/lib/entities';
 import { User } from '@/lib/entities';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -43,7 +43,29 @@ export default function Platforms() {
     const [showRequestModal, setShowRequestModal] = useState(false);
     const [currentUser, setCurrentUser] = useState(null);
     const navigate = useNavigate();
+    const location = useLocation();
     const { isOpen, config, confirm, cancel } = useConfirmDialog();
+
+    // Handle OAuth callback URL params (e.g. ?connected=true or ?error=...)
+    useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const connected = params.get('connected');
+        const error = params.get('error');
+        const shop = params.get('shop');
+
+        if (connected === 'true') {
+            toast.success('Shopify store connected!', {
+                description: shop ? `${shop} is now connected.` : 'Your store is ready to use.'
+            });
+            // Remove params from URL without reloading
+            navigate(location.pathname, { replace: true });
+            loadData();
+        } else if (error) {
+            toast.error('Shopify connection failed', { description: decodeURIComponent(error) });
+            navigate(location.pathname, { replace: true });
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [location.search]);
 
     // Memoize beta access check
     const hasBetaAccess = useMemo(() => {
