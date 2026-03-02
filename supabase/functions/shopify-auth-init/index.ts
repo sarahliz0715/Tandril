@@ -59,7 +59,12 @@ serve(async (req) => {
     // Shopify OAuth configuration
     const shopifyApiKey = Deno.env.get('SHOPIFY_API_KEY');
     const shopifyScopes = Deno.env.get('SHOPIFY_SCOPES') || 'read_products,write_products,read_orders,read_inventory,write_inventory';
-    const redirectUri = Deno.env.get('SHOPIFY_REDIRECT_URI') || `${Deno.env.get('SUPABASE_URL')}/functions/v1/shopify-auth-callback`;
+    // Prefer the explicit redirect URI env var.
+    // Default to the Vercel proxy route (/api/shopify-callback) which avoids
+    // Supabase JWT verification issues on the direct callback URL.
+    const appUrl = Deno.env.get('APP_URL') || '';
+    const redirectUri = Deno.env.get('SHOPIFY_REDIRECT_URI') ||
+      (appUrl ? `${appUrl}/api/shopify-callback` : `${Deno.env.get('SUPABASE_URL')}/functions/v1/shopify-auth-callback`);
 
     if (!shopifyApiKey) {
       throw new Error('SHOPIFY_API_KEY environment variable not set');
