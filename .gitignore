@@ -30,4 +30,7 @@ dist-ssr
 .env.development
 
 # Vercel
-.vercelsupabase/.temp/
+.vercel
+
+# Supabase CLI temp files
+supabase/.temp/
