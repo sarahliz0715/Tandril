@@ -3,8 +3,9 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Platform } from '@/lib/entities';
 import { PlatformType } from '@/lib/entities';
 import { User } from '@/lib/entities';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
+import { shopifyAuthExchange } from '@/lib/supabaseFunctions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -43,7 +44,52 @@ export default function Platforms() {
     const [showRequestModal, setShowRequestModal] = useState(false);
     const [currentUser, setCurrentUser] = useState(null);
     const navigate = useNavigate();
+    const location = useLocation();
     const { isOpen, config, confirm, cancel } = useConfirmDialog();
+
+    // Handle OAuth callbacks — both the new Vercel-proxy flow and the legacy direct-callback flow
+    useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const shopifyCode  = params.get('shopify_code');
+        const shopifyState = params.get('shopify_state');
+        const shopifyShop  = params.get('shopify_shop');
+        const connected    = params.get('connected');
+        const error        = params.get('error');
+
+        if (shopifyCode && shopifyState && shopifyShop) {
+            // New flow: frontend calls the exchange function with user's session JWT
+            navigate(location.pathname, { replace: true });
+            const toastId = toast.loading('Connecting your Shopify store...');
+            shopifyAuthExchange({ code: shopifyCode, state: shopifyState, shop: shopifyShop })
+                .then((result) => {
+                    if (result?.success === false || result?.error) {
+                        throw new Error(result.error || 'Connection failed');
+                    }
+                    toast.success('Shopify store connected!', {
+                        id: toastId,
+                        description: `${shopifyShop} is now connected.`
+                    });
+                    loadData();
+                })
+                .catch((err) => {
+                    toast.error('Shopify connection failed', {
+                        id: toastId,
+                        description: err.message
+                    });
+                });
+        } else if (connected === 'true') {
+            // Legacy flow: direct callback redirect with ?connected=true
+            navigate(location.pathname, { replace: true });
+            toast.success('Shopify store connected!', {
+                description: params.get('shop') ? `${params.get('shop')} is now connected.` : undefined
+            });
+            loadData();
+        } else if (error) {
+            navigate(location.pathname, { replace: true });
+            toast.error('Shopify connection failed', { description: decodeURIComponent(error) });
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [location.search]);
 
     // Memoize beta access check
     const hasBetaAccess = useMemo(() => {
