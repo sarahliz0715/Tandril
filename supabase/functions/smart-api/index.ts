@@ -4,6 +4,71 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
+// Bracket-aware extraction of [ORION_ACTION:{...}] blocks.
+// The naive regex /\[ORION_ACTION:([\s\S]*?)\]/ stops at the first ] it finds,
+// which breaks any action block that contains arrays (multi_action, batch_update, etc.).
+function extractOrionActionBlocks(text: string): string[] {
+  const blocks: string[] = [];
+  const PREFIX = '[ORION_ACTION:';
+  let pos = 0;
+  while (pos < text.length) {
+    const start = text.indexOf(PREFIX, pos);
+    if (start === -1) break;
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    const jsonStart = start + PREFIX.length;
+    let end = -1;
+    for (let i = jsonStart; i < text.length; i++) {
+      const ch = text[i];
+      if (esc) { esc = false; continue; }
+      if (inStr) { if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
+      if (ch === '"') { inStr = true; continue; }
+      if (ch === '{' || ch === '[') depth++;
+      else if (ch === '}' || ch === ']') { depth--; if (depth === 0) { end = i; break; } }
+    }
+    if (end !== -1) {
+      blocks.push(text.slice(jsonStart, end + 1));
+      // skip the closing ] of the outer [ORION_ACTION:...]
+      pos = end + (text[end + 1] === ']' ? 2 : 1);
+    } else {
+      break;
+    }
+  }
+  return blocks;
+}
+
+function removeOrionActionBlocks(text: string): string {
+  const PREFIX = '[ORION_ACTION:';
+  let result = '';
+  let pos = 0;
+  while (pos < text.length) {
+    const start = text.indexOf(PREFIX, pos);
+    if (start === -1) { result += text.slice(pos); break; }
+    result += text.slice(pos, start);
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    const jsonStart = start + PREFIX.length;
+    let end = -1;
+    for (let i = jsonStart; i < text.length; i++) {
+      const ch = text[i];
+      if (esc) { esc = false; continue; }
+      if (inStr) { if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
+      if (ch === '"') { inStr = true; continue; }
+      if (ch === '{' || ch === '[') depth++;
+      else if (ch === '}' || ch === ']') { depth--; if (depth === 0) { end = i; break; } }
+    }
+    if (end !== -1) {
+      pos = end + (text[end + 1] === ']' ? 2 : 1);
+    } else {
+      result += text.slice(start);
+      break;
+    }
+  }
+  return result.trim();
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -79,12 +144,12 @@ serve(async (req) => {
     // Strip them all from visible text, collect valid ones as an ordered queue.
     let response = rawResponse;
     let pendingActions: any[] = [];
-    const allActionMatches = [...rawResponse.matchAll(/\[ORION_ACTION:([\s\S]*?)\]/gm)];
-    if (allActionMatches.length > 0) {
-      response = rawResponse.replace(/\s*\[ORION_ACTION:[\s\S]*?\]/gm, '').trim();
-      for (const match of allActionMatches) {
+    const allActionBlocks = extractOrionActionBlocks(rawResponse);
+    if (allActionBlocks.length > 0) {
+      response = removeOrionActionBlocks(rawResponse);
+      for (const json of allActionBlocks) {
         try {
-          pendingActions.push(JSON.parse(match[1]));
+          pendingActions.push(JSON.parse(json));
         } catch {
           // skip malformed blocks
         }
@@ -498,7 +563,28 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: `Updated title from "${targetProduct.title}" to "${updatedData.product.title}"` };
     }
 
-    case 'update_product_image':
+    case 'update_tags':
+    case 'add_tags': {
+      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
+      const searchData = await searchRes.json();
+      const allProducts = searchData.products || [];
+
+      const targetProduct = findProduct(allProducts, action.sku, action.product_name);
+      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+
+      // Accept tags as an array or a comma-separated string
+      const newTags = Array.isArray(action.tags)
+        ? action.tags.join(', ')
+        : String(action.tags || '');
+
+      const updateRes = await fetch(`${shopifyBase}/products/${targetProduct.id}.json`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ product: { id: targetProduct.id, tags: newTags } }),
+      });
+      if (!updateRes.ok) throw new Error(`Shopify tags update failed: ${await updateRes.text()}`);
+      return { message: `Updated tags on "${targetProduct.title}" to: ${newTags}` };
+    }
     case 'add_image':
     case 'set_image':
     case 'upload_image': {
@@ -922,7 +1008,7 @@ async function chatWithClaude(
 **CRITICAL - What you can and cannot do:**
 - You CAN: Read and analyze store data (products, orders, inventory, revenue) from the data provided below
 - You CAN: Give advice, spot trends, flag issues, answer questions about their business
-- You CAN: Execute store actions — create products, update inventory quantities, update prices, update product titles/SEO, add images to products, update image alt text, set/update product metafields — directly on their connected Shopify store
+- You CAN: Execute store actions — create products, update inventory quantities, update prices, update product titles/SEO, update tags, add images to products, update image alt text, set/update product metafields — directly on their connected Shopify store
 - You CANNOT: Log into any platform or request credentials — NEVER ask for passwords, API keys, or admin access. You already have the integration through Tandril.
 - You CANNOT: Process payments, refund orders, delete products, or fulfill orders
 
@@ -940,13 +1026,14 @@ When the user asks you to create a product, add inventory, change a price, renam
   • upload_image
   • update_metafield
   • update_image_alt
+  • update_tags
   Shopify grouped actions (use these to avoid making users confirm 10 times):
   • multi_action  ← multiple changes to ONE product, one confirmation
   • batch_update  ← same field change across MULTIPLE products, one confirmation
   WooCommerce actions:
   • woo_create_product
   • woo_bulk_create_products
-❌ FORBIDDEN (will always fail): update_product, update_seo, bulk_update, add_image, set_image, add_tags, update_tags, woo_update_product, or any other type not in the list above.
+❌ FORBIDDEN (will always fail): update_product, update_seo, bulk_update, add_image, set_image, woo_update_product, or any other type not in the list above.
 
 Action formats:
 
@@ -970,6 +1057,9 @@ To set or update a product metafield (material, care instructions, custom data, 
 
 To update the alt text on a product's first image (for SEO):
 [ORION_ACTION:{"type":"update_image_alt","product_name":"Product Title","sku":"SKU-001","alt_text":"Descriptive keyword-rich alt text here"}]
+
+To update a product's tags (replaces existing tags — provide all tags you want, including ones to keep):
+[ORION_ACTION:{"type":"update_tags","product_name":"Product Title","sku":"SKU-001","tags":["spring","long-sleeve","cotton","women"]}]
 
 To create a single product on WooCommerce:
 [ORION_ACTION:{"type":"woo_create_product","name":"Product Title","sku":"SKU-001","price":"29.99","quantity":10,"description":"Full description here","images":["https://image-url-1.jpg","https://image-url-2.jpg"],"tags":["tag1","tag2"],"product_type":"simple"}]
@@ -1053,7 +1143,7 @@ ${mode === 'demo/test' ?
   const messages: any[] = conversationHistory.map((msg) => {
     let content = msg.content;
     if (msg.role !== 'user') {
-      content = content.replace(/\s*\[ORION_ACTION:[\s\S]*?\](\s*)$/m, '').trim();
+      content = removeOrionActionBlocks(content);
     }
     return {
       role: msg.role === 'user' ? 'user' : 'assistant',
