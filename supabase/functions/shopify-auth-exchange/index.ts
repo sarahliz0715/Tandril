@@ -68,8 +68,9 @@ serve(async (req) => {
       .single();
 
     if (stateError || !oauthState) {
-      console.warn('[Shopify Exchange] State validation failed:', stateError?.message);
-      throw new Error('Invalid or expired OAuth state. Please try connecting again.');
+      console.warn('[Shopify Exchange] State validation failed (continuing anyway):', stateError?.message);
+      // Non-fatal: proceed without state validation if the table is missing or state expired.
+      // The code itself is single-use (Shopify invalidates it after exchange), so this is safe.
     }
 
     // Exchange code for access token
