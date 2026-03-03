@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { InventoryItem } from '@/lib/entities';
-import { User } from '@/lib/entities';
+import { InventoryItem, User } from '@/lib/entities';
+import { getShopifyInventory } from '@/lib/supabaseFunctions';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -48,16 +48,25 @@ export default function Inventory() {
   const loadInventory = async () => {
     setIsLoading(true);
     try {
-      const [user, items] = await Promise.all([
-        api.auth.me(),
-        api.entities.InventoryItem.list('-updated_date').catch(() => [])
-      ]);
-
+      const user = await api.auth.me();
       setCurrentUser(user);
+
+      // Try to load live inventory from Shopify first
+      let items = [];
+      try {
+        items = await getShopifyInventory();
+      } catch (e) {
+        console.warn('Shopify inventory fetch failed, falling back to local:', e.message);
+      }
+
+      // Fall back to local/mock data if nothing came back from Shopify
+      if (!items || items.length === 0) {
+        items = await api.entities.InventoryItem.list('-updated_date').catch(() => []);
+      }
+
       setInventory(items || []);
     } catch (error) {
       console.error('Error loading inventory:', error);
-      // Don't redirect on data loading errors, just show empty state
       if (!handleAuthError(error, navigate, { showToast: false })) {
         setInventory([]);
       }

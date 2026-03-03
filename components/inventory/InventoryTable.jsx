@@ -67,10 +67,10 @@ export default function InventoryTable({ inventory, onEdit }) {
                 </Badge>
               </TableCell>
               <TableCell className="text-right">{item.total_stock}</TableCell>
-              <TableCell className="text-right">${item.base_price.toFixed(2)}</TableCell>
+              <TableCell className="text-right">${(item.base_price || 0).toFixed(2)}</TableCell>
               <TableCell>
                 <div className="flex flex-wrap gap-1">
-                  {item.platform_listings.map(p => (
+                  {(item.platform_listings || []).map(p => (
                     <Badge key={p.listing_id} variant="secondary">{p.platform}</Badge>
                   ))}
                 </div>
