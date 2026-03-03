@@ -563,7 +563,28 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: `Updated title from "${targetProduct.title}" to "${updatedData.product.title}"` };
     }
 
-    case 'update_product_image':
+    case 'update_tags':
+    case 'add_tags': {
+      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
+      const searchData = await searchRes.json();
+      const allProducts = searchData.products || [];
+
+      const targetProduct = findProduct(allProducts, action.sku, action.product_name);
+      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+
+      // Accept tags as an array or a comma-separated string
+      const newTags = Array.isArray(action.tags)
+        ? action.tags.join(', ')
+        : String(action.tags || '');
+
+      const updateRes = await fetch(`${shopifyBase}/products/${targetProduct.id}.json`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ product: { id: targetProduct.id, tags: newTags } }),
+      });
+      if (!updateRes.ok) throw new Error(`Shopify tags update failed: ${await updateRes.text()}`);
+      return { message: `Updated tags on "${targetProduct.title}" to: ${newTags}` };
+    }
     case 'add_image':
     case 'set_image':
     case 'upload_image': {
@@ -987,7 +1008,7 @@ async function chatWithClaude(
 **CRITICAL - What you can and cannot do:**
 - You CAN: Read and analyze store data (products, orders, inventory, revenue) from the data provided below
 - You CAN: Give advice, spot trends, flag issues, answer questions about their business
-- You CAN: Execute store actions — create products, update inventory quantities, update prices, update product titles/SEO, add images to products, update image alt text, set/update product metafields — directly on their connected Shopify store
+- You CAN: Execute store actions — create products, update inventory quantities, update prices, update product titles/SEO, update tags, add images to products, update image alt text, set/update product metafields — directly on their connected Shopify store
 - You CANNOT: Log into any platform or request credentials — NEVER ask for passwords, API keys, or admin access. You already have the integration through Tandril.
 - You CANNOT: Process payments, refund orders, delete products, or fulfill orders
 
@@ -1005,13 +1026,14 @@ When the user asks you to create a product, add inventory, change a price, renam
   • upload_image
   • update_metafield
   • update_image_alt
+  • update_tags
   Shopify grouped actions (use these to avoid making users confirm 10 times):
   • multi_action  ← multiple changes to ONE product, one confirmation
   • batch_update  ← same field change across MULTIPLE products, one confirmation
   WooCommerce actions:
   • woo_create_product
   • woo_bulk_create_products
-❌ FORBIDDEN (will always fail): update_product, update_seo, bulk_update, add_image, set_image, add_tags, update_tags, woo_update_product, or any other type not in the list above.
+❌ FORBIDDEN (will always fail): update_product, update_seo, bulk_update, add_image, set_image, woo_update_product, or any other type not in the list above.
 
 Action formats:
 
@@ -1035,6 +1057,9 @@ To set or update a product metafield (material, care instructions, custom data, 
 
 To update the alt text on a product's first image (for SEO):
 [ORION_ACTION:{"type":"update_image_alt","product_name":"Product Title","sku":"SKU-001","alt_text":"Descriptive keyword-rich alt text here"}]
+
+To update a product's tags (replaces existing tags — provide all tags you want, including ones to keep):
+[ORION_ACTION:{"type":"update_tags","product_name":"Product Title","sku":"SKU-001","tags":["spring","long-sleeve","cotton","women"]}]
 
 To create a single product on WooCommerce:
 [ORION_ACTION:{"type":"woo_create_product","name":"Product Title","sku":"SKU-001","price":"29.99","quantity":10,"description":"Full description here","images":["https://image-url-1.jpg","https://image-url-2.jpg"],"tags":["tag1","tag2"],"product_type":"simple"}]
