@@ -100,23 +100,23 @@ export default function Platforms() {
     const isAtLimit = useMemo(() => {
         if (!currentUser) return false;
         const limit = currentUser.platforms_limit || 2;
-        const connectedCount = platforms.filter(p => p.status === 'connected').length;
+        const connectedCount = platforms.filter(p => p.is_active === true).length;
         return connectedCount >= limit;
     }, [currentUser, platforms]);
 
     // Group platforms by connection status
-    const connectedPlatforms = useMemo(() => 
-        platforms.filter(p => p.status === 'connected'),
+    const connectedPlatforms = useMemo(() =>
+        platforms.filter(p => p.is_active === true),
         [platforms]
     );
 
-    const pendingPlatforms = useMemo(() => 
+    const pendingPlatforms = useMemo(() =>
         platforms.filter(p => p.status === 'pending' || p.status === 'processing'),
         [platforms]
     );
 
-    const disconnectedPlatforms = useMemo(() => 
-        platforms.filter(p => p.status === 'disconnected' || p.status === 'error'),
+    const disconnectedPlatforms = useMemo(() =>
+        platforms.filter(p => p.is_active === false),
         [platforms]
     );
 
@@ -231,8 +231,8 @@ export default function Platforms() {
             onConfirm: async () => {
                 try {
                     const failedPlatforms = platforms.filter(
-                        p => p.platform_type === platformType.type_id && 
-                            (p.status === 'error' || p.status === 'disconnected')
+                        p => p.platform_type === platformType.type_id &&
+                            p.is_active === false
                     );
 
                     for (const platform of failedPlatforms) {
