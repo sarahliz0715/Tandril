@@ -493,7 +493,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     .select('*')
     .eq('user_id', userId)
     .eq('platform_type', 'shopify')
-    .eq('status', 'connected')
+    .or('is_active.eq.true,status.eq.connected')
     .limit(1);
 
   if (!platforms || platforms.length === 0) {
@@ -737,7 +737,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         .select('*')
         .eq('user_id', userId)
         .eq('platform_type', 'woocommerce')
-        .eq('status', 'connected')
+        .or('is_active.eq.true,status.eq.connected')
         .limit(1);
 
       if (!wooPlats || wooPlats.length === 0) {
@@ -785,7 +785,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         .select('*')
         .eq('user_id', userId)
         .eq('platform_type', 'woocommerce')
-        .eq('status', 'connected')
+        .or('is_active.eq.true,status.eq.connected')
         .limit(1);
 
       if (!wooPlats || wooPlats.length === 0) {
@@ -949,14 +949,63 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     .from('platforms')
     .select('*')
     .eq('user_id', userId)
-    .eq('status', 'connected');
+    .or('is_active.eq.true,status.eq.connected');
 
-  const { data: products, count: productCount } = await supabaseClient
-    .from('products')
-    .select('*', { count: 'exact' })
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(50);
+  // Fetch products live from Shopify so inventory quantities are always current.
+  // Falls back to the local products table if no Shopify platform is connected.
+  let products: any[] = [];
+  let productCount = 0;
+
+  const shopifyPlatform = (platforms || []).find((p: any) => p.platform_type === 'shopify');
+  if (shopifyPlatform) {
+    try {
+      let accessToken = shopifyPlatform.access_token;
+      if (accessToken && accessToken.length > 50 && !accessToken.startsWith('shpat_') && !accessToken.startsWith('shpca_')) {
+        const { decrypt } = await import('../_shared/encryption.ts');
+        accessToken = await decrypt(accessToken);
+      }
+      const shopDomain = shopifyPlatform.shop_domain;
+      const shopifyRes = await fetch(
+        `https://${shopDomain}/admin/api/2024-01/products.json?limit=250`,
+        { headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' } }
+      );
+      if (shopifyRes.ok) {
+        const shopifyData = await shopifyRes.json();
+        products = (shopifyData.products || []).map((p: any) => {
+          const variants = p.variants || [];
+          const totalQty = variants.reduce((sum: number, v: any) => sum + (v.inventory_quantity || 0), 0);
+          const skus = variants.map((v: any) => v.sku).filter(Boolean).join(', ');
+          const prices = variants.map((v: any) => parseFloat(v.price) || 0).filter((n: number) => n > 0);
+          return {
+            id: p.id,
+            title: p.title,
+            sku: skus || 'N/A',
+            price: prices.length > 0 ? Math.min(...prices) : 0,
+            inventory_quantity: totalQty,
+            vendor: p.vendor || '',
+            product_type: p.product_type || '',
+            status: p.status || '',
+            tags: p.tags || '',
+          };
+        });
+        productCount = products.length;
+      }
+    } catch (e: any) {
+      console.warn('[Orion] Shopify live product fetch failed, falling back to local DB:', e.message);
+    }
+  }
+
+  // Fall back to local products table (WooCommerce, manual imports, etc.)
+  if (products.length === 0) {
+    const { data: localProducts, count } = await supabaseClient
+      .from('products')
+      .select('*', { count: 'exact' })
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    products = localProducts || [];
+    productCount = count || 0;
+  }
 
   const { data: orders, count: orderCount } = await supabaseClient
     .from('orders')
@@ -968,22 +1017,22 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
   const totalRevenue = orders?.reduce((sum: number, o: any) => sum + (parseFloat(o.total_price) || 0), 0) || 0;
   const avgOrderValue = orders && orders.length > 0 ? totalRevenue / orders.length : 0;
 
-  const lowStockProducts = (products || []).filter((p: any) => {
+  const lowStockProducts = products.filter((p: any) => {
     const qty = p.inventory_quantity ?? p.stock_quantity ?? p.quantity ?? null;
     return qty !== null && qty <= 5;
   });
 
   return {
     platforms: platforms || [],
-    products: products || [],
-    total_products: productCount || 0,
+    products,
+    total_products: productCount,
     orders: orders || [],
     total_orders: orderCount || 0,
     low_stock_products: lowStockProducts,
     metrics: {
       total_revenue: totalRevenue,
       avg_order_value: avgOrderValue,
-      active_platforms: platforms?.length || 0,
+      active_platforms: (platforms || []).length,
     },
   };
 }
