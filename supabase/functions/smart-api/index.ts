@@ -521,6 +521,41 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
   };
 
   switch (action.type) {
+    case 'get_inventory': {
+      // Returns live Shopify products normalized for the Inventory page
+      const res = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
+      if (!res.ok) throw new Error(`Shopify products fetch failed: ${await res.text()}`);
+      const { products: shopifyProducts } = await res.json();
+      const LOW_STOCK_THRESHOLD = 10;
+      const inventory = (shopifyProducts || []).map((p: any) => {
+        const variants = p.variants || [];
+        const totalStock = variants.reduce((sum: number, v: any) => sum + (v.inventory_quantity || 0), 0);
+        const skus = variants.map((v: any) => v.sku).filter(Boolean).join(', ');
+        const prices = variants.map((v: any) => parseFloat(v.price) || 0).filter((n: number) => n > 0);
+        const basePrice = prices.length > 0 ? Math.min(...prices) : 0;
+        let status = 'active';
+        if (p.status === 'archived') status = 'discontinued';
+        else if (totalStock === 0) status = 'out_of_stock';
+        else if (totalStock <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+        return {
+          id: String(p.id),
+          product_name: p.title,
+          sku: skus || 'N/A',
+          category: p.product_type || '',
+          status,
+          total_stock: totalStock,
+          base_price: basePrice,
+          image_url: p.images?.[0]?.src || null,
+          vendor: p.vendor || '',
+          tags: p.tags || '',
+          platform_listings: [{ listing_id: String(p.id), platform: 'Shopify' }],
+          shopify_id: p.id,
+          source: 'shopify',
+        };
+      });
+      return { inventory };
+    }
+
     case 'create_product': {
       const body = {
         product: {
