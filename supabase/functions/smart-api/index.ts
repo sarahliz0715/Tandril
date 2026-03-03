@@ -4,6 +4,71 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
+// Bracket-aware extraction of [ORION_ACTION:{...}] blocks.
+// The naive regex /\[ORION_ACTION:([\s\S]*?)\]/ stops at the first ] it finds,
+// which breaks any action block that contains arrays (multi_action, batch_update, etc.).
+function extractOrionActionBlocks(text: string): string[] {
+  const blocks: string[] = [];
+  const PREFIX = '[ORION_ACTION:';
+  let pos = 0;
+  while (pos < text.length) {
+    const start = text.indexOf(PREFIX, pos);
+    if (start === -1) break;
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    const jsonStart = start + PREFIX.length;
+    let end = -1;
+    for (let i = jsonStart; i < text.length; i++) {
+      const ch = text[i];
+      if (esc) { esc = false; continue; }
+      if (inStr) { if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
+      if (ch === '"') { inStr = true; continue; }
+      if (ch === '{' || ch === '[') depth++;
+      else if (ch === '}' || ch === ']') { depth--; if (depth === 0) { end = i; break; } }
+    }
+    if (end !== -1) {
+      blocks.push(text.slice(jsonStart, end + 1));
+      // skip the closing ] of the outer [ORION_ACTION:...]
+      pos = end + (text[end + 1] === ']' ? 2 : 1);
+    } else {
+      break;
+    }
+  }
+  return blocks;
+}
+
+function removeOrionActionBlocks(text: string): string {
+  const PREFIX = '[ORION_ACTION:';
+  let result = '';
+  let pos = 0;
+  while (pos < text.length) {
+    const start = text.indexOf(PREFIX, pos);
+    if (start === -1) { result += text.slice(pos); break; }
+    result += text.slice(pos, start);
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    const jsonStart = start + PREFIX.length;
+    let end = -1;
+    for (let i = jsonStart; i < text.length; i++) {
+      const ch = text[i];
+      if (esc) { esc = false; continue; }
+      if (inStr) { if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
+      if (ch === '"') { inStr = true; continue; }
+      if (ch === '{' || ch === '[') depth++;
+      else if (ch === '}' || ch === ']') { depth--; if (depth === 0) { end = i; break; } }
+    }
+    if (end !== -1) {
+      pos = end + (text[end + 1] === ']' ? 2 : 1);
+    } else {
+      result += text.slice(start);
+      break;
+    }
+  }
+  return result.trim();
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -79,12 +144,12 @@ serve(async (req) => {
     // Strip them all from visible text, collect valid ones as an ordered queue.
     let response = rawResponse;
     let pendingActions: any[] = [];
-    const allActionMatches = [...rawResponse.matchAll(/\[ORION_ACTION:([\s\S]*?)\]/gm)];
-    if (allActionMatches.length > 0) {
-      response = rawResponse.replace(/\s*\[ORION_ACTION:[\s\S]*?\]/gm, '').trim();
-      for (const match of allActionMatches) {
+    const allActionBlocks = extractOrionActionBlocks(rawResponse);
+    if (allActionBlocks.length > 0) {
+      response = removeOrionActionBlocks(rawResponse);
+      for (const json of allActionBlocks) {
         try {
-          pendingActions.push(JSON.parse(match[1]));
+          pendingActions.push(JSON.parse(json));
         } catch {
           // skip malformed blocks
         }
@@ -1053,7 +1118,7 @@ ${mode === 'demo/test' ?
   const messages: any[] = conversationHistory.map((msg) => {
     let content = msg.content;
     if (msg.role !== 'user') {
-      content = content.replace(/\s*\[ORION_ACTION:[\s\S]*?\](\s*)$/m, '').trim();
+      content = removeOrionActionBlocks(content);
     }
     return {
       role: msg.role === 'user' ? 'user' : 'assistant',
