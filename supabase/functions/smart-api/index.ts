@@ -69,6 +69,34 @@ function removeOrionActionBlocks(text: string): string {
   return result.trim();
 }
 
+// Human-readable summary of an Orion action for the Activity Log.
+function summarizeOrionAction(action: any): string {
+  const name = action.product_name || action.title || action.name || 'product';
+  switch (action.type) {
+    case 'create_product':      return `Created product: "${action.title || name}"`;
+    case 'update_inventory':    return `Updated inventory for "${name}" → ${action.quantity} units`;
+    case 'update_price':        return `Updated price for "${name}" → $${action.price}`;
+    case 'update_title':        return `Updated title of "${name}" → "${action.new_title}"`;
+    case 'update_tags':
+    case 'add_tags':            return `Updated tags for "${name}"`;
+    case 'upload_image':        return `Uploaded image for "${name}"`;
+    case 'update_metafield':    return `Set ${action.metafield_key || 'metafield'} on "${name}": ${action.metafield_value}`;
+    case 'update_image_alt':
+    case 'update_image_alt_text': return `Updated image alt text for "${name}"`;
+    case 'multi_action': {
+      const desc = action.description || `${(action.actions || []).length} updates`;
+      return `Orion: ${desc} on "${name}"`;
+    }
+    case 'batch_update': {
+      const count = (action.updates || []).length;
+      return `Batch updated ${action.field || 'field'} for ${count} product${count !== 1 ? 's' : ''}`;
+    }
+    case 'woo_create_product':        return `Created WooCommerce product: "${name}"`;
+    case 'woo_bulk_create_products':  return `Created ${(action.products || []).length} WooCommerce products`;
+    default:                          return `Orion action: ${action.type} on "${name}"`;
+  }
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -98,7 +126,36 @@ serve(async (req) => {
 
     // ── Action Execution Mode ────────────────────────────────────────────────
     if (execute_action) {
-      const result = await executeStoreAction(supabaseClient, user.id, execute_action);
+      let result: any;
+      let execStatus = 'completed';
+      try {
+        result = await executeStoreAction(supabaseClient, user.id, execute_action);
+      } catch (err: any) {
+        result = { error: err.message };
+        execStatus = 'failed';
+      }
+
+      // Log to ai_commands so it appears in the dashboard Activity Log
+      supabaseClient
+        .from('ai_commands')
+        .insert({
+          user_id: user.id,
+          command_text: summarizeOrionAction(execute_action),
+          status: execStatus,
+          executed_at: new Date().toISOString(),
+          execution_results: { orion: true, action_type: execute_action.type, result },
+          source: 'orion',
+        })
+        .then(({ error }) => {
+          if (error) console.warn('[Orion] Could not log action to ai_commands:', error.message);
+        });
+
+      if (execStatus === 'failed') {
+        return new Response(
+          JSON.stringify({ success: false, error: result.error }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+        );
+      }
       return new Response(
         JSON.stringify({ success: true, execution_result: result }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }

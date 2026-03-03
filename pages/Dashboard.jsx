@@ -80,24 +80,31 @@ const DemoBadge = () => (
 );
 
 const formatCommandLogMessage = (command) => {
+    // Orion chat actions — command_text is already a human-readable summary
+    if (command.source === 'orion' || command.execution_results?.orion) {
+        const actionType = command.execution_results?.action_type || '';
+        const icons = {
+            create_product: '✨', update_inventory: '📦', update_price: '💰',
+            update_title: '✏️', update_tags: '🏷️', add_tags: '🏷️',
+            upload_image: '🖼️', update_metafield: '🔧', update_image_alt: '🔍',
+            update_image_alt_text: '🔍', multi_action: '⚡', batch_update: '⚡',
+            woo_create_product: '✨', woo_bulk_create_products: '✨',
+        };
+        const icon = icons[actionType] || '🤖';
+        return `${icon} ${command.command_text}`;
+    }
+
+    // Legacy Commands system entries
     const actionType = command.actions_planned?.[0]?.action_type || 'Custom Command Execution';
     const successCount = command.results?.success_count || 0;
-
     switch (actionType) {
-        case 'SEO Update':
-            return `✅ Optimized SEO for ${successCount} products, improving visibility.`;
-        case 'Price Update':
-            return `💰 Updated prices for ${successCount} items as requested.`;
-        case 'Description Update':
-            return `✍️ Updated descriptions for ${successCount} products.`;
-        case 'Inventory Scan':
-            return `📦 Scanned inventory, found ${command.results?.details?.length || 0} low-stock items.`;
-        case 'Create Listing':
-            return `✨ Created 1 new product listing successfully.`;
-        case 'CTA Update':
-            return `🎯 Added compelling Call-to-Actions to ${successCount} product pages.`;
-        default:
-            return `🤖 Executed custom command: "${command.command_text}"`;
+        case 'SEO Update':          return `✅ Optimized SEO for ${successCount} products, improving visibility.`;
+        case 'Price Update':        return `💰 Updated prices for ${successCount} items as requested.`;
+        case 'Description Update':  return `✍️ Updated descriptions for ${successCount} products.`;
+        case 'Inventory Scan':      return `📦 Scanned inventory, found ${command.results?.details?.length || 0} low-stock items.`;
+        case 'Create Listing':      return `✨ Created 1 new product listing successfully.`;
+        case 'CTA Update':          return `🎯 Added compelling Call-to-Actions to ${successCount} product pages.`;
+        default:                    return `🤖 Executed custom command: "${command.command_text}"`;
     }
 };
 
