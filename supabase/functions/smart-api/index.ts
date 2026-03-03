@@ -69,6 +69,34 @@ function removeOrionActionBlocks(text: string): string {
   return result.trim();
 }
 
+// Human-readable summary of an Orion action for the Activity Log.
+function summarizeOrionAction(action: any): string {
+  const name = action.product_name || action.title || action.name || 'product';
+  switch (action.type) {
+    case 'create_product':      return `Created product: "${action.title || name}"`;
+    case 'update_inventory':    return `Updated inventory for "${name}" → ${action.quantity} units`;
+    case 'update_price':        return `Updated price for "${name}" → $${action.price}`;
+    case 'update_title':        return `Updated title of "${name}" → "${action.new_title}"`;
+    case 'update_tags':
+    case 'add_tags':            return `Updated tags for "${name}"`;
+    case 'upload_image':        return `Uploaded image for "${name}"`;
+    case 'update_metafield':    return `Set ${action.metafield_key || 'metafield'} on "${name}": ${action.metafield_value}`;
+    case 'update_image_alt':
+    case 'update_image_alt_text': return `Updated image alt text for "${name}"`;
+    case 'multi_action': {
+      const desc = action.description || `${(action.actions || []).length} updates`;
+      return `Orion: ${desc} on "${name}"`;
+    }
+    case 'batch_update': {
+      const count = (action.updates || []).length;
+      return `Batch updated ${action.field || 'field'} for ${count} product${count !== 1 ? 's' : ''}`;
+    }
+    case 'woo_create_product':        return `Created WooCommerce product: "${name}"`;
+    case 'woo_bulk_create_products':  return `Created ${(action.products || []).length} WooCommerce products`;
+    default:                          return `Orion action: ${action.type} on "${name}"`;
+  }
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -98,7 +126,36 @@ serve(async (req) => {
 
     // ── Action Execution Mode ────────────────────────────────────────────────
     if (execute_action) {
-      const result = await executeStoreAction(supabaseClient, user.id, execute_action);
+      let result: any;
+      let execStatus = 'completed';
+      try {
+        result = await executeStoreAction(supabaseClient, user.id, execute_action);
+      } catch (err: any) {
+        result = { error: err.message };
+        execStatus = 'failed';
+      }
+
+      // Log to ai_commands so it appears in the dashboard Activity Log
+      supabaseClient
+        .from('ai_commands')
+        .insert({
+          user_id: user.id,
+          command_text: summarizeOrionAction(execute_action),
+          status: execStatus,
+          executed_at: new Date().toISOString(),
+          execution_results: { orion: true, action_type: execute_action.type, result },
+          source: 'orion',
+        })
+        .then(({ error }) => {
+          if (error) console.warn('[Orion] Could not log action to ai_commands:', error.message);
+        });
+
+      if (execStatus === 'failed') {
+        return new Response(
+          JSON.stringify({ success: false, error: result.error }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+        );
+      }
       return new Response(
         JSON.stringify({ success: true, execution_result: result }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
@@ -436,7 +493,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     .select('*')
     .eq('user_id', userId)
     .eq('platform_type', 'shopify')
-    .eq('status', 'connected')
+    .or('is_active.eq.true,status.eq.connected')
     .limit(1);
 
   if (!platforms || platforms.length === 0) {
@@ -680,7 +737,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         .select('*')
         .eq('user_id', userId)
         .eq('platform_type', 'woocommerce')
-        .eq('status', 'connected')
+        .or('is_active.eq.true,status.eq.connected')
         .limit(1);
 
       if (!wooPlats || wooPlats.length === 0) {
@@ -728,7 +785,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         .select('*')
         .eq('user_id', userId)
         .eq('platform_type', 'woocommerce')
-        .eq('status', 'connected')
+        .or('is_active.eq.true,status.eq.connected')
         .limit(1);
 
       if (!wooPlats || wooPlats.length === 0) {
@@ -892,14 +949,63 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     .from('platforms')
     .select('*')
     .eq('user_id', userId)
-    .eq('status', 'connected');
+    .or('is_active.eq.true,status.eq.connected');
 
-  const { data: products, count: productCount } = await supabaseClient
-    .from('products')
-    .select('*', { count: 'exact' })
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(50);
+  // Fetch products live from Shopify so inventory quantities are always current.
+  // Falls back to the local products table if no Shopify platform is connected.
+  let products: any[] = [];
+  let productCount = 0;
+
+  const shopifyPlatform = (platforms || []).find((p: any) => p.platform_type === 'shopify');
+  if (shopifyPlatform) {
+    try {
+      let accessToken = shopifyPlatform.access_token;
+      if (accessToken && accessToken.length > 50 && !accessToken.startsWith('shpat_') && !accessToken.startsWith('shpca_')) {
+        const { decrypt } = await import('../_shared/encryption.ts');
+        accessToken = await decrypt(accessToken);
+      }
+      const shopDomain = shopifyPlatform.shop_domain;
+      const shopifyRes = await fetch(
+        `https://${shopDomain}/admin/api/2024-01/products.json?limit=250`,
+        { headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' } }
+      );
+      if (shopifyRes.ok) {
+        const shopifyData = await shopifyRes.json();
+        products = (shopifyData.products || []).map((p: any) => {
+          const variants = p.variants || [];
+          const totalQty = variants.reduce((sum: number, v: any) => sum + (v.inventory_quantity || 0), 0);
+          const skus = variants.map((v: any) => v.sku).filter(Boolean).join(', ');
+          const prices = variants.map((v: any) => parseFloat(v.price) || 0).filter((n: number) => n > 0);
+          return {
+            id: p.id,
+            title: p.title,
+            sku: skus || 'N/A',
+            price: prices.length > 0 ? Math.min(...prices) : 0,
+            inventory_quantity: totalQty,
+            vendor: p.vendor || '',
+            product_type: p.product_type || '',
+            status: p.status || '',
+            tags: p.tags || '',
+          };
+        });
+        productCount = products.length;
+      }
+    } catch (e: any) {
+      console.warn('[Orion] Shopify live product fetch failed, falling back to local DB:', e.message);
+    }
+  }
+
+  // Fall back to local products table (WooCommerce, manual imports, etc.)
+  if (products.length === 0) {
+    const { data: localProducts, count } = await supabaseClient
+      .from('products')
+      .select('*', { count: 'exact' })
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    products = localProducts || [];
+    productCount = count || 0;
+  }
 
   const { data: orders, count: orderCount } = await supabaseClient
     .from('orders')
@@ -911,22 +1017,22 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
   const totalRevenue = orders?.reduce((sum: number, o: any) => sum + (parseFloat(o.total_price) || 0), 0) || 0;
   const avgOrderValue = orders && orders.length > 0 ? totalRevenue / orders.length : 0;
 
-  const lowStockProducts = (products || []).filter((p: any) => {
+  const lowStockProducts = products.filter((p: any) => {
     const qty = p.inventory_quantity ?? p.stock_quantity ?? p.quantity ?? null;
     return qty !== null && qty <= 5;
   });
 
   return {
     platforms: platforms || [],
-    products: products || [],
-    total_products: productCount || 0,
+    products,
+    total_products: productCount,
     orders: orders || [],
     total_orders: orderCount || 0,
     low_stock_products: lowStockProducts,
     metrics: {
       total_revenue: totalRevenue,
       avg_order_value: avgOrderValue,
-      active_platforms: platforms?.length || 0,
+      active_platforms: (platforms || []).length,
     },
   };
 }
