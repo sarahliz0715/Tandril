@@ -293,7 +293,7 @@ export default function Orders() {
           ) : (
             <OrderList
               orders={filteredOrders}
-              onViewOrder={handleViewOrder}
+              onOrderClick={handleViewOrder}
             />
           )}
         </CardContent>

@@ -96,6 +96,8 @@ import OrderIntelligence from "./OrderIntelligence";
 
 import Welcome from "./Welcome";
 
+import Products from "./Products";
+
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 
 const PAGES = {
@@ -193,6 +195,8 @@ const PAGES = {
     OrderIntelligence: OrderIntelligence,
 
     Welcome: Welcome,
+
+    Products: Products,
 
 }
 
@@ -314,6 +318,8 @@ function PagesContent() {
                 <Route path="/OrderIntelligence" element={<OrderIntelligence />} />
 
                 <Route path="/Welcome" element={<Welcome />} />
+
+                <Route path="/Products" element={<Products />} />
 
             </Routes>
         </Layout>

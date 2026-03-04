@@ -24,15 +24,15 @@ export default function MessageBubble({ message }) {
                         {isUser ? (
                             <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{message.content}</p>
                         ) : (
-                            <ReactMarkdown 
-                                className="text-sm prose prose-sm prose-slate max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 
-                                          prose-p:break-words prose-li:break-words prose-headings:break-words prose-p:my-2
-                                          prose-pre:overflow-x-auto prose-pre:max-w-full prose-ul:my-2 prose-ol:my-2"
+                            <ReactMarkdown
+                                className="text-sm prose prose-sm prose-slate max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0
+                                          prose-p:break-words prose-li:break-words prose-headings:break-words
+                                          prose-pre:overflow-x-auto prose-pre:max-w-full"
                                 components={{
                                     code: ({ inline, className, children, ...props }) => {
                                         const match = /language-(\w+)/.exec(className || '');
                                         return !inline && match ? (
-                                            <div className="relative group/code my-2 max-w-full overflow-hidden">
+                                            <div className="relative group/code my-1 max-w-full overflow-hidden">
                                                 <pre className="bg-slate-900 text-slate-100 rounded-lg p-3 overflow-x-auto max-w-full">
                                                     <code className={className} {...props}>{children}</code>
                                                 </pre>
@@ -57,15 +57,15 @@ export default function MessageBubble({ message }) {
                                     a: ({ children, ...props }) => (
                                         <a {...props} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline break-all">{children}</a>
                                     ),
-                                    p: ({ children }) => <p className="my-2 leading-relaxed break-words">{children}</p>,
-                                    ul: ({ children }) => <ul className="my-2 ml-4 list-disc space-y-1">{children}</ul>,
-                                    ol: ({ children }) => <ol className="my-2 ml-4 list-decimal space-y-1">{children}</ol>,
-                                    li: ({ children }) => <li className="my-0.5 break-words">{children}</li>,
-                                    h1: ({ children }) => <h1 className="text-lg font-semibold my-3 break-words">{children}</h1>,
-                                    h2: ({ children }) => <h2 className="text-base font-semibold my-2 break-words">{children}</h2>,
-                                    h3: ({ children }) => <h3 className="text-sm font-semibold my-2 break-words">{children}</h3>,
+                                    p: ({ children }) => <p className="my-1 leading-snug break-words">{children}</p>,
+                                    ul: ({ children }) => <ul className="my-1 ml-4 list-disc space-y-0.5">{children}</ul>,
+                                    ol: ({ children }) => <ol className="my-1 ml-4 list-decimal space-y-0.5">{children}</ol>,
+                                    li: ({ children }) => <li className="my-0 break-words">{children}</li>,
+                                    h1: ({ children }) => <h1 className="text-base font-semibold mt-2 mb-1 break-words">{children}</h1>,
+                                    h2: ({ children }) => <h2 className="text-sm font-semibold mt-2 mb-1 break-words">{children}</h2>,
+                                    h3: ({ children }) => <h3 className="text-sm font-semibold mt-1 mb-0.5 break-words">{children}</h3>,
                                     blockquote: ({ children }) => (
-                                        <blockquote className="border-l-2 border-slate-300 pl-3 my-2 text-slate-600 italic break-words">
+                                        <blockquote className="border-l-2 border-slate-300 pl-3 my-1 text-slate-600 italic break-words">
                                             {children}
                                         </blockquote>
                                     ),

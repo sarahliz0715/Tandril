@@ -322,7 +322,7 @@ export default function Pricing() {
                             </p>
                         </div>
                         <p className="text-slate-500 text-sm">
-                            Need help choosing? <a href="mailto:support@tandril.com" className="text-indigo-600 hover:underline">Contact our team</a>
+                            Need help choosing? <a href="mailto:evensonsarah704@gmail.com?subject=Tandril Plan Inquiry" className="text-indigo-600 hover:underline">Contact our team</a>
                         </p>
                     </div>
                 </div>

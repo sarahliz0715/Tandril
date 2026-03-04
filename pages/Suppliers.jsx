@@ -38,7 +38,13 @@ export default function Suppliers() {
       setSuppliers(data || []);
     } catch (error) {
       console.error('Error loading suppliers:', error);
-      toast.error('Failed to load suppliers');
+      const isTableMissing = error?.message?.includes('does not exist') || error?.message?.includes('relation');
+      toast.error('Failed to load suppliers', {
+        description: isTableMissing
+          ? 'Database setup required — run migration 20260108000002_purchase_order_system.sql in your Supabase project.'
+          : error?.message || 'Please refresh and try again.'
+      });
+      setSuppliers([]);
     } finally {
       setIsLoading(false);
     }

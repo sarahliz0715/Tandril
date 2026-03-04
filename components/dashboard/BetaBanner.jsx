@@ -82,7 +82,7 @@ export default function BetaBanner() {
                         className="h-8 border-purple-300 bg-white/70 hover:bg-purple-100/50 text-purple-800 text-xs"
                         onClick={(e) => {
                             e.stopPropagation();
-                            window.open('https://forms.gle/U9f2h1CEvGg3rE626', '_blank');
+                            window.open('mailto:evensonsarah704@gmail.com?subject=Tandril Beta Feedback&body=Hi Sarah,%0A%0AHere is my feedback on Tandril:%0A%0A', '_blank');
                         }}
                     >
                         <LifeBuoy className="w-3 h-3 mr-1.5" />
@@ -128,7 +128,7 @@ export default function BetaBanner() {
                                             size="sm"
                                             variant="outline"
                                             className="text-xs border-purple-300 text-purple-700 hover:bg-purple-100"
-                                            onClick={() => window.open('https://forms.gle/U9f2h1CEvGg3rE626', '_blank')}
+                                            onClick={() => window.open('mailto:evensonsarah704@gmail.com?subject=Tandril Beta Feedback&body=Hi Sarah,%0A%0AHere is my feedback on Tandril:%0A%0A', '_blank')}
                                         >
                                             Share Feedback
                                         </Button>
@@ -136,7 +136,7 @@ export default function BetaBanner() {
                                             size="sm"
                                             variant="outline"
                                             className="text-xs border-purple-300 text-purple-700 hover:bg-purple-100"
-                                            onClick={() => window.open('mailto:support@tandril.com', '_blank')}
+                                            onClick={() => window.open('mailto:evensonsarah704@gmail.com?subject=Tandril Support Request', '_blank')}
                                         >
                                             Contact Support
                                         </Button>

@@ -65,7 +65,7 @@ export default function BetaBanner() {
           <div className="flex flex-col sm:flex-row gap-3">
             <Button 
               variant="outline"
-              onClick={() => window.open('https://forms.gle/U9f2h1CEvGg3rE626', '_blank')}
+              onClick={() => window.open('mailto:evensonsarah704@gmail.com?subject=Tandril Beta Feedback&body=Hi Sarah,%0A%0AHere is my feedback on Tandril:%0A%0A', '_blank')}
               className="border-purple-300 text-purple-700 hover:bg-purple-100"
             >
               Share Feedback
@@ -73,7 +73,7 @@ export default function BetaBanner() {
             <Button
               variant="outline"
               className="border-purple-300 text-purple-700 hover:bg-purple-100"
-              onClick={() => window.open('mailto:support@tandril.com', '_blank')}
+              onClick={() => window.open('mailto:evensonsarah704@gmail.com?subject=Tandril Support Request', '_blank')}
             >
               Get Support
             </Button>

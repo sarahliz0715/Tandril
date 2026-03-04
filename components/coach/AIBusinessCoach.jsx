@@ -23,7 +23,9 @@ import {
   Mic,
   X,
   FileText,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Copy,
+  PlayCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/apiClient';
@@ -660,6 +662,35 @@ export default function AIBusinessCoach() {
                                 <p className="text-sm font-medium">→ {highlight.action}</p>
                               )}
                             </div>
+                            <div className="flex gap-1 flex-shrink-0">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7"
+                                title="Copy to chat"
+                                onClick={() => {
+                                  const text = `${highlight.title}: ${highlight.description}${highlight.action ? `\n\nSuggested action: ${highlight.action}` : ''}`;
+                                  setChatInput(text);
+                                  setActiveTab('chat');
+                                  toast.success('Copied to chat!');
+                                }}
+                              >
+                                <PlayCircle className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7"
+                                title="Copy text"
+                                onClick={() => {
+                                  const text = `${highlight.title}: ${highlight.description}${highlight.action ? ` → ${highlight.action}` : ''}`;
+                                  navigator.clipboard.writeText(text);
+                                  toast.success('Copied!');
+                                }}
+                              >
+                                <Copy className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       );
@@ -670,12 +701,22 @@ export default function AIBusinessCoach() {
 
               {/* Daily Focus */}
               {briefing.daily_focus && (
-                <Alert className="bg-purple-50 border-purple-200">
+                <Alert className="bg-purple-50 border-purple-200 relative">
                   <Target className="w-4 h-4" />
                   <AlertTitle>Your Daily Focus</AlertTitle>
-                  <AlertDescription className="text-purple-900">
+                  <AlertDescription className="text-purple-900 pr-16">
                     {briefing.daily_focus}
                   </AlertDescription>
+                  <div className="absolute top-3 right-3 flex gap-1">
+                    <Button size="icon" variant="ghost" className="h-7 w-7" title="Send to chat"
+                      onClick={() => { setChatInput(`My daily focus is: ${briefing.daily_focus}\n\nHelp me plan steps to accomplish this today.`); setActiveTab('chat'); toast.success('Copied to chat!'); }}>
+                      <PlayCircle className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-7 w-7" title="Copy"
+                      onClick={() => { navigator.clipboard.writeText(briefing.daily_focus); toast.success('Copied!'); }}>
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </Alert>
               )}
 
@@ -745,6 +786,18 @@ export default function AIBusinessCoach() {
                         Affects {opp.products_affected.length} products
                       </p>
                     )}
+                    <Button
+                      className="w-full bg-green-600 hover:bg-green-700 text-white"
+                      onClick={() => {
+                        const prompt = `Let's work on this opportunity: "${opp.title}"\n\nRecommended action: ${opp.action}\n\nPlease give me step-by-step instructions to implement this, with approval checkpoints before making any changes.`;
+                        setChatInput(prompt);
+                        setActiveTab('chat');
+                        toast.success("Ready to go! Review the prompt in chat and send it.");
+                      }}
+                    >
+                      <PlayCircle className="w-4 h-4 mr-2" />
+                      Let's Do It
+                    </Button>
                   </div>
                 </CardContent>
               </Card>

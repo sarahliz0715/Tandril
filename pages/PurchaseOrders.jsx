@@ -80,7 +80,14 @@ export default function PurchaseOrders() {
       setSuppliers(suppliersData || []);
     } catch (error) {
       console.error('Error loading data:', error);
-      toast.error('Failed to load purchase orders');
+      const isTableMissing = error?.message?.includes('does not exist') || error?.message?.includes('relation');
+      toast.error('Failed to load purchase orders', {
+        description: isTableMissing
+          ? 'Database setup required — run migration 20260108000002_purchase_order_system.sql in your Supabase project.'
+          : error?.message || 'Please refresh and try again.'
+      });
+      setPOs([]);
+      setSuppliers([]);
     } finally {
       setIsLoading(false);
     }

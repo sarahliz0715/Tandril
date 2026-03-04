@@ -325,14 +325,14 @@ export default function BetaCapabilities() {
                         </p>
                         <div className="space-y-2">
                             <div className="text-purple-800">
-                                <strong>📧 Priority Email:</strong> support@tandril.com (Beta Priority Response)
+                                <strong>📧 Priority Email:</strong> <a href="mailto:evensonsarah704@gmail.com?subject=Tandril Beta Priority Support" className="underline">evensonsarah704@gmail.com</a>
                             </div>
                             <div className="text-purple-800">
                                 <strong>💬 AI Advisor:</strong> Ask Orion for help or troubleshooting
                             </div>
                             <div className="text-purple-800">
-                                <strong>📝 Feedback Form:</strong>{' '}
-                                <a href="https://forms.gle/U9f2h1CEvGg3rE626" target="_blank" rel="noopener noreferrer" className="underline">
+                                <strong>📝 Feedback:</strong>{' '}
+                                <a href="mailto:evensonsarah704@gmail.com?subject=Tandril Beta Feedback&body=Hi Sarah,%0A%0AHere is my feedback:%0A%0A" className="underline">
                                     Share detailed feedback here
                                 </a>
                             </div>
