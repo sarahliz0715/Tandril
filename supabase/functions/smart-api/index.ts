@@ -766,6 +766,89 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: `Updated image alt text for "${targetProduct.title}" to "${action.alt_text}"` };
     }
 
+    case 'update_description': {
+      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
+      const searchData = await searchRes.json();
+      const allProducts = searchData.products || [];
+
+      const targetProduct = findProduct(allProducts, action.sku, action.product_name);
+      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      const body_html = action.body_html || action.description;
+      if (!body_html) throw new Error('description is required for update_description.');
+
+      const updateRes = await fetch(`${shopifyBase}/products/${targetProduct.id}.json`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ product: { id: targetProduct.id, body_html } }),
+      });
+      if (!updateRes.ok) throw new Error(`Shopify description update failed: ${await updateRes.text()}`);
+      return { message: `Updated product description for "${targetProduct.title}"` };
+    }
+
+    case 'update_seo_listing': {
+      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
+      const searchData = await searchRes.json();
+      const allProducts = searchData.products || [];
+
+      const targetProduct = findProduct(allProducts, action.sku, action.product_name);
+      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      if (!action.seo_title && !action.seo_description) throw new Error('At least one of seo_title or seo_description is required.');
+
+      const metafieldUpsert = async (key: string, value: string) => {
+        const listRes = await fetch(
+          `${shopifyBase}/products/${targetProduct.id}/metafields.json?namespace=global&key=${key}`,
+          { headers }
+        );
+        const listData = await listRes.json();
+        const existing = listData.metafields?.[0];
+        if (existing) {
+          const r = await fetch(`${shopifyBase}/metafields/${existing.id}.json`, {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify({ metafield: { id: existing.id, value, type: 'single_line_text_field' } }),
+          });
+          if (!r.ok) throw new Error(`SEO metafield update failed: ${await r.text()}`);
+        } else {
+          const r = await fetch(`${shopifyBase}/products/${targetProduct.id}/metafields.json`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ metafield: { namespace: 'global', key, value, type: 'single_line_text_field' } }),
+          });
+          if (!r.ok) throw new Error(`SEO metafield create failed: ${await r.text()}`);
+        }
+      };
+
+      const parts: string[] = [];
+      if (action.seo_title) {
+        await metafieldUpsert('title_tag', action.seo_title);
+        parts.push(`meta title: "${action.seo_title}"`);
+      }
+      if (action.seo_description) {
+        await metafieldUpsert('description_tag', action.seo_description);
+        parts.push('meta description updated');
+      }
+      return { message: `Updated SEO listing for "${targetProduct.title}": ${parts.join(', ')}` };
+    }
+
+    case 'update_url_handle': {
+      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
+      const searchData = await searchRes.json();
+      const allProducts = searchData.products || [];
+
+      const targetProduct = findProduct(allProducts, action.sku, action.product_name);
+      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      if (!action.new_handle) throw new Error('new_handle is required for update_url_handle.');
+
+      const handle = action.new_handle.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      const updateRes = await fetch(`${shopifyBase}/products/${targetProduct.id}.json`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ product: { id: targetProduct.id, handle } }),
+      });
+      if (!updateRes.ok) throw new Error(`Shopify handle update failed: ${await updateRes.text()}`);
+      return { message: `Updated URL handle for "${targetProduct.title}" to "/products/${handle}"` };
+    }
+
     case 'woo_create_product': {
       const { data: wooPlats } = await supabaseClient
         .from('platforms')
@@ -952,6 +1035,15 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
               metafield_type: upd.metafield_type || action.metafield_type || 'single_line_text_field',
             };
             break;
+          case 'description':
+            subAction = { type: 'update_description', product_name: upd.product_name, sku: upd.sku, description: upd.new_value };
+            break;
+          case 'url_handle':
+            subAction = { type: 'update_url_handle', product_name: upd.product_name, sku: upd.sku, new_handle: upd.new_value };
+            break;
+          case 'seo_listing':
+            subAction = { type: 'update_seo_listing', product_name: upd.product_name, sku: upd.sku, seo_title: upd.seo_title, seo_description: upd.seo_description };
+            break;
           default:
             errors.push(`Unknown batch field: ${field}`);
             continue;
@@ -1021,6 +1113,8 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
             product_type: p.product_type || '',
             status: p.status || '',
             tags: p.tags || '',
+            handle: p.handle || '',
+            body_html: p.body_html ? p.body_html.replace(/<[^>]*>/g, '').slice(0, 150) : '',
           };
         });
         productCount = products.length;
@@ -1097,7 +1191,8 @@ async function chatWithClaude(
       const status = p.status || '';
       const vendor = p.vendor || '';
       const type = p.product_type || p.category || '';
-      return `  - ${name} | SKU: ${sku} | Price: ${price} | Stock: ${stock}${vendor ? ` | Vendor: ${vendor}` : ''}${type ? ` | Type: ${type}` : ''}${status ? ` | Status: ${status}` : ''}`;
+      const handle = p.handle ? ` | Handle: ${p.handle}` : '';
+      return `  - ${name} | SKU: ${sku} | Price: ${price} | Stock: ${stock}${vendor ? ` | Vendor: ${vendor}` : ''}${type ? ` | Type: ${type}` : ''}${status ? ` | Status: ${status}` : ''}${handle}`;
     }).join('\n');
   };
 
@@ -1149,7 +1244,7 @@ async function chatWithClaude(
 **CRITICAL - What you can and cannot do:**
 - You CAN: Read and analyze store data (products, orders, inventory, revenue) from the data provided below
 - You CAN: Give advice, spot trends, flag issues, answer questions about their business
-- You CAN: Execute store actions — create products, update inventory quantities, update prices, update product titles/SEO, update tags, add images to products, update image alt text, set/update product metafields — directly on their connected Shopify store
+- You CAN: Execute store actions — create products, update inventory quantities, update prices, update product titles/SEO, update product descriptions, update SEO meta title + meta description, update URL handles, update tags, add images to products, update image alt text, set/update product metafields — directly on their connected Shopify store
 - You CANNOT: Log into any platform or request credentials — NEVER ask for passwords, API keys, or admin access. You already have the integration through Tandril.
 - You CANNOT: Process payments, refund orders, delete products, or fulfill orders
 
@@ -1164,6 +1259,9 @@ When the user asks you to create a product, add inventory, change a price, renam
   • update_inventory
   • update_price
   • update_title
+  • update_description       ← update the full product description / body HTML
+  • update_seo_listing       ← update meta title (≤60 chars) + meta description (≤160 chars) shown in Google
+  • update_url_handle        ← update the product's URL slug (e.g. "casual-spring-henley-olive")
   • upload_image
   • update_metafield
   • update_image_alt
@@ -1202,6 +1300,15 @@ To update the alt text on a product's first image (for SEO):
 To update a product's tags (replaces existing tags — provide all tags you want, including ones to keep):
 [ORION_ACTION:{"type":"update_tags","product_name":"Product Title","sku":"SKU-001","tags":["spring","long-sleeve","cotton","women"]}]
 
+To update the full product description (written in plain text or HTML — include keywords naturally, aim for 150-300+ words):
+[ORION_ACTION:{"type":"update_description","product_name":"Product Title","sku":"SKU-001","description":"Your keyword-rich product description here..."}]
+
+To update the SEO listing (meta title ≤60 chars, meta description ≤160 chars — these appear in Google search results):
+[ORION_ACTION:{"type":"update_seo_listing","product_name":"Product Title","sku":"SKU-001","seo_title":"Casual Spring Henley Tee | Lightweight Olive Green Shirt","seo_description":"Shop our lightweight olive green Henley tee — perfect for spring layering. 100% cotton, machine washable. Free shipping over $50."}]
+
+To update the product's URL handle/slug (keep it short, keyword-rich, lowercase with hyphens):
+[ORION_ACTION:{"type":"update_url_handle","product_name":"Product Title","sku":"SKU-001","new_handle":"casual-spring-henley-olive-green"}]
+
 To create a single product on WooCommerce:
 [ORION_ACTION:{"type":"woo_create_product","name":"Product Title","sku":"SKU-001","price":"29.99","quantity":10,"description":"Full description here","images":["https://image-url-1.jpg","https://image-url-2.jpg"],"tags":["tag1","tag2"],"product_type":"simple"}]
 
@@ -1213,10 +1320,27 @@ To make MULTIPLE changes to ONE product (title + metafield + alt text, etc.) —
 
 To update the SAME field across MULTIPLE products (e.g. rename all titles, restick prices, etc.) — one confirmation card:
 [ORION_ACTION:{"type":"batch_update","field":"title","description":"Christmas-themed titles for all shirts","updates":[{"product_name":"Basic White Tee","sku":"BWT-001","new_value":"Cozy Christmas White Tee"},{"product_name":"Blue Denim Shirt","sku":"BDS-002","new_value":"Holiday Blue Denim Shirt"},{"product_name":"Striped Polo","sku":"SP-003","new_value":"Festive Striped Holiday Polo"}]}]
-Valid batch_update field values: "title", "price", "inventory", "image_alt", "metafield"
+Valid batch_update field values: "title", "price", "inventory", "image_alt", "metafield", "description", "url_handle", "seo_listing"
 For metafield batch_update, also add top-level: "metafield_key":"material", "metafield_type":"single_line_text_field"
+For seo_listing batch_update, each entry in updates should include seo_title and/or seo_description (not new_value)
 
 For multiple products with DIFFERENT changes each (not the same field), emit a separate [ORION_ACTION:...] block for each product. The user will see "Action 1 of N" and can confirm individually or all at once.
+
+**Full SEO Optimization Workflow:**
+When asked to "SEO optimize" a product (or all products), follow this complete checklist — not just the title:
+1. **Product Title** — keyword-rich, ≤70 chars, main keyword first (e.g. "Casual Spring Henley T-Shirt – Lightweight Olive Green Tee")
+2. **Product Description** — unique, 150-300+ words, primary keyword + 1-2 secondary keywords used naturally. Never just a list of specs. Write for humans.
+3. **URL Handle** — concise, lowercase, hyphens only, includes main keyword (e.g. "casual-spring-henley-olive-green")
+4. **SEO Meta Title** — ≤60 chars, slightly different from product title, click-worthy, includes brand if space allows
+5. **SEO Meta Description** — ≤160 chars, includes main keyword, compelling CTA (e.g. "Shop our …", "Free shipping…")
+6. **Image Alt Text** — describes the product image + includes keyword (e.g. "Olive green Henley t-shirt on white background")
+7. **Tags** — relevant search terms, color, material, occasion, season, gender (e.g. ["spring","henley","cotton","olive-green","women","casual"])
+8. **Custom Metafields** — material, care instructions, and any other structured data useful for search/filters
+
+Always bundle ALL of these into a single multi_action so the user only has to confirm once:
+[ORION_ACTION:{"type":"multi_action","product_name":"Henley T-Shirt - Olive Green","sku":"HTG-001","description":"Full SEO optimization: title, description, URL handle, meta title, meta description, image alt text, tags, and material metafield","actions":[{"type":"update_title","new_title":"Casual Spring Henley T-Shirt – Lightweight Olive Green Tee"},{"type":"update_description","description":"Step into spring with our Casual Henley T-Shirt in warm olive green. Crafted from 100% breathable cotton, this lightweight tee is designed for transitional weather — warm enough for breezy mornings, cool enough for sunny afternoons. The classic Henley neckline adds a relaxed, effortless look that pairs well with jeans, chinos, or shorts. Whether you're heading to a farmer's market, a weekend brunch, or just running errands, this shirt keeps you comfortable and stylish all day. Available in a relaxed fit with reinforced stitching for lasting durability. Machine washable and easy to care for."},{"type":"update_url_handle","new_handle":"casual-spring-henley-t-shirt-olive-green"},{"type":"update_seo_listing","seo_title":"Casual Spring Henley T-Shirt | Olive Green Cotton Tee","seo_description":"Lightweight 100% cotton olive green Henley tee — perfect for spring & transitional weather. Relaxed fit, machine washable. Shop now."},{"type":"update_image_alt","alt_text":"Casual olive green Henley t-shirt on white background — lightweight spring cotton tee"},{"type":"update_tags","tags":["spring","henley","cotton","olive-green","lightweight","casual","men","transitional-weather"]},{"type":"update_metafield","metafield_key":"material","metafield_value":"100% Cotton","metafield_type":"single_line_text_field"},{"type":"update_metafield","metafield_key":"care_instructions","metafield_value":"Machine wash cold, tumble dry low","metafield_type":"single_line_text_field"}]}]
+
+When asked to SEO ALL products, emit one multi_action block per product (up to 10). If more than 10, do the first 10 and tell the user you'll continue after they confirm.
 
 **Etsy CSV Migration Workflow:**
 When a user uploads an Etsy CSV file and wants to migrate to WooCommerce, follow these steps:
@@ -1265,7 +1389,8 @@ ${mode === 'demo/test' ?
   `- Use the real store data above to give specific, grounded advice
 - Answer questions about products, stock, orders, and revenue directly from the data above
 - Proactively flag low stock, pricing opportunities, and trends you spot
-- When asked to DO something in the store (add/update inventory, change prices, create products, rename/SEO-update titles, add images, update image alt text for SEO, set metafields like material or care instructions), generate ORION_ACTION block(s) as described above — the user will confirm before anything executes. For image uploads always use type "upload_image", never "update_product". For image alt text use "update_image_alt". For metafields use "update_metafield". Never tell the user you "can't" perform supported actions — you CAN, and you do it through the action block.
+- When asked to DO something in the store (add/update inventory, change prices, create products, rename/SEO-update titles, update descriptions, update SEO meta title/description, update URL handles, add images, update image alt text for SEO, set metafields like material or care instructions, update tags), generate ORION_ACTION block(s) as described above — the user will confirm before anything executes. For image uploads always use type "upload_image", never "update_product". For image alt text use "update_image_alt". For metafields use "update_metafield". For SEO meta title/description use "update_seo_listing". For product description use "update_description". For URL slug use "update_url_handle". Never tell the user you "can't" perform supported actions — you CAN, and you do it through the action block.
+- When asked to "SEO optimize" any product, always follow the Full SEO Optimization Workflow above — do ALL 8 elements in a single multi_action, not just the title or just the metafields. Ask for the product name if ambiguous, then generate the full multi_action immediately.
 - Use multi_action when asked to make several changes to the SAME product (e.g. "update the title, alt text, and material on the tie dye shirt" → one multi_action block)
 - Use batch_update when asked to apply the SAME change across MULTIPLE products (e.g. "Christmas-ify all my titles" → one batch_update block with all products in the updates array)
 - For multiple products needing DIFFERENT changes each, emit one block per product (max 10); tell the user how many actions are queued so they can "Confirm All"
