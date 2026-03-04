@@ -46,7 +46,7 @@ serve(async (req) => {
     }
 
     // Get request body
-    const { store_name } = await req.json();
+    const { store_name, redirect_uri: clientRedirectUri } = await req.json();
 
     if (!store_name) {
       throw new Error('Missing store_name parameter');
@@ -59,11 +59,10 @@ serve(async (req) => {
     // Shopify OAuth configuration
     const shopifyApiKey = Deno.env.get('SHOPIFY_API_KEY');
     const shopifyScopes = Deno.env.get('SHOPIFY_SCOPES') || 'read_products,write_products,read_orders,read_inventory,write_inventory';
-    // Prefer the explicit redirect URI env var.
-    // Default to the Vercel proxy route (/api/shopify-callback) which avoids
-    // Supabase JWT verification issues on the direct callback URL.
+    // Prefer (in order): explicit env var, client-provided URI (from browser origin), APP_URL, legacy Supabase callback
     const appUrl = Deno.env.get('APP_URL') || '';
     const redirectUri = Deno.env.get('SHOPIFY_REDIRECT_URI') ||
+      clientRedirectUri ||
       (appUrl ? `${appUrl}/api/shopify-callback` : `${Deno.env.get('SUPABASE_URL')}/functions/v1/shopify-auth-callback`);
 
     if (!shopifyApiKey) {

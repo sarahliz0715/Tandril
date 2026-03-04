@@ -26,8 +26,10 @@ export default function ShopifyConnectButton({ onConnectionSuccess }) {
         try {
             console.log('🔵 [Shopify] Starting connection for store:', storeName.trim());
 
+            const redirectUri = `${window.location.origin}/api/shopify-callback`;
             const response = await api.functions.invoke('shopify-auth-init', {
-                store_name: storeName.trim().replace('.myshopify.com', '')
+                store_name: storeName.trim().replace('.myshopify.com', ''),
+                redirect_uri: redirectUri
             });
 
             console.log('🔵 [Shopify] Response received:', response);

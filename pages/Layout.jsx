@@ -170,11 +170,12 @@ export default function Layout({ children, currentPageName }) {
     }, []);
 
     const handleLogout = async () => {
+        setUser(null);
         await User.logout();
         navigate(createPageUrl('Home'));
     };
 
-    const publicPages = ['Home', 'Pricing', 'TermsOfService', 'PrivacyPolicy', 'EmailSignups', 'Survey'];
+    const publicPages = ['Home', 'Pricing', 'TermsOfService', 'PrivacyPolicy', 'EmailSignups', 'Survey', 'Login', 'Signup'];
     
     if (!authCheckComplete && !publicPages.includes(currentPageName)) {
         return (
