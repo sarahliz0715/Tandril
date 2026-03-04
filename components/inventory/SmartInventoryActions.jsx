@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { 
-    Zap, DollarSign, Package, TrendingUp, AlertTriangle, 
+import {
+    Zap, DollarSign, Package, TrendingUp, AlertTriangle,
     CheckCircle2, ArrowRight, Sparkles, Target, BarChart3,
     RefreshCw, Download, Upload, Settings
 } from 'lucide-react';
@@ -102,6 +104,33 @@ const BulkActionPanel = ({ selectedCount, onAction }) => {
 
 export default function SmartInventoryActions({ inventory, onAction }) {
     const [selectedProducts, setSelectedProducts] = useState(new Set());
+    const navigate = useNavigate();
+
+    const handleExportInventory = () => {
+        if (!inventory || inventory.length === 0) {
+            toast.error('No inventory to export');
+            return;
+        }
+        const csv = [
+            ['Product Name', 'SKU', 'Total Stock', 'Status', 'Cost Per Unit', 'Reorder Point'].join(','),
+            ...inventory.map(item => [
+                `"${item.product_name || ''}"`,
+                item.sku || '',
+                item.total_stock ?? '',
+                item.status || '',
+                item.cost_per_unit || 0,
+                item.reorder_point || 0
+            ].join(','))
+        ].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `inventory-${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+        toast.success('Inventory exported to CSV');
+    };
 
     const smartActions = [
         {
@@ -170,8 +199,8 @@ export default function SmartInventoryActions({ inventory, onAction }) {
     ];
 
     const quickActions = [
-        { icon: Download, label: "Export Inventory", onClick: () => toast.success("Inventory exported to CSV") },
-        { icon: Upload, label: "Bulk Import", onClick: () => toast.info("Bulk import feature coming soon") },
+        { icon: Download, label: "Export Inventory", onClick: handleExportInventory },
+        { icon: Upload, label: "Bulk Import", onClick: () => navigate(createPageUrl('BulkUpload')) },
         { icon: RefreshCw, label: "Sync All Platforms", onClick: () => toast.success("Platform sync started") },
         { icon: Settings, label: "Inventory Settings", onClick: () => toast.info("Opening inventory settings") }
     ];

@@ -50,7 +50,7 @@ export default function SupportModal({ isOpen, onClose }) {
         } catch (error) {
             console.error('Error submitting support request:', error);
             toast.error('Failed to send support request', {
-                description: 'Please try again or email us directly at support@tandril.com'
+                description: 'Please try again or email us directly at evensonsarah704@gmail.com'
             });
         } finally {
             setIsSubmitting(false);

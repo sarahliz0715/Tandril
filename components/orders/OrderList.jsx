@@ -47,11 +47,12 @@ export default function OrderList({ orders, onOrderClick, onBulkAction }) {
         
         const config = variants[status] || variants.pending;
         const IconComponent = config.icon;
-        
+        const label = status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Unknown';
+
         return (
             <Badge variant={config.variant} className="flex items-center gap-1">
                 <IconComponent className={`w-3 h-3 ${config.color}`} />
-                {status.charAt(0).toUpperCase() + status.slice(1)}
+                {label}
             </Badge>
         );
     };
@@ -200,7 +201,7 @@ export default function OrderList({ orders, onOrderClick, onBulkAction }) {
                                     </div>
                                     
                                     <div className="col-span-1">
-                                        <div className="font-medium text-slate-900">${order.total_price.toFixed(2)}</div>
+                                        <div className="font-medium text-slate-900">${(order.total_price || 0).toFixed(2)}</div>
                                     </div>
                                     
                                     <div className="col-span-1" onClick={(e) => e.stopPropagation()}>

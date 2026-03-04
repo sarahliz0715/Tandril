@@ -277,15 +277,15 @@ export default function Capabilities() {
                         </p>
                         <div className="space-y-2">
                             <div className="text-blue-800">
-                                <strong>📧 Email:</strong> support@tandril.com
+                                <strong>📧 Email:</strong> <a href="mailto:evensonsarah704@gmail.com?subject=Tandril Support" className="underline">evensonsarah704@gmail.com</a>
                             </div>
                             <div className="text-blue-800">
                                 <strong>💬 Chat:</strong> Use the AI Advisor for quick help
                             </div>
                             <div className="text-blue-800">
-                                <strong>📝 Feedback Form:</strong>{' '}
-                                <a href="https://forms.gle/U9f2h1CEvGg3rE626" target="_blank" rel="noopener noreferrer" className="underline">
-                                    Submit feedback or feature requests
+                                <strong>📝 Feedback:</strong>{' '}
+                                <a href="mailto:evensonsarah704@gmail.com?subject=Tandril Feedback&body=Hi Sarah,%0A%0AHere is my feedback:%0A%0A" className="underline">
+                                    Send feedback or feature requests
                                 </a>
                             </div>
                         </div>

@@ -39,6 +39,7 @@ const defaultNavigationItems = [
     { name: 'Intelligence', href: 'Intelligence', icon: TrendingUp, color: 'text-emerald-600' },
     { name: 'Analytics', href: 'Analytics', icon: BarChart3, color: 'text-violet-600' },
     { name: 'Inventory', href: 'Inventory', icon: Package, color: 'text-amber-600' },
+    { name: 'Products', href: 'Products', icon: Package, color: 'text-indigo-600' },
     { name: 'Suppliers', href: 'Suppliers', icon: Building2, color: 'text-slate-600' },
     { name: 'Purchase Orders', href: 'PurchaseOrders', icon: FileText, color: 'text-blue-600' },
 ];
@@ -59,6 +60,7 @@ const betaNavigationItems = [
     { name: 'Intelligence', href: 'Intelligence', icon: TrendingUp, color: 'text-emerald-600' },
     { name: 'Analytics', href: 'Analytics', icon: BarChart3, color: 'text-violet-600' },
     { name: 'Inventory', href: 'Inventory', icon: Package, color: 'text-amber-600' },
+    { name: 'Products', href: 'Products', icon: Package, color: 'text-indigo-600' },
     { name: 'Suppliers', href: 'Suppliers', icon: Building2, color: 'text-slate-600' },
     { name: 'Purchase Orders', href: 'PurchaseOrders', icon: FileText, color: 'text-blue-600' },
 ];
@@ -72,6 +74,9 @@ const secondaryNavigation = [
 
 export default function Layout({ children, currentPageName }) {
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(() => {
+        try { return localStorage.getItem('desktopSidebarOpen') !== 'false'; } catch { return true; }
+    });
     const [user, setUser] = useState(null);
     const [isCommandBarOpen, setIsCommandBarOpen] = useState(false);
     const [currentNavItems, setCurrentNavItems] = useState(defaultNavigationItems);
@@ -218,25 +223,41 @@ export default function Layout({ children, currentPageName }) {
                                 <div className="lg:hidden fixed inset-0 z-50 bg-black/50" onClick={() => setSidebarOpen(false)} />
                             )}
 
-                            {/* Sidebar - Always visible on desktop */}
+                            {/* Sidebar */}
                             <div className={`
-                                fixed inset-y-0 left-0 z-50 w-72 bg-white border-r border-slate-200 
+                                fixed inset-y-0 left-0 z-50 w-72 bg-white border-r border-slate-200
                                 transform transition-transform duration-300 ease-in-out
-                                lg:translate-x-0
-                                ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+                                ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+                                ${desktopSidebarOpen ? 'lg:translate-x-0' : 'lg:-translate-x-full'}
                             `}>
                                 <div className="flex flex-col h-full">
                                     {/* Logo */}
                                     <div className="flex items-center justify-between p-6 border-b border-slate-200">
                                         <TandrilVineLogo className="h-8" />
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="lg:hidden"
-                                            onClick={() => setSidebarOpen(false)}
-                                        >
-                                            <X className="h-5 w-5" />
-                                        </Button>
+                                        <div className="flex items-center gap-1">
+                                            {/* Desktop collapse button */}
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="hidden lg:flex h-7 w-7"
+                                                title="Collapse sidebar"
+                                                onClick={() => {
+                                                    setDesktopSidebarOpen(false);
+                                                    try { localStorage.setItem('desktopSidebarOpen', 'false'); } catch {}
+                                                }}
+                                            >
+                                                <X className="h-4 w-4" />
+                                            </Button>
+                                            {/* Mobile close button */}
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="lg:hidden"
+                                                onClick={() => setSidebarOpen(false)}
+                                            >
+                                                <X className="h-5 w-5" />
+                                            </Button>
+                                        </div>
                                     </div>
 
                                     {/* Navigation */}
@@ -382,8 +403,25 @@ export default function Layout({ children, currentPageName }) {
                                 </div>
                             </div>
 
-                            {/* Main Content - with padding on desktop to account for sidebar */}
-                            <div className="lg:pl-72">
+                            {/* Main Content */}
+                            <div className={`transition-all duration-300 ${desktopSidebarOpen ? 'lg:pl-72' : 'lg:pl-0'}`}>
+                                {/* Desktop sidebar-collapsed header strip */}
+                                {!desktopSidebarOpen && (
+                                    <div className="hidden lg:flex sticky top-0 z-40 bg-white/80 backdrop-blur-sm border-b border-slate-200 px-4 py-3 items-center gap-3">
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            onClick={() => {
+                                                setDesktopSidebarOpen(true);
+                                                try { localStorage.setItem('desktopSidebarOpen', 'true'); } catch {}
+                                            }}
+                                            title="Open sidebar"
+                                        >
+                                            <Menu className="h-5 w-5" />
+                                        </Button>
+                                        <TandrilVineLogo className="h-7" />
+                                    </div>
+                                )}
                                 {children}
                             </div>
                         </>

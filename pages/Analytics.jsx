@@ -126,39 +126,18 @@ export default function Analytics() {
     });
   }, [orders, dateRange]);
 
-  // Calculate key metrics
+  // Calculate key metrics — returns the nested shape expected by KeyMetrics component
   const metrics = useMemo(() => {
-    if (filteredOrders.length === 0) {
-      return {
-        totalRevenue: 0,
-        totalOrders: 0,
-        averageOrderValue: 0,
-        totalProducts: products.length,
-        conversionRate: 0,
-        topPlatform: null
-      };
-    }
-
     const totalRevenue = filteredOrders.reduce((sum, o) => sum + (o.total_price || 0), 0);
     const totalOrders = filteredOrders.length;
-    const averageOrderValue = totalRevenue / totalOrders;
-
-    // Calculate platform performance
-    const platformRevenue = {};
-    filteredOrders.forEach(order => {
-      const platform = order.platform || 'Unknown';
-      platformRevenue[platform] = (platformRevenue[platform] || 0) + (order.total_price || 0);
-    });
-
-    const topPlatform = Object.entries(platformRevenue).sort((a, b) => b[1] - a[1])[0];
+    const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+    const activeProducts = products.filter(p => p.status !== 'out_of_stock').length;
 
     return {
-      totalRevenue,
-      totalOrders,
-      averageOrderValue,
-      totalProducts: products.length,
-      conversionRate: 0, // Would need traffic data
-      topPlatform: topPlatform ? topPlatform[0] : null
+      revenue: { value: totalRevenue, growth: 0 },
+      orders: { value: totalOrders, growth: 0 },
+      aov: { value: averageOrderValue, growth: 0 },
+      products: { active: activeProducts, total: products.length }
     };
   }, [filteredOrders, products]);
 

@@ -24,7 +24,7 @@ const statusColors = {
     returned: 'bg-orange-100 text-orange-800',
 };
 
-export default function OrderDetails({ order, orderItems, onClose, onUpdate }) {
+export default function OrderDetails({ order, orderItems = [], onClose, onUpdate, onRefresh }) {
     const [trackingNumber, setTrackingNumber] = useState(order.tracking_number || '');
     const [notes, setNotes] = useState(order.ai_notes || '');
     const [isUpdating, setIsUpdating] = useState(false);
@@ -63,8 +63,8 @@ export default function OrderDetails({ order, orderItems, onClose, onUpdate }) {
         return `${address.street}, ${address.city}, ${address.state} ${address.zip}, ${address.country}`;
     };
 
-    const subtotal = orderItems.reduce((sum, item) => sum + (item.price_per_item * item.quantity), 0);
-    const shipping = order.total_price - subtotal;
+    const subtotal = orderItems.reduce((sum, item) => sum + ((item.price_per_item || 0) * (item.quantity || 0)), 0);
+    const shipping = Math.max(0, (order.total_price || 0) - subtotal);
 
     return (
         <Card className="h-fit sticky top-6">
@@ -181,7 +181,7 @@ export default function OrderDetails({ order, orderItems, onClose, onUpdate }) {
                         <Separator />
                         <div className="flex justify-between font-medium">
                             <span>Total:</span>
-                            <span>${order.total_price.toFixed(2)}</span>
+                            <span>${(order.total_price || 0).toFixed(2)}</span>
                         </div>
                     </div>
                 </div>
