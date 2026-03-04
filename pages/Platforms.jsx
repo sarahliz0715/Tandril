@@ -43,6 +43,7 @@ export default function Platforms() {
     const [isLoading, setIsLoading] = useState(true);
     const [showRequestModal, setShowRequestModal] = useState(false);
     const [currentUser, setCurrentUser] = useState(null);
+    const [shopifyError, setShopifyError] = useState(null);
     const navigate = useNavigate();
     const location = useLocation();
     const { isOpen, config, confirm, cancel } = useConfirmDialog();
@@ -72,9 +73,11 @@ export default function Platforms() {
                     loadData();
                 })
                 .catch((err) => {
+                    setShopifyError(err.message);
                     toast.error('Shopify connection failed', {
                         id: toastId,
-                        description: err.message
+                        description: err.message,
+                        duration: 10000,
                     });
                 });
         } else if (connected === 'true') {
@@ -86,7 +89,9 @@ export default function Platforms() {
             loadData();
         } else if (error) {
             navigate(location.pathname, { replace: true });
-            toast.error('Shopify connection failed', { description: decodeURIComponent(error) });
+            const errorMsg = decodeURIComponent(error);
+            setShopifyError(errorMsg);
+            toast.error('Shopify connection failed', { description: errorMsg, duration: 10000 });
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [location.search]);
@@ -294,6 +299,24 @@ export default function Platforms() {
                         Connect and manage your e-commerce platforms including Shopify, WooCommerce, BigCommerce, and Faire for AI-powered automation.
                     </p>
                 </div>
+
+                {/* Shopify Connection Error */}
+                {shopifyError && (
+                    <Alert variant="destructive" className="mb-6">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertTitle>Shopify Connection Failed</AlertTitle>
+                        <AlertDescription>
+                            {shopifyError}
+                            <Button
+                                variant="link"
+                                className="p-0 ml-2 h-auto text-red-800 underline"
+                                onClick={() => setShopifyError(null)}
+                            >
+                                Dismiss
+                            </Button>
+                        </AlertDescription>
+                    </Alert>
+                )}
 
                 {/* Demo Mode Toggle */}
                 {currentUser && !hasBetaAccess && (
