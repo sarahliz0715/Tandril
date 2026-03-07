@@ -103,6 +103,7 @@ serve(async (req) => {
       redirect_uri: callbackUrl,
       scope: scopes,
       state: state,
+      prompt: 'login',
     });
 
     const authUrl = `${authBaseUrl}?${params.toString()}`;
