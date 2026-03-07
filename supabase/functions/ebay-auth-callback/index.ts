@@ -136,7 +136,11 @@ serve(async (req) => {
     let ebayUsername = 'eBay User';
     if (userInfoResponse.ok) {
       const userInfo = await userInfoResponse.json();
+      console.log('[eBay Callback] User info response:', JSON.stringify(userInfo));
       ebayUsername = userInfo.username || userInfo.userId || 'eBay User';
+    } else {
+      const errorText = await userInfoResponse.text();
+      console.error(`[eBay Callback] User info fetch failed: ${userInfoResponse.status} - ${errorText}`);
     }
 
     console.log(`[eBay Callback] Connected to eBay user: ${ebayUsername}`);

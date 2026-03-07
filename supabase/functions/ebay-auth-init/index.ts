@@ -89,7 +89,8 @@ serve(async (req) => {
       'https://api.ebay.com/oauth/api_scope/sell.account.readonly',
       'https://api.ebay.com/oauth/api_scope/sell.account',
       'https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly',
-      'https://api.ebay.com/oauth/api_scope/sell.fulfillment'
+      'https://api.ebay.com/oauth/api_scope/sell.fulfillment',
+      'https://api.ebay.com/oauth/api_scope/commerce.identity.readonly'
     ].join(' ');
 
     // Construct callback URL
@@ -102,6 +103,7 @@ serve(async (req) => {
       redirect_uri: callbackUrl,
       scope: scopes,
       state: state,
+      prompt: 'login',
     });
 
     const authUrl = `${authBaseUrl}?${params.toString()}`;
