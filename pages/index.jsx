@@ -295,7 +295,7 @@ function PagesContent() {
                 
                 <Route path="/SellerCard" element={<SellerCard />} />
 
-                <Route path="/EbayCallback" element={<EbayCallback />} />
+                <Route path="/ebay-callback" element={<EbayCallback />} />
                 
                 <Route path="/Automations" element={<Automations />} />
                 
