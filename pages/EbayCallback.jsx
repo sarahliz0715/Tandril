@@ -53,7 +53,7 @@ export default function EbayCallback() {
                     setMessage('Processing authorization...');
                 }
 
-                const response = await api.functions.invoke('handleEbayCallback', {
+                const response = await api.functions.handleEbayCallback({
                     code,
                     state
                 });

@@ -20,10 +20,20 @@ serve(async (req) => {
   try {
     console.log('[eBay Callback] Request received:', req.method, req.url);
 
-    // Parse query parameters from eBay redirect (GET request)
+    // Parse code/state from URL params (direct eBay GET redirect) or POST body (frontend invoke)
     const url = new URL(req.url);
-    const code = url.searchParams.get('code');
-    const state = url.searchParams.get('state');
+    let code = url.searchParams.get('code');
+    let state = url.searchParams.get('state');
+
+    if (!code || !state) {
+      try {
+        const body = await req.json();
+        code = code || body.code;
+        state = state || body.state;
+      } catch {
+        // not a JSON body, ignore
+      }
+    }
 
     console.log('[eBay Callback] Parameters:', { code: code?.substring(0, 10) + '...', state: state?.substring(0, 10) + '...' });
 
