@@ -1084,7 +1084,7 @@ function xmlBlocks(xml: string, tag: string): string[] {
   return blocks;
 }
 
-async function fetchEbayDataForOrion(supabaseClient: any, platform: any): Promise<{ products: any[], orders: any[] }> {
+async function fetchEbayDataForOrion(supabaseClient: any, platform: any): Promise<{ products: any[], orders: any[], fetchError?: string }> {
   const credentials = platform.credentials;
   const metadata = platform.metadata || {};
   const isSandbox = metadata.environment === 'sandbox';
@@ -1092,13 +1092,16 @@ async function fetchEbayDataForOrion(supabaseClient: any, platform: any): Promis
   const marketplaceId = credentials.marketplace_id || 'EBAY_US';
   let accessToken = credentials.access_token;
 
-  // Refresh token if expired or close to expiry (5 min buffer)
+  // Refresh if: no expiry is recorded (old connection), OR token is expired/close to expiry.
+  // Bug previously: `tokenExpiresAt > 0` guard skipped refresh for connections made before
+  // token_expires_at was stored, leaving those tokens permanently stale.
   const tokenExpiresAt = metadata.token_expires_at ? new Date(metadata.token_expires_at).getTime() : 0;
-  if (tokenExpiresAt > 0 && Date.now() > tokenExpiresAt - 5 * 60 * 1000) {
+  const needsRefresh = !metadata.token_expires_at || Date.now() > tokenExpiresAt - 5 * 60 * 1000;
+  if (needsRefresh && credentials.refresh_token) {
     try {
       const ebayClientId = Deno.env.get('EBAY_CLIENT_ID');
       const ebayClientSecret = Deno.env.get('EBAY_CLIENT_SECRET');
-      if (ebayClientId && ebayClientSecret && credentials.refresh_token) {
+      if (ebayClientId && ebayClientSecret) {
         const tokenUrl = isSandbox
           ? 'https://api.sandbox.ebay.com/identity/v1/oauth2/token'
           : 'https://api.ebay.com/identity/v1/oauth2/token';
@@ -1116,7 +1119,6 @@ async function fetchEbayDataForOrion(supabaseClient: any, platform: any): Promis
         if (refreshRes.ok) {
           const refreshData = await refreshRes.json();
           accessToken = refreshData.access_token;
-          // Persist refreshed token so next request doesn't need to refresh again
           await supabaseClient
             .from('platforms')
             .update({
@@ -1131,10 +1133,14 @@ async function fetchEbayDataForOrion(supabaseClient: any, platform: any): Promis
               },
             })
             .eq('id', platform.id);
+          console.log('[Orion] eBay token refreshed successfully');
+        } else {
+          const errText = await refreshRes.text();
+          console.warn('[Orion] eBay token refresh failed:', refreshRes.status, errText);
         }
       }
-    } catch {
-      // Use existing token; will fail gracefully below if truly expired
+    } catch (e: any) {
+      console.warn('[Orion] eBay token refresh error:', e.message);
     }
   }
 
@@ -1149,6 +1155,7 @@ async function fetchEbayDataForOrion(supabaseClient: any, platform: any): Promis
 
   // ── 1. Try Sell Inventory API (works for managed-inventory / API-created listings) ──
   const invRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item?limit=100`, { headers: restHeaders });
+  console.log('[Orion] eBay Sell Inventory API status:', invRes.status);
   if (invRes.ok) {
     const invData = await invRes.json();
     const offerPrices: Record<string, number> = {};
@@ -1173,12 +1180,16 @@ async function fetchEbayDataForOrion(supabaseClient: any, platform: any): Promis
         platform_type: 'ebay',
       });
     }
+    console.log(`[Orion] eBay Sell Inventory API: ${products.length} items`);
   } else {
-    console.warn('[Orion] eBay Sell Inventory API failed:', invRes.status);
+    const errText = await invRes.text();
+    console.warn('[Orion] eBay Sell Inventory API failed:', invRes.status, errText.slice(0, 200));
   }
 
   // ── 2. Fallback: Trading API GetMyeBaySelling (handles traditional/UI-created listings) ──
+  // Note: eBay Trading API always returns HTTP 200, even for errors — check <Ack> in XML body.
   if (products.length === 0) {
+    let tradingError = '';
     try {
       const tradingBody = `<?xml version="1.0" encoding="utf-8"?>
 <GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
@@ -1198,8 +1209,16 @@ async function fetchEbayDataForOrion(supabaseClient: any, platform: any): Promis
         body: tradingBody,
       });
 
-      if (tradingRes.ok) {
-        const xml = await tradingRes.text();
+      const xml = await tradingRes.text();
+      const ack = xmlVal(xml, 'Ack');
+      console.log(`[Orion] eBay Trading API HTTP ${tradingRes.status}, Ack=${ack}`);
+
+      if (ack === 'Failure' || ack === 'PartialFailure') {
+        const errMsg = xmlVal(xml, 'LongMessage') || xmlVal(xml, 'ShortMessage');
+        const errCode = xmlVal(xml, 'ErrorCode');
+        tradingError = `Trading API error ${errCode}: ${errMsg}`;
+        console.warn('[Orion]', tradingError);
+      } else if (ack === 'Success' || ack === 'Warning') {
         const items = xmlBlocks(xml, 'Item');
         for (const item of items) {
           const title = xmlVal(item, 'Title');
@@ -1219,12 +1238,22 @@ async function fetchEbayDataForOrion(supabaseClient: any, platform: any): Promis
             });
           }
         }
-        console.log(`[Orion] eBay Trading API returned ${products.length} listings`);
+        console.log(`[Orion] eBay Trading API: ${products.length} active listings`);
       } else {
-        console.warn('[Orion] eBay Trading API failed:', tradingRes.status);
+        tradingError = `Unexpected Ack value: "${ack}"`;
+        console.warn('[Orion] eBay Trading API unexpected response, Ack:', ack, xml.slice(0, 300));
+      }
+
+      if (products.length === 0 && !tradingError) {
+        console.log('[Orion] eBay Trading API returned 0 active listings (seller may have no active items)');
+      }
+
+      if (tradingError) {
+        return { products: [], orders: [], fetchError: tradingError };
       }
     } catch (e: any) {
-      console.warn('[Orion] eBay Trading API error:', e.message);
+      console.warn('[Orion] eBay Trading API exception:', e.message);
+      return { products: [], orders: [], fetchError: e.message };
     }
   }
 
@@ -1319,16 +1348,22 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
   }
 
   // Fetch live eBay data for any connected eBay platforms
+  const ebayFetchErrors: string[] = [];
   for (const platform of (platforms || [])) {
-    if (platform.platform_type === 'ebay' && platform.credentials?.access_token) {
+    if (platform.platform_type === 'ebay') {
+      if (!platform.credentials?.access_token) {
+        ebayFetchErrors.push('No access token found — try reconnecting eBay in the Platforms tab');
+        continue;
+      }
       try {
         const ebayData = await fetchEbayDataForOrion(supabaseClient, platform);
         products = [...products, ...ebayData.products];
         productCount += ebayData.products.length;
-        // eBay orders are merged below
         (platform as any)._ebayOrders = ebayData.orders;
+        if (ebayData.fetchError) ebayFetchErrors.push(ebayData.fetchError);
       } catch (e: any) {
         console.warn('[Orion] eBay data fetch failed:', e.message);
+        ebayFetchErrors.push(e.message);
       }
     }
   }
@@ -1360,6 +1395,7 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     orders,
     total_orders: totalOrders,
     low_stock_products: lowStockProducts,
+    ebay_fetch_errors: ebayFetchErrors,
     metrics: {
       total_revenue: totalRevenue,
       avg_order_value: avgOrderValue,
@@ -1435,6 +1471,10 @@ async function chatWithClaude(
 
   const lowStockSection = storeContext.low_stock_products.length > 0
     ? `\n**⚠️ Low Stock Alert (${storeContext.low_stock_products.length} products at 5 or fewer units):**\n${formatLowStock(storeContext.low_stock_products)}\n`
+    : '';
+
+  const ebayErrorSection = storeContext.ebay_fetch_errors?.length > 0
+    ? `\n**⚠️ eBay Data Fetch Error (could not load eBay listings):**\n${storeContext.ebay_fetch_errors.map((e: string) => `  - ${e}`).join('\n')}\nTell the user this specific error so they can fix it. If the error mentions "invalid token" or "expired", tell them to disconnect and reconnect their eBay account in the Platforms tab.\n`
     : '';
 
   const memorySection = memoryNotes.length > 0
@@ -1575,7 +1615,7 @@ Action grouping — choose the most efficient approach:
 - Total Orders: ${storeContext.total_orders} (showing last ${storeContext.orders.length} below)
 - Total Revenue (recent): $${storeContext.metrics.total_revenue.toFixed(2)}
 - Average Order Value: $${storeContext.metrics.avg_order_value.toFixed(2)}
-${lowStockSection}${memorySection}
+${lowStockSection}${ebayErrorSection}${memorySection}
 ${mode !== 'demo/test' ? `**Product Inventory (${storeContext.products.length} of ${storeContext.total_products} products):**
 ${formatProducts(storeContext.products)}
 
