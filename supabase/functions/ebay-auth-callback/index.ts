@@ -17,13 +17,26 @@ serve(async (req) => {
     return new Response('ok', { headers: corsHeaders, status: 200 });
   }
 
+  let isPostFromFrontend = false;
+
   try {
     console.log('[eBay Callback] Request received:', req.method, req.url);
 
-    // Parse query parameters from eBay redirect (GET request)
+    // Parse code/state from URL params (direct eBay GET redirect) or POST body (frontend invoke)
     const url = new URL(req.url);
-    const code = url.searchParams.get('code');
-    const state = url.searchParams.get('state');
+    let code = url.searchParams.get('code');
+    let state = url.searchParams.get('state');
+
+    if (!code || !state) {
+      try {
+        const body = await req.json();
+        code = code || body.code;
+        state = state || body.state;
+        isPostFromFrontend = true;
+      } catch {
+        // not a JSON body, ignore
+      }
+    }
 
     console.log('[eBay Callback] Parameters:', { code: code?.substring(0, 10) + '...', state: state?.substring(0, 10) + '...' });
 
@@ -190,7 +203,14 @@ serve(async (req) => {
 
     console.log(`[eBay Callback] Successfully connected eBay account for user ${userId}`);
 
-    // Redirect back to the app with success
+    if (isPostFromFrontend) {
+      return new Response(
+        JSON.stringify({ success: true, username: ebayUsername, platform_id: platform.id }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+      );
+    }
+
+    // Redirect back to the app with success (direct eBay GET redirect)
     const appUrl = Deno.env.get('APP_URL') || 'http://localhost:5173';
     const redirectUrl = `${appUrl}/Platforms?connected=true&platform=ebay&username=${encodeURIComponent(ebayUsername)}`;
 
@@ -203,7 +223,14 @@ serve(async (req) => {
   } catch (error) {
     console.error('[eBay Callback] Error:', error);
 
-    // Redirect back to app with error
+    if (isPostFromFrontend) {
+      return new Response(
+        JSON.stringify({ success: false, error: error.message }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+      );
+    }
+
+    // Redirect back to app with error (direct eBay GET redirect)
     const appUrl = Deno.env.get('APP_URL') || 'http://localhost:5173';
     const redirectUrl = `${appUrl}/Platforms?error=${encodeURIComponent(error.message)}`;
 
