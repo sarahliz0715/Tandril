@@ -494,6 +494,112 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
 
 // ─── Store Context ────────────────────────────────────────────────────────────
 
+async function fetchEbayDataForOrion(platform: any): Promise<{ products: any[], orders: any[] }> {
+  const credentials = platform.credentials;
+  const metadata = platform.metadata || {};
+  const apiBase = metadata.environment === 'sandbox'
+    ? 'https://api.sandbox.ebay.com'
+    : 'https://api.ebay.com';
+  const marketplaceId = credentials.marketplace_id || 'EBAY_US';
+  let accessToken = credentials.access_token;
+
+  // Refresh token if expired or close to expiry (5 min buffer)
+  const tokenExpiresAt = metadata.token_expires_at ? new Date(metadata.token_expires_at).getTime() : 0;
+  if (tokenExpiresAt > 0 && Date.now() > tokenExpiresAt - 5 * 60 * 1000) {
+    try {
+      const ebayClientId = Deno.env.get('EBAY_CLIENT_ID');
+      const ebayClientSecret = Deno.env.get('EBAY_CLIENT_SECRET');
+      if (ebayClientId && ebayClientSecret && credentials.refresh_token) {
+        const tokenUrl = metadata.environment === 'sandbox'
+          ? 'https://api.sandbox.ebay.com/identity/v1/oauth2/token'
+          : 'https://api.ebay.com/identity/v1/oauth2/token';
+        const refreshRes = await fetch(tokenUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': `Basic ${btoa(`${ebayClientId}:${ebayClientSecret}`)}`,
+          },
+          body: new URLSearchParams({
+            grant_type: 'refresh_token',
+            refresh_token: credentials.refresh_token,
+          }).toString(),
+        });
+        if (refreshRes.ok) {
+          const refreshData = await refreshRes.json();
+          accessToken = refreshData.access_token;
+        }
+      }
+    } catch {
+      // Use existing token; will fail gracefully below if truly expired
+    }
+  }
+
+  const headers: Record<string, string> = {
+    'Authorization': `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+    'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
+  };
+
+  const products: any[] = [];
+  const orders: any[] = [];
+
+  // Fetch inventory items
+  const invRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item?limit=50`, { headers });
+  if (invRes.ok) {
+    const invData = await invRes.json();
+
+    // Fetch offers to get prices (keyed by SKU)
+    const offerPrices: Record<string, number> = {};
+    const offersRes = await fetch(`${apiBase}/sell/inventory/v1/offer?limit=200`, { headers });
+    if (offersRes.ok) {
+      const offersData = await offersRes.json();
+      for (const offer of offersData.offers || []) {
+        if (offer.sku && offer.pricingSummary?.price?.value) {
+          offerPrices[offer.sku] = parseFloat(offer.pricingSummary.price.value);
+        }
+      }
+    }
+
+    for (const item of invData.inventoryItems || []) {
+      products.push({
+        title: item.product?.title || item.sku || 'eBay Item',
+        sku: item.sku,
+        price: offerPrices[item.sku] ?? null,
+        inventory_quantity: item.availability?.shipToLocationAvailability?.quantity ?? 0,
+        status: 'active',
+        vendor: item.product?.brand || '',
+        product_type: '',
+        platform_type: 'ebay',
+      });
+    }
+  } else {
+    console.warn('[Orion] eBay inventory fetch failed:', invRes.status, await invRes.text());
+  }
+
+  // Fetch orders
+  const ordersRes = await fetch(`${apiBase}/sell/fulfillment/v1/order?limit=25`, { headers });
+  if (ordersRes.ok) {
+    const ordersData = await ordersRes.json();
+    for (const order of ordersData.orders || []) {
+      orders.push({
+        id: order.orderId,
+        order_number: order.orderId,
+        created_at: order.creationDate,
+        total_price: parseFloat(order.pricingSummary?.total?.value || '0'),
+        financial_status: order.orderPaymentStatus === 'PAID' ? 'paid' : 'pending',
+        fulfillment_status: order.orderFulfillmentStatus === 'FULFILLED' ? 'fulfilled' : 'unfulfilled',
+        line_items: (order.lineItems || []).map((i: any) => ({
+          title: i.title,
+          quantity: i.quantity,
+        })),
+        platform_type: 'ebay',
+      });
+    }
+  }
+
+  return { products, orders };
+}
+
 async function getUserStoreContext(supabaseClient: any, userId: string) {
   const { data: platforms } = await supabaseClient
     .from('platforms')
@@ -501,34 +607,54 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     .eq('user_id', userId)
     .eq('is_active', true);
 
-  const { data: products, count: productCount } = await supabaseClient
+  const { data: dbProducts, count: productCount } = await supabaseClient
     .from('products')
     .select('*', { count: 'exact' })
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(50);
 
-  const { data: orders, count: orderCount } = await supabaseClient
+  const { data: dbOrders, count: orderCount } = await supabaseClient
     .from('orders')
     .select('*', { count: 'exact' })
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(25);
 
-  const totalRevenue = orders?.reduce((sum, o) => sum + (parseFloat(o.total_price) || 0), 0) || 0;
-  const avgOrderValue = orders && orders.length > 0 ? totalRevenue / orders.length : 0;
+  // Fetch live eBay data for any connected eBay platforms
+  let ebayProducts: any[] = [];
+  let ebayOrders: any[] = [];
+  for (const platform of (platforms || [])) {
+    if (platform.platform_type === 'ebay' && platform.credentials?.access_token) {
+      try {
+        const ebayData = await fetchEbayDataForOrion(platform);
+        ebayProducts = ebayProducts.concat(ebayData.products);
+        ebayOrders = ebayOrders.concat(ebayData.orders);
+      } catch (e: any) {
+        console.warn('[Orion] eBay data fetch failed:', e.message);
+      }
+    }
+  }
 
-  const lowStockProducts = (products || []).filter((p: any) => {
+  const products = [...(dbProducts || []), ...ebayProducts];
+  const orders = [...(dbOrders || []), ...ebayOrders];
+  const totalProducts = (productCount || 0) + ebayProducts.length;
+  const totalOrders = (orderCount || 0) + ebayOrders.length;
+
+  const totalRevenue = orders.reduce((sum, o) => sum + (parseFloat(o.total_price) || 0), 0);
+  const avgOrderValue = orders.length > 0 ? totalRevenue / orders.length : 0;
+
+  const lowStockProducts = products.filter((p: any) => {
     const qty = p.inventory_quantity ?? p.stock_quantity ?? p.quantity ?? null;
     return qty !== null && qty <= 5;
   });
 
   return {
     platforms: platforms || [],
-    products: products || [],
-    total_products: productCount || 0,
-    orders: orders || [],
-    total_orders: orderCount || 0,
+    products,
+    total_products: totalProducts,
+    orders,
+    total_orders: totalOrders,
     low_stock_products: lowStockProducts,
     metrics: {
       total_revenue: totalRevenue,
