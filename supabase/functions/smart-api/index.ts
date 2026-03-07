@@ -1071,12 +1071,24 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
 
 // ─── Store Context ────────────────────────────────────────────────────────────
 
-async function fetchEbayDataForOrion(platform: any): Promise<{ products: any[], orders: any[] }> {
+// Simple XML value extractor (no library needed for our flat structure)
+function xmlVal(xml: string, tag: string): string {
+  const m = xml.match(new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`));
+  return m ? m[1].trim() : '';
+}
+function xmlBlocks(xml: string, tag: string): string[] {
+  const blocks: string[] = [];
+  const re = new RegExp(`<${tag}[\\s>][\\s\\S]*?</${tag}>`, 'g');
+  let m;
+  while ((m = re.exec(xml)) !== null) blocks.push(m[0]);
+  return blocks;
+}
+
+async function fetchEbayDataForOrion(supabaseClient: any, platform: any): Promise<{ products: any[], orders: any[] }> {
   const credentials = platform.credentials;
   const metadata = platform.metadata || {};
-  const apiBase = metadata.environment === 'sandbox'
-    ? 'https://api.sandbox.ebay.com'
-    : 'https://api.ebay.com';
+  const isSandbox = metadata.environment === 'sandbox';
+  const apiBase = isSandbox ? 'https://api.sandbox.ebay.com' : 'https://api.ebay.com';
   const marketplaceId = credentials.marketplace_id || 'EBAY_US';
   let accessToken = credentials.access_token;
 
@@ -1087,7 +1099,7 @@ async function fetchEbayDataForOrion(platform: any): Promise<{ products: any[], 
       const ebayClientId = Deno.env.get('EBAY_CLIENT_ID');
       const ebayClientSecret = Deno.env.get('EBAY_CLIENT_SECRET');
       if (ebayClientId && ebayClientSecret && credentials.refresh_token) {
-        const tokenUrl = metadata.environment === 'sandbox'
+        const tokenUrl = isSandbox
           ? 'https://api.sandbox.ebay.com/identity/v1/oauth2/token'
           : 'https://api.ebay.com/identity/v1/oauth2/token';
         const refreshRes = await fetch(tokenUrl, {
@@ -1104,6 +1116,21 @@ async function fetchEbayDataForOrion(platform: any): Promise<{ products: any[], 
         if (refreshRes.ok) {
           const refreshData = await refreshRes.json();
           accessToken = refreshData.access_token;
+          // Persist refreshed token so next request doesn't need to refresh again
+          await supabaseClient
+            .from('platforms')
+            .update({
+              credentials: {
+                ...credentials,
+                access_token: refreshData.access_token,
+                refresh_token: refreshData.refresh_token || credentials.refresh_token,
+              },
+              metadata: {
+                ...metadata,
+                token_expires_at: new Date(Date.now() + (refreshData.expires_in * 1000)).toISOString(),
+              },
+            })
+            .eq('id', platform.id);
         }
       }
     } catch {
@@ -1111,7 +1138,7 @@ async function fetchEbayDataForOrion(platform: any): Promise<{ products: any[], 
     }
   }
 
-  const headers: Record<string, string> = {
+  const restHeaders: Record<string, string> = {
     'Authorization': `Bearer ${accessToken}`,
     'Content-Type': 'application/json',
     'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
@@ -1120,14 +1147,12 @@ async function fetchEbayDataForOrion(platform: any): Promise<{ products: any[], 
   const products: any[] = [];
   const orders: any[] = [];
 
-  // Fetch inventory items
-  const invRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item?limit=50`, { headers });
+  // ── 1. Try Sell Inventory API (works for managed-inventory / API-created listings) ──
+  const invRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item?limit=100`, { headers: restHeaders });
   if (invRes.ok) {
     const invData = await invRes.json();
-
-    // Fetch offers to get prices (keyed by SKU)
     const offerPrices: Record<string, number> = {};
-    const offersRes = await fetch(`${apiBase}/sell/inventory/v1/offer?limit=200`, { headers });
+    const offersRes = await fetch(`${apiBase}/sell/inventory/v1/offer?limit=200`, { headers: restHeaders });
     if (offersRes.ok) {
       const offersData = await offersRes.json();
       for (const offer of offersData.offers || []) {
@@ -1136,7 +1161,6 @@ async function fetchEbayDataForOrion(platform: any): Promise<{ products: any[], 
         }
       }
     }
-
     for (const item of invData.inventoryItems || []) {
       products.push({
         title: item.product?.title || item.sku || 'eBay Item',
@@ -1150,11 +1174,62 @@ async function fetchEbayDataForOrion(platform: any): Promise<{ products: any[], 
       });
     }
   } else {
-    console.warn('[Orion] eBay inventory fetch failed:', invRes.status, await invRes.text());
+    console.warn('[Orion] eBay Sell Inventory API failed:', invRes.status);
   }
 
-  // Fetch orders
-  const ordersRes = await fetch(`${apiBase}/sell/fulfillment/v1/order?limit=25`, { headers });
+  // ── 2. Fallback: Trading API GetMyeBaySelling (handles traditional/UI-created listings) ──
+  if (products.length === 0) {
+    try {
+      const tradingBody = `<?xml version="1.0" encoding="utf-8"?>
+<GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ActiveList><Include>true</Include><Pagination><EntriesPerPage>100</EntriesPerPage></Pagination></ActiveList>
+  <DetailLevel>ReturnSummary</DetailLevel>
+</GetMyeBaySellingRequest>`;
+
+      const tradingRes = await fetch(`${apiBase}/ws/api.dll`, {
+        method: 'POST',
+        headers: {
+          'X-EBAY-API-CALL-NAME': 'GetMyeBaySelling',
+          'X-EBAY-API-SITEID': '0',
+          'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
+          'X-EBAY-API-IAF-TOKEN': accessToken,
+          'Content-Type': 'text/xml',
+        },
+        body: tradingBody,
+      });
+
+      if (tradingRes.ok) {
+        const xml = await tradingRes.text();
+        const items = xmlBlocks(xml, 'Item');
+        for (const item of items) {
+          const title = xmlVal(item, 'Title');
+          const sku = xmlVal(item, 'SKU') || xmlVal(item, 'ItemID');
+          const price = parseFloat(xmlVal(item, 'CurrentPrice') || '0');
+          const qty = parseInt(xmlVal(item, 'QuantityAvailable') || xmlVal(item, 'Quantity') || '0', 10);
+          if (title) {
+            products.push({
+              title,
+              sku,
+              price: price || null,
+              inventory_quantity: qty,
+              status: 'active',
+              vendor: '',
+              product_type: '',
+              platform_type: 'ebay',
+            });
+          }
+        }
+        console.log(`[Orion] eBay Trading API returned ${products.length} listings`);
+      } else {
+        console.warn('[Orion] eBay Trading API failed:', tradingRes.status);
+      }
+    } catch (e: any) {
+      console.warn('[Orion] eBay Trading API error:', e.message);
+    }
+  }
+
+  // ── 3. Orders via Sell Fulfillment API ──
+  const ordersRes = await fetch(`${apiBase}/sell/fulfillment/v1/order?limit=25`, { headers: restHeaders });
   if (ordersRes.ok) {
     const ordersData = await ordersRes.json();
     for (const order of ordersData.orders || []) {
@@ -1247,7 +1322,7 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
   for (const platform of (platforms || [])) {
     if (platform.platform_type === 'ebay' && platform.credentials?.access_token) {
       try {
-        const ebayData = await fetchEbayDataForOrion(platform);
+        const ebayData = await fetchEbayDataForOrion(supabaseClient, platform);
         products = [...products, ...ebayData.products];
         productCount += ebayData.products.length;
         // eBay orders are merged below
