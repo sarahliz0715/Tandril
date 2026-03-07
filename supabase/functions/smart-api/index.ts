@@ -1437,23 +1437,40 @@ ${mode === 'demo/test' ?
 
   messages.push({ role: 'user', content: currentContent });
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': anthropicApiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-3-haiku-20240307',
-      max_tokens: 2048,
-      system: systemPrompt,
-      messages,
-    }),
-  });
+  // Retry up to 3 times on overloaded errors with exponential backoff
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
+    }
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': anthropicApiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2048,
+        system: systemPrompt,
+        messages,
+      }),
+    });
 
-  if (!response.ok) throw new Error(`Claude API error: ${await response.text()}`);
+    if (response.ok) {
+      const data = await response.json();
+      return data.content[0].text;
+    }
 
-  const data = await response.json();
-  return data.content[0].text;
+    const errorText = await response.text();
+    let isOverloaded = false;
+    try {
+      isOverloaded = JSON.parse(errorText)?.error?.type === 'overloaded_error';
+    } catch { /* ignore */ }
+
+    lastError = new Error(`Claude API error: ${errorText}`);
+    if (!isOverloaded) break; // Don't retry non-overload errors
+  }
+  throw lastError!;
 }
