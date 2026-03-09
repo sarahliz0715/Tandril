@@ -74,6 +74,8 @@ import SellerCard from "./SellerCard";
 
 import EbayCallback from "./EbayCallback";
 
+import OAuthCallback from "./OAuthCallback";
+
 import Automations from "./Automations";
 
 import AutomationSetup from "./AutomationSetup";
@@ -173,7 +175,9 @@ const PAGES = {
     SellerCard: SellerCard,
 
     EbayCallback: EbayCallback,
-    
+
+    OAuthCallback: OAuthCallback,
+
     Automations: Automations,
     
     AutomationSetup: AutomationSetup,
@@ -296,7 +300,9 @@ function PagesContent() {
                 <Route path="/SellerCard" element={<SellerCard />} />
 
                 <Route path="/ebay-callback" element={<EbayCallback />} />
-                
+
+                <Route path="/oauth-callback" element={<OAuthCallback />} />
+
                 <Route path="/Automations" element={<Automations />} />
                 
                 <Route path="/AutomationSetup" element={<AutomationSetup />} />

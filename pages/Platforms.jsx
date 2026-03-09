@@ -81,11 +81,10 @@ export default function Platforms() {
                     });
                 });
         } else if (connected === 'true') {
-            // Legacy flow: direct callback redirect with ?connected=true
+            // Generic callback redirect with ?connected=true (eBay, legacy Shopify, etc.)
             navigate(location.pathname, { replace: true });
-            toast.success('Shopify store connected!', {
-                description: params.get('shop') ? `${params.get('shop')} is now connected.` : undefined
-            });
+            const platformName = params.get('platform') || params.get('shop') || 'Platform';
+            toast.success(`${platformName} connected!`);
             loadData();
         } else if (error) {
             navigate(location.pathname, { replace: true });
