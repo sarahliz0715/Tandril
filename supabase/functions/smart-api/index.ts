@@ -1194,7 +1194,7 @@ async function fetchEbayDataForOrion(supabaseClient: any, platform: any): Promis
       const tradingBody = `<?xml version="1.0" encoding="utf-8"?>
 <GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
   <ActiveList><Include>true</Include><Pagination><EntriesPerPage>100</EntriesPerPage></Pagination></ActiveList>
-  <DetailLevel>ReturnSummary</DetailLevel>
+  <DetailLevel>ReturnAll</DetailLevel>
 </GetMyeBaySellingRequest>`;
 
       const tradingRes = await fetch(`${apiBase}/ws/api.dll`, {
