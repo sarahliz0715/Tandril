@@ -16,6 +16,13 @@ import AmazonConnectButton from './AmazonConnectButton';
 import WooCommerceConnectButton from './WooCommerceConnectButton';
 import BigCommerceConnectButton from './BigCommerceConnectButton';
 import FaireConnectButton from './FaireConnectButton';
+import TikTokShopConnectButton from './TikTokShopConnectButton';
+import WalmartConnectButton from './WalmartConnectButton';
+import EcwidConnectButton from './EcwidConnectButton';
+import MagentoConnectButton from './MagentoConnectButton';
+import PrestaShopConnectButton from './PrestaShopConnectButton';
+import WishConnectButton from './WishConnectButton';
+import GenericOAuthConnectButton from './GenericOAuthConnectButton';
 import { Progress } from "@/components/ui/progress";
 
 // Platform-specific icons
@@ -26,6 +33,7 @@ const platformIcons = {
   teepublic: Store,
   redbubble: Store,
   facebook: Globe,
+  meta_ads: Globe,
   walmart: Store,
   amazon: ShoppingCart,
   amazon_seller: ShoppingCart,
@@ -34,7 +42,13 @@ const platformIcons = {
   bigcommerce: Store,
   faire: Package,
   squarespace: Store,
-  tiktok_shop: Globe
+  tiktok_shop: Globe,
+  wix: Store,
+  square: ShoppingCart,
+  ecwid: Store,
+  magento: Store,
+  prestashop: Store,
+  wish: ShoppingCart,
 };
 
 export default function PlatformCard({
@@ -135,8 +149,84 @@ export default function PlatformCard({
             disabled={isAtLimit}
           />
         );
+      case 'tiktok_shop':
+        return (
+          <TikTokShopConnectButton
+            onConnectionSuccess={onConnectionSuccess}
+            disabled={isAtLimit}
+          />
+        );
+      case 'walmart':
+        return (
+          <WalmartConnectButton
+            onConnectionSuccess={onConnectionSuccess}
+            disabled={isAtLimit}
+          />
+        );
+      case 'ecwid':
+        return (
+          <EcwidConnectButton
+            onConnectionSuccess={onConnectionSuccess}
+            disabled={isAtLimit}
+          />
+        );
+      case 'magento':
+        return (
+          <MagentoConnectButton
+            onConnectionSuccess={onConnectionSuccess}
+            disabled={isAtLimit}
+          />
+        );
+      case 'prestashop':
+        return (
+          <PrestaShopConnectButton
+            onConnectionSuccess={onConnectionSuccess}
+            disabled={isAtLimit}
+          />
+        );
+      case 'wish':
+        return (
+          <WishConnectButton
+            onConnectionSuccess={onConnectionSuccess}
+            disabled={isAtLimit}
+          />
+        );
+      case 'square':
+        return (
+          <GenericOAuthConnectButton
+            platformType="square"
+            label="Connect Square"
+            className="bg-black hover:bg-gray-900 text-white"
+            disabled={isAtLimit}
+          />
+        );
+      case 'wix':
+        return (
+          <GenericOAuthConnectButton
+            platformType="wix"
+            label="Connect Wix"
+            className="bg-[#0C6EFC] hover:bg-[#0a5fd6] text-white"
+            disabled={isAtLimit}
+          />
+        );
+      case 'squarespace':
+        return (
+          <GenericOAuthConnectButton
+            platformType="squarespace"
+            label="Connect Squarespace"
+            className="bg-slate-900 hover:bg-slate-800 text-white"
+            disabled={isAtLimit}
+          />
+        );
+      case 'meta_ads':
+        return (
+          <FacebookConnectButton
+            onConnectionSuccess={onConnectionSuccess}
+            disabled={isAtLimit}
+          />
+        );
       default:
-        return <Button disabled>Coming Soon</Button>;
+        return <Button disabled className="w-full">Coming Soon</Button>;
     }
   };
   

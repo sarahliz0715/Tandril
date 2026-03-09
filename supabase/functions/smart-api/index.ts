@@ -522,12 +522,15 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
 
   switch (action.type) {
     case 'get_inventory': {
-      // Returns live Shopify products normalized for the Inventory page
+      // Returns live Shopify + eBay products normalized for the Inventory page
+      const LOW_STOCK_THRESHOLD = 10;
+      const inventory: any[] = [];
+
+      // Fetch Shopify products
       const res = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
       if (!res.ok) throw new Error(`Shopify products fetch failed: ${await res.text()}`);
       const { products: shopifyProducts } = await res.json();
-      const LOW_STOCK_THRESHOLD = 10;
-      const inventory = (shopifyProducts || []).map((p: any) => {
+      for (const p of (shopifyProducts || [])) {
         const variants = p.variants || [];
         const totalStock = variants.reduce((sum: number, v: any) => sum + (v.inventory_quantity || 0), 0);
         const skus = variants.map((v: any) => v.sku).filter(Boolean).join(', ');
@@ -537,7 +540,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         if (p.status === 'archived') status = 'discontinued';
         else if (totalStock === 0) status = 'out_of_stock';
         else if (totalStock <= LOW_STOCK_THRESHOLD) status = 'low_stock';
-        return {
+        inventory.push({
           id: String(p.id),
           product_name: p.title,
           sku: skus || 'N/A',
@@ -551,8 +554,75 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           platform_listings: [{ listing_id: String(p.id), platform: 'Shopify' }],
           shopify_id: p.id,
           source: 'shopify',
-        };
-      });
+        });
+      }
+
+      // Fetch eBay products for any connected eBay platforms
+      try {
+        const { data: ebayPlatforms } = await supabaseClient
+          .from('platforms')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('platform_type', 'ebay')
+          .or('is_active.eq.true,status.eq.connected');
+
+        for (const ebayPlatform of (ebayPlatforms || [])) {
+          const creds = ebayPlatform.credentials;
+          const meta = ebayPlatform.metadata || {};
+          if (!creds?.access_token) continue;
+
+          const ebayApiBase = meta.environment === 'sandbox'
+            ? 'https://api.sandbox.ebay.com'
+            : 'https://api.ebay.com';
+          const marketplaceId = creds.marketplace_id || 'EBAY_US';
+          const ebayHeaders: Record<string, string> = {
+            'Authorization': `Bearer ${creds.access_token}`,
+            'Content-Type': 'application/json',
+            'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
+          };
+
+          // Fetch offer prices keyed by SKU
+          const offerPrices: Record<string, number> = {};
+          const offersRes = await fetch(`${ebayApiBase}/sell/inventory/v1/offer?limit=200`, { headers: ebayHeaders });
+          if (offersRes.ok) {
+            const offersData = await offersRes.json();
+            for (const offer of offersData.offers || []) {
+              if (offer.sku && offer.pricingSummary?.price?.value) {
+                offerPrices[offer.sku] = parseFloat(offer.pricingSummary.price.value);
+              }
+            }
+          }
+
+          const ebayInvRes = await fetch(`${ebayApiBase}/sell/inventory/v1/inventory_item?limit=200`, { headers: ebayHeaders });
+          if (ebayInvRes.ok) {
+            const ebayInvData = await ebayInvRes.json();
+            for (const item of ebayInvData.inventoryItems || []) {
+              const totalStock = item.availability?.shipToLocationAvailability?.quantity ?? 0;
+              const basePrice = offerPrices[item.sku] ?? 0;
+              let status = 'active';
+              if (totalStock === 0) status = 'out_of_stock';
+              else if (totalStock <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+              inventory.push({
+                id: `ebay-${item.sku}`,
+                product_name: item.product?.title || item.sku || 'eBay Item',
+                sku: item.sku || 'N/A',
+                category: '',
+                status,
+                total_stock: totalStock,
+                base_price: basePrice,
+                image_url: item.product?.imageUrls?.[0] || null,
+                vendor: item.product?.brand || '',
+                tags: '',
+                platform_listings: [{ listing_id: item.sku, platform: 'eBay' }],
+                source: 'ebay',
+              });
+            }
+          }
+        }
+      } catch (e: any) {
+        console.warn('[smart-api] eBay inventory fetch failed:', e.message);
+      }
+
       return { inventory };
     }
 

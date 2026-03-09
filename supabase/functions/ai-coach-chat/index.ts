@@ -689,7 +689,8 @@ async function chatWithClaude(
       const status = p.status || '';
       const vendor = p.vendor || '';
       const type = p.product_type || p.category || '';
-      return `  - ${name} | SKU: ${sku} | Price: ${price} | Stock: ${stock}${vendor ? ` | Vendor: ${vendor}` : ''}${type ? ` | Type: ${type}` : ''}${status ? ` | Status: ${status}` : ''}`;
+      const platform = p.platform_type || p.platform || '';
+      return `  - ${name} | SKU: ${sku} | Price: ${price} | Stock: ${stock}${platform ? ` | Platform: ${platform}` : ''}${vendor ? ` | Vendor: ${vendor}` : ''}${type ? ` | Type: ${type}` : ''}${status ? ` | Status: ${status}` : ''}`;
     }).join('\n');
   };
 
