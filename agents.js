@@ -102,4 +102,45 @@ export const agentSDK = {
 
     return data;
   },
+
+  /**
+   * List all conversations for the current user, most recent first.
+   */
+  async listConversations() {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) throw new Error('Not authenticated');
+
+    const { data: convs, error } = await supabase
+      .from('orion_conversations')
+      .select('id, title, created_at, updated_at')
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false })
+      .limit(50);
+
+    if (error) throw new Error(`Failed to list conversations: ${error.message}`);
+
+    return (convs || []).map(c => ({
+      id: c.id,
+      messages: [],
+      metadata: { name: c.title },
+      created_at: c.created_at,
+      updated_at: c.updated_at,
+    }));
+  },
+
+  /**
+   * Delete a conversation and all its messages (cascades via FK).
+   */
+  async deleteConversation(id) {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) throw new Error('Not authenticated');
+
+    const { error } = await supabase
+      .from('orion_conversations')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', user.id);
+
+    if (error) throw new Error(`Failed to delete conversation: ${error.message}`);
+  },
 };
