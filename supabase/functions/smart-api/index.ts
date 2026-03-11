@@ -361,10 +361,13 @@ async function saveMessage(supabaseClient: any, userId: string, conversationId: 
 
   if (msgError) throw new Error(`Failed to save message: ${msgError.message}`);
 
-  await supabaseClient
+  const { error: tsError } = await supabaseClient
     .from('orion_conversations')
     .update({ updated_at: new Date().toISOString() })
     .eq('id', conversationId);
+  // Log but don't throw — message is already saved; a stale updated_at just
+  // affects sort order in loadRecentHistory, not data correctness.
+  if (tsError) console.warn('[Orion] Failed to bump conversation updated_at:', tsError.message);
 }
 
 async function loadMemoryNotes(supabaseClient: any, userId: string) {
@@ -1191,7 +1194,7 @@ async function fetchEbayDataForOrion(supabaseClient: any, platform: any): Promis
         if (refreshRes.ok) {
           const refreshData = await refreshRes.json();
           accessToken = refreshData.access_token;
-          await supabaseClient
+          const { error: tokenSaveErr } = await supabaseClient
             .from('platforms')
             .update({
               credentials: {
@@ -1205,6 +1208,9 @@ async function fetchEbayDataForOrion(supabaseClient: any, platform: any): Promis
               },
             })
             .eq('id', platform.id);
+          // Log but don't abort — we have a fresh token in memory even if DB
+          // persistence failed. Next request will attempt refresh again.
+          if (tokenSaveErr) console.warn('[Orion] eBay refreshed token may not have persisted to DB:', tokenSaveErr.message);
           console.log('[Orion] eBay token refreshed successfully');
         } else {
           const errText = await refreshRes.text();
