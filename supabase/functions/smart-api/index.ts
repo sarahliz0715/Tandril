@@ -355,9 +355,11 @@ async function loadConversationHistory(supabaseClient: any, userId: string, conv
 }
 
 async function saveMessage(supabaseClient: any, userId: string, conversationId: string, role: string, content: string) {
-  await supabaseClient
+  const { error: msgError } = await supabaseClient
     .from('orion_messages')
     .insert({ user_id: userId, conversation_id: conversationId, role, content });
+
+  if (msgError) throw new Error(`Failed to save message: ${msgError.message}`);
 
   await supabaseClient
     .from('orion_conversations')
@@ -1316,6 +1318,13 @@ async function fetchEbayDataForOrion(supabaseClient: any, platform: any): Promis
 
       if (products.length === 0 && !tradingError) {
         console.log('[Orion] eBay Trading API returned 0 active listings (seller may have no active items)');
+        // Surface this as a soft diagnostic so Orion can explain the gap to the user
+        // rather than silently showing 0 eBay products with no explanation.
+        return {
+          products: [],
+          orders: [],
+          fetchError: 'eBay is connected but 0 active listings were found via both the Sell Inventory API and Trading API. If you believe you have active eBay listings, they may have recently ended or the eBay account may need to be reconnected from the Platforms tab.',
+        };
       }
 
       if (tradingError) {
@@ -1543,8 +1552,14 @@ async function chatWithClaude(
     ? `\n**⚠️ Low Stock Alert (${storeContext.low_stock_products.length} products at 5 or fewer units):**\n${formatLowStock(storeContext.low_stock_products)}\n`
     : '';
 
+  const ebayConnected = storeContext.platforms.some((p: any) => p.platform_type === 'ebay');
+  const ebayProducts = storeContext.products.filter((p: any) => p.platform_type === 'ebay');
   const ebayErrorSection = storeContext.ebay_fetch_errors?.length > 0
-    ? `\n**⚠️ eBay Data Fetch Error (could not load eBay listings):**\n${storeContext.ebay_fetch_errors.map((e: string) => `  - ${e}`).join('\n')}\nTell the user this specific error so they can fix it. If the error mentions "invalid token" or "expired", tell them to disconnect and reconnect their eBay account in the Platforms tab.\n`
+    ? `\n**⚠️ eBay Status (connected, but could not load listings):**\n${storeContext.ebay_fetch_errors.map((e: string) => `  - ${e}`).join('\n')}\nReport this specific message to the user. If it mentions "invalid token", "expired", or "reconnect", tell them to disconnect and reconnect eBay in the Platforms tab. Do NOT say "eBay hasn't been synced" or make up reasons — use the exact error above.\n`
+    : ebayConnected && ebayProducts.length === 0
+    ? `\n**ℹ️ eBay Status:** eBay is connected but 0 products were returned this request. This is a data retrieval issue — do NOT tell the user eBay "hasn't been synced" or that the integration is incomplete. Tell them eBay is connected but no active listings were fetched, and suggest reconnecting eBay in the Platforms tab if they believe they have active listings.\n`
+    : ebayConnected && ebayProducts.length > 0
+    ? `\n**✅ eBay Status:** ${ebayProducts.length} eBay listing(s) loaded successfully (shown in the product list below).\n`
     : '';
 
   const memorySection = memoryNotes.length > 0
