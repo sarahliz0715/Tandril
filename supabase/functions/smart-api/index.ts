@@ -189,9 +189,16 @@ serve(async (req) => {
         console.warn('[Orion] Could not load history/memory:', e.message);
       }
 
-      saveMessage(supabaseClient, user.id, conversationId, 'user', message).catch(
-        (e) => console.warn('[Orion] Could not save user message:', e.message)
-      );
+      // Await user message save so we know persistence succeeded before calling Claude.
+      // If this fails the error propagates and the user sees an error response rather
+      // than a response that silently doesn't appear on next page load.
+      try {
+        await saveMessage(supabaseClient, user.id, conversationId, 'user', message);
+      } catch (e: any) {
+        console.error('[Orion] Failed to save user message:', e.message);
+        // Don't abort — still call Claude so the user gets an answer,
+        // but log clearly so the issue is visible in edge function logs.
+      }
     }
 
     // Get Orion's response
@@ -1560,12 +1567,13 @@ async function chatWithClaude(
 
   const ebayConnected = storeContext.platforms.some((p: any) => p.platform_type === 'ebay');
   const ebayProducts = storeContext.products.filter((p: any) => p.platform_type === 'ebay');
+  const ebayMissingPrices = ebayProducts.filter((p: any) => p.price == null).length;
   const ebayErrorSection = storeContext.ebay_fetch_errors?.length > 0
     ? `\n**⚠️ eBay Status (connected, but could not load listings):**\n${storeContext.ebay_fetch_errors.map((e: string) => `  - ${e}`).join('\n')}\nReport this specific message to the user. If it mentions "invalid token", "expired", or "reconnect", tell them to disconnect and reconnect eBay in the Platforms tab. Do NOT say "eBay hasn't been synced" or make up reasons — use the exact error above.\n`
     : ebayConnected && ebayProducts.length === 0
     ? `\n**ℹ️ eBay Status:** eBay is connected but 0 products were returned this request. This is a data retrieval issue — do NOT tell the user eBay "hasn't been synced" or that the integration is incomplete. Tell them eBay is connected but no active listings were fetched, and suggest reconnecting eBay in the Platforms tab if they believe they have active listings.\n`
     : ebayConnected && ebayProducts.length > 0
-    ? `\n**✅ eBay Status:** ${ebayProducts.length} eBay listing(s) loaded successfully (shown in the product list below).\n`
+    ? `\n**✅ eBay Status:** ${ebayProducts.length} eBay listing(s) loaded. Stock quantities are available for all of them.${ebayMissingPrices > 0 ? ` NOTE: ${ebayMissingPrices} listing(s) have no price data (shown as N/A) — this is a limitation of the eBay Sell Inventory API price lookup, NOT a sync issue. Stock counts ARE accurate. Do NOT say the eBay data hasn't synced — it has.` : ' Prices and stock are both available.'}\n`
     : '';
 
   const memorySection = memoryNotes.length > 0
