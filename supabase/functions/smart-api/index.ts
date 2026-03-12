@@ -73,8 +73,17 @@ function removeOrionActionBlocks(text: string): string {
 function summarizeOrionAction(action: any): string {
   const name = action.product_name || action.title || action.name || 'product';
   switch (action.type) {
-    case 'create_product':      return `Created product: "${action.title || name}"`;
-    case 'update_inventory':    return `Updated inventory for "${name}" → ${action.quantity} units`;
+    case 'create_product':              return `Created product: "${action.title || name}"`;
+    case 'update_inventory':            return `Updated inventory for "${name}" → ${action.quantity} units`;
+    case 'update_status':               return `Set "${name}" status → ${action.status}`;
+    case 'ebay_update_inventory':       return `Updated eBay inventory for "${name}" → ${action.quantity} units`;
+    case 'ebay_update_price':           return `Updated eBay price for "${name}" → $${action.price}`;
+    case 'ebay_update_title':           return `Updated eBay title for "${name}"`;
+    case 'ebay_update_description':     return `Updated eBay description for "${name}"`;
+    case 'ebay_update_image':           return `Updated eBay images for "${name}"`;
+    case 'ebay_end_listing':            return `Ended eBay listing for "${name}"`;
+    case 'ebay_relist':                 return `Relisted "${name}" on eBay`;
+    case 'ebay_create_listing':         return `Created eBay listing: "${action.title || name}"`;
     case 'update_price':        return `Updated price for "${name}" → $${action.price}`;
     case 'update_title':        return `Updated title of "${name}" → "${action.new_title}"`;
     case 'update_tags':
@@ -503,6 +512,86 @@ function findProduct(allProducts: any[], sku: string, productName: string): any 
     if (bestMatch) return bestMatch;
   }
   return null;
+}
+
+// ─── eBay Client Helper ───────────────────────────────────────────────────────
+// Fetches the connected eBay platform, refreshes the token if needed, and
+// returns ready-to-use headers + apiBase. Used by all eBay write actions.
+async function getEbayClientForActions(supabaseClient: any, userId: string) {
+  const { data: ebayPlatforms } = await supabaseClient
+    .from('platforms')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('platform_type', 'ebay')
+    .or('is_active.eq.true,status.eq.connected')
+    .limit(1);
+
+  if (!ebayPlatforms || ebayPlatforms.length === 0) {
+    throw new Error('No connected eBay account found. Connect one in the Platforms tab first.');
+  }
+
+  const platform = ebayPlatforms[0];
+  const credentials = platform.credentials;
+  const metadata = platform.metadata || {};
+  const isSandbox = metadata.environment === 'sandbox';
+  const apiBase = isSandbox ? 'https://api.sandbox.ebay.com' : 'https://api.ebay.com';
+  const marketplaceId = credentials.marketplace_id || 'EBAY_US';
+  let accessToken = credentials.access_token;
+
+  // Refresh token if expired or close to expiry
+  const tokenExpiresAt = metadata.token_expires_at ? new Date(metadata.token_expires_at).getTime() : 0;
+  const needsRefresh = !metadata.token_expires_at || Date.now() > tokenExpiresAt - 5 * 60 * 1000;
+  if (needsRefresh && credentials.refresh_token) {
+    try {
+      const ebayClientId = Deno.env.get('EBAY_CLIENT_ID');
+      const ebayClientSecret = Deno.env.get('EBAY_CLIENT_SECRET');
+      if (ebayClientId && ebayClientSecret) {
+        const tokenUrl = isSandbox
+          ? 'https://api.sandbox.ebay.com/identity/v1/oauth2/token'
+          : 'https://api.ebay.com/identity/v1/oauth2/token';
+        const refreshRes = await fetch(tokenUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': `Basic ${btoa(`${ebayClientId}:${ebayClientSecret}`)}`,
+          },
+          body: new URLSearchParams({
+            grant_type: 'refresh_token',
+            refresh_token: credentials.refresh_token,
+          }).toString(),
+        });
+        if (refreshRes.ok) {
+          const refreshData = await refreshRes.json();
+          accessToken = refreshData.access_token;
+          const { error: tokenSaveErr } = await supabaseClient
+            .from('platforms')
+            .update({
+              credentials: {
+                ...credentials,
+                access_token: refreshData.access_token,
+                refresh_token: refreshData.refresh_token || credentials.refresh_token,
+              },
+              metadata: {
+                ...metadata,
+                token_expires_at: new Date(Date.now() + (refreshData.expires_in * 1000)).toISOString(),
+              },
+            })
+            .eq('id', platform.id);
+          if (tokenSaveErr) console.warn('[Orion] eBay token save error in action handler:', tokenSaveErr.message);
+        }
+      }
+    } catch (e: any) {
+      console.warn('[Orion] eBay token refresh error in action handler:', e.message);
+    }
+  }
+
+  const headers: Record<string, string> = {
+    'Authorization': `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+    'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
+  };
+
+  return { platform, apiBase, marketplaceId, headers };
 }
 
 async function executeStoreAction(supabaseClient: any, userId: string, action: any) {
@@ -935,6 +1024,304 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       });
       if (!updateRes.ok) throw new Error(`Shopify handle update failed: ${await updateRes.text()}`);
       return { message: `Updated URL handle for "${targetProduct.title}" to "/products/${handle}"` };
+    }
+
+    case 'update_status': {
+      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
+      const searchData = await searchRes.json();
+      const allProducts = searchData.products || [];
+
+      const targetProduct = findProduct(allProducts, action.sku, action.product_name);
+      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+
+      const validStatuses = ['active', 'draft', 'archived'];
+      const newStatus = (action.status || '').toLowerCase();
+      if (!validStatuses.includes(newStatus)) {
+        throw new Error(`Invalid status "${action.status}". Must be one of: active, draft, archived.`);
+      }
+
+      const updateRes = await fetch(`${shopifyBase}/products/${targetProduct.id}.json`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ product: { id: targetProduct.id, status: newStatus } }),
+      });
+      if (!updateRes.ok) throw new Error(`Shopify status update failed: ${await updateRes.text()}`);
+      const labels: Record<string, string> = { active: 'Active (live)', draft: 'Draft (hidden)', archived: 'Archived (removed)' };
+      return { message: `Set "${targetProduct.title}" status to ${labels[newStatus] || newStatus}` };
+    }
+
+    // ── eBay write actions ────────────────────────────────────────────────────
+
+    case 'ebay_update_inventory': {
+      const { apiBase, headers: ebayHeaders } = await getEbayClientForActions(supabaseClient, userId);
+      const sku = action.sku;
+      if (!sku) throw new Error('sku is required for ebay_update_inventory.');
+      if (action.quantity == null) throw new Error('quantity is required for ebay_update_inventory.');
+
+      const getRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, { headers: ebayHeaders });
+      if (!getRes.ok) throw new Error(`eBay item not found for SKU "${sku}": ${await getRes.text()}`);
+      const currentItem = await getRes.json();
+
+      const updatedItem = {
+        ...currentItem,
+        availability: {
+          ...currentItem.availability,
+          shipToLocationAvailability: {
+            ...(currentItem.availability?.shipToLocationAvailability || {}),
+            quantity: Number(action.quantity),
+          },
+        },
+      };
+
+      const putRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, {
+        method: 'PUT',
+        headers: ebayHeaders,
+        body: JSON.stringify(updatedItem),
+      });
+      if (!putRes.ok) throw new Error(`eBay inventory update failed: ${await putRes.text()}`);
+      return { message: `Updated eBay inventory for "${action.product_name || sku}" to ${action.quantity} units` };
+    }
+
+    case 'ebay_update_price': {
+      const { apiBase, headers: ebayHeaders } = await getEbayClientForActions(supabaseClient, userId);
+      const sku = action.sku;
+      if (!sku) throw new Error('sku is required for ebay_update_price.');
+      if (action.price == null) throw new Error('price is required for ebay_update_price.');
+
+      const offersRes = await fetch(`${apiBase}/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`, { headers: ebayHeaders });
+      if (!offersRes.ok) throw new Error(`Could not find eBay offer for SKU "${sku}": ${await offersRes.text()}`);
+      const offersData = await offersRes.json();
+      const offer = offersData.offers?.[0];
+      if (!offer) throw new Error(`No eBay offer found for SKU "${sku}". This may be a traditional (non-managed) listing — update the price directly on eBay for now.`);
+
+      // Build PUT body — strip read-only fields
+      const { offerId, listing, status: _status, ...offerBody } = offer;
+      offerBody.pricingSummary = {
+        price: {
+          currency: offer.pricingSummary?.price?.currency || 'USD',
+          value: String(action.price),
+        },
+      };
+
+      const putRes = await fetch(`${apiBase}/sell/inventory/v1/offer/${offerId}`, {
+        method: 'PUT',
+        headers: ebayHeaders,
+        body: JSON.stringify(offerBody),
+      });
+      if (!putRes.ok) throw new Error(`eBay price update failed: ${await putRes.text()}`);
+      return { message: `Updated eBay price for "${action.product_name || sku}" to $${action.price}` };
+    }
+
+    case 'ebay_update_title': {
+      const { apiBase, headers: ebayHeaders } = await getEbayClientForActions(supabaseClient, userId);
+      const sku = action.sku;
+      if (!sku) throw new Error('sku is required for ebay_update_title.');
+      if (!action.new_title) throw new Error('new_title is required for ebay_update_title.');
+
+      const getRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, { headers: ebayHeaders });
+      if (!getRes.ok) throw new Error(`eBay item not found for SKU "${sku}": ${await getRes.text()}`);
+      const currentItem = await getRes.json();
+
+      const putRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, {
+        method: 'PUT',
+        headers: ebayHeaders,
+        body: JSON.stringify({ ...currentItem, product: { ...currentItem.product, title: action.new_title } }),
+      });
+      if (!putRes.ok) throw new Error(`eBay title update failed: ${await putRes.text()}`);
+      return { message: `Updated eBay listing title for "${action.product_name || sku}" to "${action.new_title}"` };
+    }
+
+    case 'ebay_update_description': {
+      const { apiBase, headers: ebayHeaders } = await getEbayClientForActions(supabaseClient, userId);
+      const sku = action.sku;
+      if (!sku) throw new Error('sku is required for ebay_update_description.');
+      if (!action.description) throw new Error('description is required for ebay_update_description.');
+
+      const getRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, { headers: ebayHeaders });
+      if (!getRes.ok) throw new Error(`eBay item not found for SKU "${sku}": ${await getRes.text()}`);
+      const currentItem = await getRes.json();
+
+      const putRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, {
+        method: 'PUT',
+        headers: ebayHeaders,
+        body: JSON.stringify({ ...currentItem, product: { ...currentItem.product, description: action.description } }),
+      });
+      if (!putRes.ok) throw new Error(`eBay description update failed: ${await putRes.text()}`);
+      return { message: `Updated eBay description for "${action.product_name || sku}"` };
+    }
+
+    case 'ebay_update_image': {
+      // eBay uses public image URLs (imageUrls[]), not base64 uploads.
+      // Provide image_url (single public URL) or image_urls (array).
+      // Set replace_images: true to swap all images; otherwise appends.
+      const { apiBase, headers: ebayHeaders } = await getEbayClientForActions(supabaseClient, userId);
+      const sku = action.sku;
+      if (!sku) throw new Error('sku is required for ebay_update_image.');
+      const newUrls: string[] = action.image_urls || (action.image_url ? [action.image_url] : []);
+      if (newUrls.length === 0) throw new Error('image_url or image_urls is required for ebay_update_image. Provide a public HTTPS URL.');
+
+      const getRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, { headers: ebayHeaders });
+      if (!getRes.ok) throw new Error(`eBay item not found for SKU "${sku}": ${await getRes.text()}`);
+      const currentItem = await getRes.json();
+
+      const existingUrls: string[] = currentItem.product?.imageUrls || [];
+      const finalUrls = action.replace_images ? newUrls : [...existingUrls, ...newUrls];
+
+      const putRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, {
+        method: 'PUT',
+        headers: ebayHeaders,
+        body: JSON.stringify({ ...currentItem, product: { ...currentItem.product, imageUrls: finalUrls } }),
+      });
+      if (!putRes.ok) throw new Error(`eBay image update failed: ${await putRes.text()}`);
+      return { message: `Updated images for eBay listing "${action.product_name || sku}" (${finalUrls.length} image${finalUrls.length !== 1 ? 's' : ''})` };
+    }
+
+    case 'ebay_end_listing': {
+      const { apiBase, headers: ebayHeaders } = await getEbayClientForActions(supabaseClient, userId);
+      const sku = action.sku;
+      if (!sku) throw new Error('sku is required for ebay_end_listing.');
+
+      const offersRes = await fetch(`${apiBase}/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`, { headers: ebayHeaders });
+      if (!offersRes.ok) throw new Error(`Could not look up eBay offer for SKU "${sku}": ${await offersRes.text()}`);
+      const offersData = await offersRes.json();
+      const offer = offersData.offers?.[0];
+      if (!offer) throw new Error(`No eBay managed-inventory offer found for SKU "${sku}". If this is a traditional listing, end it directly on eBay.`);
+
+      if (offer.status !== 'PUBLISHED') {
+        return { message: `eBay listing for "${action.product_name || sku}" is already not live (status: ${offer.status}). No change needed.` };
+      }
+
+      const withdrawRes = await fetch(`${apiBase}/sell/inventory/v1/offer/${offer.offerId}/withdraw`, {
+        method: 'POST',
+        headers: ebayHeaders,
+      });
+      if (!withdrawRes.ok) throw new Error(`eBay end listing failed: ${await withdrawRes.text()}`);
+      return { message: `Ended eBay listing for "${action.product_name || sku}". It has been removed from eBay — inventory is preserved and it can be relisted anytime.` };
+    }
+
+    case 'ebay_relist': {
+      const { apiBase, headers: ebayHeaders } = await getEbayClientForActions(supabaseClient, userId);
+      const sku = action.sku;
+      if (!sku) throw new Error('sku is required for ebay_relist.');
+
+      const offersRes = await fetch(`${apiBase}/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`, { headers: ebayHeaders });
+      if (!offersRes.ok) throw new Error(`Could not look up eBay offer for SKU "${sku}": ${await offersRes.text()}`);
+      const offersData = await offersRes.json();
+      const offer = offersData.offers?.[0];
+      if (!offer) throw new Error(`No eBay offer found for SKU "${sku}".`);
+
+      if (offer.status === 'PUBLISHED') {
+        return { message: `eBay listing for "${action.product_name || sku}" is already live.` };
+      }
+
+      const publishRes = await fetch(`${apiBase}/sell/inventory/v1/offer/${offer.offerId}/publish`, {
+        method: 'POST',
+        headers: ebayHeaders,
+      });
+      if (!publishRes.ok) throw new Error(`eBay relist failed: ${await publishRes.text()}`);
+      return { message: `Relisted "${action.product_name || sku}" on eBay successfully.` };
+    }
+
+    case 'ebay_create_listing': {
+      // Creates an eBay managed-inventory listing end-to-end:
+      // 1. PUT inventory item (title, description, images, quantity, condition)
+      // 2. POST offer (price, category, policies fetched automatically)
+      // 3. POST offer/{id}/publish
+      const { apiBase, marketplaceId, headers: ebayHeaders } = await getEbayClientForActions(supabaseClient, userId);
+      const sku = action.sku;
+      if (!sku) throw new Error('sku is required for ebay_create_listing.');
+      if (!action.title) throw new Error('title is required for ebay_create_listing.');
+      if (action.price == null) throw new Error('price is required for ebay_create_listing.');
+      if (action.quantity == null) throw new Error('quantity is required for ebay_create_listing.');
+
+      // Step 1: Create/update inventory item
+      const inventoryItemBody: any = {
+        availability: {
+          shipToLocationAvailability: { quantity: Number(action.quantity) },
+        },
+        condition: action.condition || 'NEW',
+        product: {
+          title: action.title,
+          description: action.description || '',
+          ...(action.image_urls ? { imageUrls: action.image_urls } : action.image_url ? { imageUrls: [action.image_url] } : {}),
+          ...(action.brand ? { brand: action.brand } : {}),
+          ...(action.aspects ? { aspects: action.aspects } : {}),
+        },
+      };
+
+      const invPutRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, {
+        method: 'PUT',
+        headers: ebayHeaders,
+        body: JSON.stringify(inventoryItemBody),
+      });
+      if (!invPutRes.ok) throw new Error(`eBay inventory item creation failed: ${await invPutRes.text()}`);
+
+      // Step 2: Fetch account policies and merchant location automatically
+      const [fulfillRes, paymentRes, returnRes, locationRes] = await Promise.all([
+        fetch(`${apiBase}/sell/account/v1/fulfillment_policy?marketplace_id=${marketplaceId}`, { headers: ebayHeaders }),
+        fetch(`${apiBase}/sell/account/v1/payment_policy?marketplace_id=${marketplaceId}`, { headers: ebayHeaders }),
+        fetch(`${apiBase}/sell/account/v1/return_policy?marketplace_id=${marketplaceId}`, { headers: ebayHeaders }),
+        fetch(`${apiBase}/sell/inventory/v1/location`, { headers: ebayHeaders }),
+      ]);
+
+      const [fulfillData, paymentData, returnData, locationData] = await Promise.all([
+        fulfillRes.ok ? fulfillRes.json() : null,
+        paymentRes.ok ? paymentRes.json() : null,
+        returnRes.ok ? returnRes.json() : null,
+        locationRes.ok ? locationRes.json() : null,
+      ]);
+
+      const fulfillmentPolicyId = action.fulfillment_policy_id || fulfillData?.fulfillmentPolicies?.[0]?.fulfillmentPolicyId;
+      const paymentPolicyId = action.payment_policy_id || paymentData?.paymentPolicies?.[0]?.paymentPolicyId;
+      const returnPolicyId = action.return_policy_id || returnData?.returnPolicies?.[0]?.returnPolicyId;
+      const merchantLocationKey = action.merchant_location_key || locationData?.locations?.[0]?.merchantLocationKey;
+
+      if (!fulfillmentPolicyId || !paymentPolicyId || !returnPolicyId || !merchantLocationKey) {
+        const missing = [
+          !fulfillmentPolicyId && 'fulfillment policy',
+          !paymentPolicyId && 'payment policy',
+          !returnPolicyId && 'return policy',
+          !merchantLocationKey && 'merchant location',
+        ].filter(Boolean).join(', ');
+        throw new Error(`Could not auto-fetch eBay account settings (missing: ${missing}). Make sure your eBay account has at least one fulfillment policy, payment policy, return policy, and shipping location configured.`);
+      }
+
+      // Step 3: Create offer
+      const offerBody: any = {
+        sku,
+        marketplaceId,
+        format: 'FIXED_PRICE',
+        availableQuantity: Number(action.quantity),
+        pricingSummary: {
+          price: { currency: 'USD', value: String(action.price) },
+        },
+        listingPolicies: {
+          fulfillmentPolicyId,
+          paymentPolicyId,
+          returnPolicyId,
+        },
+        merchantLocationKey,
+        ...(action.category_id ? { categoryId: String(action.category_id) } : {}),
+      };
+
+      const offerRes = await fetch(`${apiBase}/sell/inventory/v1/offer`, {
+        method: 'POST',
+        headers: ebayHeaders,
+        body: JSON.stringify(offerBody),
+      });
+      if (!offerRes.ok) throw new Error(`eBay offer creation failed: ${await offerRes.text()}`);
+      const offerData = await offerRes.json();
+      const offerId = offerData.offerId;
+
+      // Step 4: Publish offer
+      const publishRes = await fetch(`${apiBase}/sell/inventory/v1/offer/${offerId}/publish`, {
+        method: 'POST',
+        headers: ebayHeaders,
+      });
+      if (!publishRes.ok) throw new Error(`eBay publish failed: ${await publishRes.text()}`);
+      const publishData = await publishRes.json();
+
+      return { message: `Created and published eBay listing for "${action.title}" (SKU: ${sku}, Listing ID: ${publishData.listingId || offerId}) at $${action.price}` };
     }
 
     case 'woo_create_product': {
@@ -1617,7 +2004,8 @@ async function chatWithClaude(
 **CRITICAL - What you can and cannot do:**
 - You CAN: Read and analyze store data (products, orders, inventory, revenue) from the data provided below
 - You CAN: Give advice, spot trends, flag issues, answer questions about their business
-- You CAN: Execute store actions — create products, update inventory quantities, update prices, update product titles/SEO, update product descriptions, update SEO meta title + meta description, update URL handles, update tags, add images to products, update image alt text, set/update product metafields — directly on their connected Shopify store
+- You CAN: Execute store actions on Shopify — create products, update inventory quantities, update prices, update product titles/SEO, update product descriptions, update SEO meta title + meta description, update URL handles, update tags, add images to products, update image alt text, set/update product metafields, set product status (active/draft/archived)
+- You CAN: Execute store actions on eBay — create listings, update inventory quantities, update prices, update listing titles, update listing descriptions, update listing images, end listings (remove from eBay), relist ended listings
 - You CANNOT: Log into any platform or request credentials — NEVER ask for passwords, API keys, or admin access. You already have the integration through Tandril.
 - You CANNOT: Process payments, refund orders, delete products, or fulfill orders
 
@@ -1629,6 +2017,7 @@ When the user asks you to create a product, add inventory, change a price, renam
 ⚠️ ALLOWED action types (use ONLY these exact strings — any other type will fail with "Unknown action type"):
   Shopify single actions:
   • create_product
+  • update_status          ← set product status: active | draft | archived
   • update_inventory
   • update_price
   • update_title
@@ -1642,10 +2031,24 @@ When the user asks you to create a product, add inventory, change a price, renam
   Shopify grouped actions (use these to avoid making users confirm 10 times):
   • multi_action  ← multiple changes to ONE product, one confirmation
   • batch_update  ← same field change across MULTIPLE products, one confirmation
+  eBay single actions:
+  • ebay_create_listing    ← create a new eBay listing end-to-end (inventory item + offer + publish)
+  • ebay_update_inventory  ← update quantity on an eBay listing
+  • ebay_update_price      ← update the price on an eBay listing
+  • ebay_update_title      ← update the listing title on eBay
+  • ebay_update_description← update the listing description on eBay
+  • ebay_update_image      ← update/add images on an eBay listing (requires public image URL)
+  • ebay_end_listing       ← remove a listing from eBay (keeps inventory, can relist)
+  • ebay_relist            ← re-publish a previously ended eBay listing
   WooCommerce actions:
   • woo_create_product
   • woo_bulk_create_products
 ❌ FORBIDDEN (will always fail): update_product, update_seo, bulk_update, add_image, set_image, woo_update_product, or any other type not in the list above.
+
+eBay vs Shopify action routing:
+- Use ebay_* actions for products whose platform_type is 'ebay' in the product list below
+- Use Shopify actions for products with platform_type 'shopify'
+- For multi_action and batch_update, sub-actions can be either Shopify or eBay types — route per product
 
 Action formats:
 
@@ -1681,6 +2084,36 @@ To update the SEO listing (meta title ≤60 chars, meta description ≤160 chars
 
 To update the product's URL handle/slug (keep it short, keyword-rich, lowercase with hyphens):
 [ORION_ACTION:{"type":"update_url_handle","product_name":"Product Title","sku":"SKU-001","new_handle":"casual-spring-henley-olive-green"}]
+
+To set a Shopify product status (active = live, draft = hidden, archived = removed from store):
+[ORION_ACTION:{"type":"update_status","product_name":"Product Title","sku":"SKU-001","status":"draft"}]
+
+— eBay Actions —
+
+To create a new eBay listing (creates inventory item + offer + publishes in one step):
+[ORION_ACTION:{"type":"ebay_create_listing","title":"Vintage Wool Sweater - Size M","sku":"SWEATER-001","price":29.99,"quantity":1,"description":"Beautiful vintage wool sweater in excellent condition.","condition":"USED_EXCELLENT","category_id":"11484","image_urls":["https://your-image-url.jpg"]}]
+Note: condition options: NEW, LIKE_NEW, NEW_OTHER, NEW_WITH_DEFECTS, MANUFACTURER_REFURBISHED, CERTIFIED_REFURBISHED, EXCELLENT_REFURBISHED, VERY_GOOD_REFURBISHED, GOOD_REFURBISHED, SELLER_REFURBISHED, USED_EXCELLENT, USED_VERY_GOOD, USED_GOOD, USED_ACCEPTABLE, FOR_PARTS_OR_NOT_WORKING. category_id is optional but recommended.
+
+To update eBay listing quantity:
+[ORION_ACTION:{"type":"ebay_update_inventory","product_name":"Vintage Wool Sweater","sku":"SWEATER-001","quantity":2}]
+
+To update eBay listing price:
+[ORION_ACTION:{"type":"ebay_update_price","product_name":"Vintage Wool Sweater","sku":"SWEATER-001","price":24.99}]
+
+To update an eBay listing title:
+[ORION_ACTION:{"type":"ebay_update_title","product_name":"Vintage Wool Sweater","sku":"SWEATER-001","new_title":"Vintage Wool Cable Knit Sweater - Women's Size M - Excellent Condition"}]
+
+To update an eBay listing description:
+[ORION_ACTION:{"type":"ebay_update_description","product_name":"Vintage Wool Sweater","sku":"SWEATER-001","description":"Beautiful vintage cable knit wool sweater. Size M. No stains or damage. Ships within 1 business day."}]
+
+To update eBay listing images (provide a public HTTPS URL — replace_images: true swaps all, false appends):
+[ORION_ACTION:{"type":"ebay_update_image","product_name":"Vintage Wool Sweater","sku":"SWEATER-001","image_url":"https://your-image-url.jpg","replace_images":false}]
+
+To end (remove) an eBay listing — listing is removed from eBay but inventory is preserved and it can be relisted:
+[ORION_ACTION:{"type":"ebay_end_listing","product_name":"Vintage Wool Sweater","sku":"SWEATER-001"}]
+
+To relist a previously ended eBay listing:
+[ORION_ACTION:{"type":"ebay_relist","product_name":"Vintage Wool Sweater","sku":"SWEATER-001"}]
 
 To create a single product on WooCommerce:
 [ORION_ACTION:{"type":"woo_create_product","name":"Product Title","sku":"SKU-001","price":"29.99","quantity":10,"description":"Full description here","images":["https://image-url-1.jpg","https://image-url-2.jpg"],"tags":["tag1","tag2"],"product_type":"simple"}]
