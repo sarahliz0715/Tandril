@@ -409,6 +409,12 @@ Extract any notable business facts, preferences, or insights worth remembering f
 - Decisions made or strategies agreed upon
 - Important numbers or benchmarks mentioned
 
+**NEVER extract or save anything about:**
+- Platform connection status (e.g. "eBay is synced", "eBay not connected", "Shopify connected")
+- Integration status, sync status, or API availability
+- Whether any platform's data is complete or incomplete
+These are live states that change — saving them creates stale, misleading memory.
+
 Respond with a JSON array (can be empty [] if nothing notable). Each item:
 {"category": "owner_preference|product_knowledge|business_goal|trend|challenge|decision", "key": "short_identifier", "value": "the insight to remember"}
 
@@ -1592,11 +1598,11 @@ async function chatWithClaude(
     : ebayConnected && ebayProducts.length === 0
     ? `\n**ℹ️ eBay Status:** eBay is connected but 0 products were returned this request. This is a data retrieval issue — do NOT tell the user eBay "hasn't been synced" or that the integration is incomplete. Tell them eBay is connected but no active listings were fetched, and suggest reconnecting eBay in the Platforms tab if they believe they have active listings.\n`
     : ebayConnected && ebayProducts.length > 0
-    ? `\n**✅ eBay Status:** ${ebayProducts.length} eBay listing(s) loaded. Stock quantities are available for all of them.${ebayMissingPrices > 0 ? ` NOTE: ${ebayMissingPrices} listing(s) have no price data (shown as N/A) — this is a limitation of the eBay Sell Inventory API price lookup, NOT a sync issue. Stock counts ARE accurate. Do NOT say the eBay data hasn't synced — it has.` : ' Prices and stock are both available.'}\n`
+    ? `\n**✅ eBay Integration: FULLY WORKING. ${ebayProducts.length} eBay listing(s) loaded with titles, SKUs, stock quantities, and${ebayMissingPrices === 0 ? ' prices' : ` prices (${ebayMissingPrices} listing(s) show N/A price — normal when eBay offer data is unavailable)`}. The eBay data is shown in the product list below exactly like Shopify data. CRITICAL RULES for eBay responses: (1) Do NOT say the eBay sync is incomplete, pending, or needs any action — it is done. (2) Do NOT ask the user to "loop in the Tandril team" or "finalize the sync" — the integration is fully operational. (3) Do NOT compare eBay data quality to Shopify as a negative — eBay listings naturally don't have product descriptions or URL handles and that is expected. (4) Just answer the question using the eBay data in the product list below the same way you would Shopify data.**\n`
     : '';
 
   const memorySection = memoryNotes.length > 0
-    ? `\n**What I Know About This Business (from past conversations):**\n${formatMemory(memoryNotes)}\n`
+    ? `\n**What I Know About This Business (from past conversations):**\n${formatMemory(memoryNotes)}\n⚠️ IMPORTANT: Memory notes reflect past conversations and may be outdated. Always prefer live data above (connected platforms, product list, orders) over any memory note about platform connection status, eBay sync status, or data availability. If live data shows eBay products are loaded, that is the truth — ignore any memory note suggesting otherwise.\n`
     : '';
 
   const systemPrompt = `You are Orion, an AI business wingman for e-commerce sellers. You're sharp, direct, and genuinely invested in their success. You remember past conversations and build on what you've learned over time.
