@@ -1265,6 +1265,7 @@ async function fetchEbayDataForOrion(supabaseClient: any, platform: any): Promis
     for (const item of invData.inventoryItems || []) {
       sellInvItems.set(item.sku, {
         title: item.product?.title || item.sku || 'eBay Item',
+        product_has_real_title: !!item.product?.title,
         sku: item.sku,
         price: offerPrices[item.sku] ?? null,  // may be null — filled from Trading API below
         inventory_quantity: item.availability?.shipToLocationAvailability?.quantity ?? 0,
@@ -1349,8 +1350,14 @@ async function fetchEbayDataForOrion(supabaseClient: any, platform: any): Promis
   // Fill their null prices from Trading API where the SKU matches.
   if (sellInvItems.size > 0) {
     for (const [sku, item] of sellInvItems) {
-      if (item.price === null && tradingItems.has(sku)) {
-        item.price = tradingItems.get(sku)!.price;
+      if (tradingItems.has(sku)) {
+        const tradingItem = tradingItems.get(sku)!;
+        // Fill price from Trading API if Sell Inventory had none
+        if (item.price === null) item.price = tradingItem.price;
+        // Fill title from Trading API if Sell Inventory only has the SKU as title
+        if (!item.product_has_real_title && tradingItem.title && tradingItem.title !== sku) {
+          item.title = tradingItem.title;
+        }
       }
       products.push(item);
     }
