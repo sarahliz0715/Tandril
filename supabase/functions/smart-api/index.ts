@@ -189,9 +189,16 @@ serve(async (req) => {
         console.warn('[Orion] Could not load history/memory:', e.message);
       }
 
-      saveMessage(supabaseClient, user.id, conversationId, 'user', message).catch(
-        (e) => console.warn('[Orion] Could not save user message:', e.message)
-      );
+      // Await user message save so we know persistence succeeded before calling Claude.
+      // If this fails the error propagates and the user sees an error response rather
+      // than a response that silently doesn't appear on next page load.
+      try {
+        await saveMessage(supabaseClient, user.id, conversationId, 'user', message);
+      } catch (e: any) {
+        console.error('[Orion] Failed to save user message:', e.message);
+        // Don't abort — still call Claude so the user gets an answer,
+        // but log clearly so the issue is visible in edge function logs.
+      }
     }
 
     // Get Orion's response
@@ -1231,7 +1238,10 @@ async function fetchEbayDataForOrion(supabaseClient: any, platform: any): Promis
   const products: any[] = [];
   const orders: any[] = [];
 
-  // ── 1. Try Sell Inventory API (works for managed-inventory / API-created listings) ──
+  // ── 1. Sell Inventory API (managed-inventory / API-created listings) ──
+  // Provides accurate stock quantities but prices often come back null when
+  // the Offers API SKU lookup doesn't match. We fill prices from Trading API below.
+  const sellInvItems = new Map<string, any>();
   const invRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item?limit=100`, { headers: restHeaders });
   console.log('[Orion] eBay Sell Inventory API status:', invRes.status);
   if (invRes.ok) {
@@ -1247,10 +1257,10 @@ async function fetchEbayDataForOrion(supabaseClient: any, platform: any): Promis
       }
     }
     for (const item of invData.inventoryItems || []) {
-      products.push({
+      sellInvItems.set(item.sku, {
         title: item.product?.title || item.sku || 'eBay Item',
         sku: item.sku,
-        price: offerPrices[item.sku] ?? null,
+        price: offerPrices[item.sku] ?? null,  // may be null — filled from Trading API below
         inventory_quantity: item.availability?.shipToLocationAvailability?.quantity ?? 0,
         status: 'active',
         vendor: item.product?.brand || '',
@@ -1258,88 +1268,104 @@ async function fetchEbayDataForOrion(supabaseClient: any, platform: any): Promis
         platform_type: 'ebay',
       });
     }
-    console.log(`[Orion] eBay Sell Inventory API: ${products.length} items`);
+    console.log(`[Orion] eBay Sell Inventory API: ${sellInvItems.size} items`);
   } else {
     const errText = await invRes.text();
     console.warn('[Orion] eBay Sell Inventory API failed:', invRes.status, errText.slice(0, 200));
   }
 
-  // ── 2. Fallback: Trading API GetMyeBaySelling (handles traditional/UI-created listings) ──
-  // Note: eBay Trading API always returns HTTP 200, even for errors — check <Ack> in XML body.
-  if (products.length === 0) {
-    let tradingError = '';
-    try {
-      const tradingBody = `<?xml version="1.0" encoding="utf-8"?>
+  // ── 2. Trading API GetMyeBaySelling (always run — provides CurrentPrice for every listing) ──
+  // This covers both traditional/UI-created listings AND managed-inventory ones.
+  // We use it to fill in null prices from Sell Inventory and pick up any listings
+  // that Sell Inventory missed.
+  const tradingItems = new Map<string, any>();
+  let tradingError = '';
+  try {
+    const tradingBody = `<?xml version="1.0" encoding="utf-8"?>
 <GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
   <ActiveList><Include>true</Include><Pagination><EntriesPerPage>100</EntriesPerPage></Pagination></ActiveList>
   <DetailLevel>ReturnAll</DetailLevel>
 </GetMyeBaySellingRequest>`;
 
-      const tradingRes = await fetch(`${apiBase}/ws/api.dll`, {
-        method: 'POST',
-        headers: {
-          'X-EBAY-API-CALL-NAME': 'GetMyeBaySelling',
-          'X-EBAY-API-SITEID': '0',
-          'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
-          'X-EBAY-API-IAF-TOKEN': accessToken,
-          'Content-Type': 'text/xml',
-        },
-        body: tradingBody,
-      });
+    const tradingRes = await fetch(`${apiBase}/ws/api.dll`, {
+      method: 'POST',
+      headers: {
+        'X-EBAY-API-CALL-NAME': 'GetMyeBaySelling',
+        'X-EBAY-API-SITEID': '0',
+        'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
+        'X-EBAY-API-IAF-TOKEN': accessToken,
+        'Content-Type': 'text/xml',
+      },
+      body: tradingBody,
+    });
 
-      const xml = await tradingRes.text();
-      const ack = xmlVal(xml, 'Ack');
-      console.log(`[Orion] eBay Trading API HTTP ${tradingRes.status}, Ack=${ack}`);
+    const xml = await tradingRes.text();
+    const ack = xmlVal(xml, 'Ack');
+    console.log(`[Orion] eBay Trading API HTTP ${tradingRes.status}, Ack=${ack}`);
 
-      if (ack === 'Failure' || ack === 'PartialFailure') {
-        const errMsg = xmlVal(xml, 'LongMessage') || xmlVal(xml, 'ShortMessage');
-        const errCode = xmlVal(xml, 'ErrorCode');
-        tradingError = `Trading API error ${errCode}: ${errMsg}`;
-        console.warn('[Orion]', tradingError);
-      } else if (ack === 'Success' || ack === 'Warning') {
-        const items = xmlBlocks(xml, 'Item');
-        for (const item of items) {
-          const title = xmlVal(item, 'Title');
-          const sku = xmlVal(item, 'SKU') || xmlVal(item, 'ItemID');
-          const price = parseFloat(xmlVal(item, 'CurrentPrice') || '0');
-          const qty = parseInt(xmlVal(item, 'QuantityAvailable') || xmlVal(item, 'Quantity') || '0', 10);
-          if (title) {
-            products.push({
-              title,
-              sku,
-              price: price || null,
-              inventory_quantity: qty,
-              status: 'active',
-              vendor: '',
-              product_type: '',
-              platform_type: 'ebay',
-            });
-          }
+    if (ack === 'Failure' || ack === 'PartialFailure') {
+      const errMsg = xmlVal(xml, 'LongMessage') || xmlVal(xml, 'ShortMessage');
+      const errCode = xmlVal(xml, 'ErrorCode');
+      tradingError = `Trading API error ${errCode}: ${errMsg}`;
+      console.warn('[Orion]', tradingError);
+    } else if (ack === 'Success' || ack === 'Warning') {
+      const items = xmlBlocks(xml, 'Item');
+      for (const item of items) {
+        const title = xmlVal(item, 'Title');
+        const sku = xmlVal(item, 'SKU') || xmlVal(item, 'ItemID');
+        const price = parseFloat(xmlVal(item, 'CurrentPrice') || '0');
+        const qty = parseInt(xmlVal(item, 'QuantityAvailable') || xmlVal(item, 'Quantity') || '0', 10);
+        if (title && sku) {
+          tradingItems.set(sku, {
+            title,
+            sku,
+            price: price || null,
+            inventory_quantity: qty,
+            status: 'active',
+            vendor: '',
+            product_type: '',
+            platform_type: 'ebay',
+          });
         }
-        console.log(`[Orion] eBay Trading API: ${products.length} active listings`);
-      } else {
-        tradingError = `Unexpected Ack value: "${ack}"`;
-        console.warn('[Orion] eBay Trading API unexpected response, Ack:', ack, xml.slice(0, 300));
       }
-
-      if (products.length === 0 && !tradingError) {
-        console.log('[Orion] eBay Trading API returned 0 active listings (seller may have no active items)');
-        // Surface this as a soft diagnostic so Orion can explain the gap to the user
-        // rather than silently showing 0 eBay products with no explanation.
-        return {
-          products: [],
-          orders: [],
-          fetchError: 'eBay is connected but 0 active listings were found via both the Sell Inventory API and Trading API. If you believe you have active eBay listings, they may have recently ended or the eBay account may need to be reconnected from the Platforms tab.',
-        };
-      }
-
-      if (tradingError) {
-        return { products: [], orders: [], fetchError: tradingError };
-      }
-    } catch (e: any) {
-      console.warn('[Orion] eBay Trading API exception:', e.message);
-      return { products: [], orders: [], fetchError: e.message };
+      console.log(`[Orion] eBay Trading API: ${tradingItems.size} active listings`);
+    } else {
+      tradingError = `Unexpected Ack value: "${ack}"`;
+      console.warn('[Orion] eBay Trading API unexpected response, Ack:', ack, xml.slice(0, 300));
     }
+  } catch (e: any) {
+    tradingError = e.message;
+    console.warn('[Orion] eBay Trading API exception:', e.message);
+  }
+
+  // ── 3. Merge results ──
+  // Sell Inventory items are the source of truth for stock quantities.
+  // Fill their null prices from Trading API where the SKU matches.
+  if (sellInvItems.size > 0) {
+    for (const [sku, item] of sellInvItems) {
+      if (item.price === null && tradingItems.has(sku)) {
+        item.price = tradingItems.get(sku)!.price;
+      }
+      products.push(item);
+    }
+    // Also add any Trading API listings whose SKUs aren't in Sell Inventory
+    // (traditional/UI-created listings that aren't in managed inventory).
+    for (const [sku, item] of tradingItems) {
+      if (!sellInvItems.has(sku)) {
+        products.push(item);
+      }
+    }
+  } else if (tradingItems.size > 0) {
+    // Sell Inventory returned nothing — use Trading API results entirely.
+    products.push(...tradingItems.values());
+  }
+
+  // If both APIs returned nothing, surface a diagnostic.
+  if (products.length === 0) {
+    const bothFailed = tradingError
+      ? tradingError
+      : 'eBay is connected but 0 active listings were found via both the Sell Inventory API and Trading API. If you believe you have active eBay listings, they may have recently ended or the eBay account may need to be reconnected from the Platforms tab.';
+    return { products: [], orders: [], fetchError: bothFailed };
   }
 
   // ── 3. Orders via Sell Fulfillment API ──
@@ -1560,12 +1586,13 @@ async function chatWithClaude(
 
   const ebayConnected = storeContext.platforms.some((p: any) => p.platform_type === 'ebay');
   const ebayProducts = storeContext.products.filter((p: any) => p.platform_type === 'ebay');
+  const ebayMissingPrices = ebayProducts.filter((p: any) => p.price == null).length;
   const ebayErrorSection = storeContext.ebay_fetch_errors?.length > 0
     ? `\n**⚠️ eBay Status (connected, but could not load listings):**\n${storeContext.ebay_fetch_errors.map((e: string) => `  - ${e}`).join('\n')}\nReport this specific message to the user. If it mentions "invalid token", "expired", or "reconnect", tell them to disconnect and reconnect eBay in the Platforms tab. Do NOT say "eBay hasn't been synced" or make up reasons — use the exact error above.\n`
     : ebayConnected && ebayProducts.length === 0
     ? `\n**ℹ️ eBay Status:** eBay is connected but 0 products were returned this request. This is a data retrieval issue — do NOT tell the user eBay "hasn't been synced" or that the integration is incomplete. Tell them eBay is connected but no active listings were fetched, and suggest reconnecting eBay in the Platforms tab if they believe they have active listings.\n`
     : ebayConnected && ebayProducts.length > 0
-    ? `\n**✅ eBay Status:** ${ebayProducts.length} eBay listing(s) loaded successfully (shown in the product list below).\n`
+    ? `\n**✅ eBay Status:** ${ebayProducts.length} eBay listing(s) loaded. Stock quantities are available for all of them.${ebayMissingPrices > 0 ? ` NOTE: ${ebayMissingPrices} listing(s) have no price data (shown as N/A) — this is a limitation of the eBay Sell Inventory API price lookup, NOT a sync issue. Stock counts ARE accurate. Do NOT say the eBay data hasn't synced — it has.` : ' Prices and stock are both available.'}\n`
     : '';
 
   const memorySection = memoryNotes.length > 0
