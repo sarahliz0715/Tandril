@@ -589,6 +589,7 @@ async function getEbayClientForActions(supabaseClient: any, userId: string) {
     'Authorization': `Bearer ${accessToken}`,
     'Content-Type': 'application/json',
     'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
+    'Accept-Language': 'en-US',
   };
 
   return { platform, apiBase, marketplaceId, headers };
@@ -686,6 +687,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             'Authorization': `Bearer ${creds.access_token}`,
             'Content-Type': 'application/json',
             'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
+            'Accept-Language': 'en-US',
           };
 
           // Fetch offer prices keyed by SKU
