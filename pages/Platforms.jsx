@@ -52,9 +52,11 @@ export default function Platforms() {
     // Handle OAuth callbacks — both the new Vercel-proxy flow and the legacy direct-callback flow
     useEffect(() => {
         const params = new URLSearchParams(location.search);
-        const shopifyCode  = params.get('shopify_code');
-        const shopifyState = params.get('shopify_state');
-        const shopifyShop  = params.get('shopify_shop');
+        // Proxy flow:  /api/shopify-callback rewrites params with shopify_ prefix
+        // Direct flow: SHOPIFY_REDIRECT_URI points straight at /Platforms — raw Shopify params
+        const shopifyCode  = params.get('shopify_code')  || params.get('code');
+        const shopifyState = params.get('shopify_state') || params.get('state');
+        const shopifyShop  = params.get('shopify_shop')  || params.get('shop');
         const connected    = params.get('connected');
         const error        = params.get('error');
 
