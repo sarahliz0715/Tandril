@@ -6,6 +6,7 @@ import { User } from '@/lib/entities';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { shopifyAuthExchange } from '@/lib/supabaseFunctions';
+import { supabase } from '@/lib/supabaseClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -62,30 +63,31 @@ export default function Platforms() {
             navigate(location.pathname, { replace: true });
             const toastId = toast.loading('Connecting your Shopify store...');
 
-            // Retry wrapper: the Supabase session may not be restored from localStorage
-            // yet right after an OAuth redirect. Retry up to 5× with a short delay.
-            const exchangeWithRetry = async () => {
-                const maxAttempts = 5;
+            let mounted = true;
+
+            // Wait for a valid Supabase session before calling the edge function.
+            // After an OAuth redirect the client needs time to restore the session
+            // from localStorage. Poll up to 3 s (10 × 300 ms) before giving up.
+            const waitForSession = async () => {
+                const maxAttempts = 10;
                 for (let i = 0; i < maxAttempts; i++) {
-                    try {
-                        return await shopifyAuthExchange({ code: shopifyCode, state: shopifyState, shop: shopifyShop });
-                    } catch (err) {
-                        // Retry on session-missing errors: the Supabase session may not be
-                        // restored from localStorage yet right after the OAuth redirect.
-                        // 'Unauthorized' comes from the edge function when it receives the
-                        // anon key instead of a valid user JWT.
-                        const isSessionNotReady = err.name === 'AuthSessionMissingError' || err.message === 'Unauthorized';
-                        if (isSessionNotReady && i < maxAttempts - 1) {
-                            await new Promise(r => setTimeout(r, 500));
-                            continue;
-                        }
-                        throw err;
-                    }
+                    if (!mounted) throw new Error('Component unmounted');
+                    const { data } = await supabase.auth.getSession();
+                    if (data?.session) return data.session;
+                    if (i < maxAttempts - 1) await new Promise(r => setTimeout(r, 300));
                 }
+                throw new Error('Auth session not available. Please try connecting again.');
             };
 
-            exchangeWithRetry()
+            const run = async () => {
+                await waitForSession();
+                if (!mounted) return;
+                return await shopifyAuthExchange({ code: shopifyCode, state: shopifyState, shop: shopifyShop });
+            };
+
+            run()
                 .then((result) => {
+                    if (!mounted) return;
                     if (result?.success === false || result?.error) {
                         throw new Error(result.error || 'Connection failed');
                     }
@@ -96,6 +98,7 @@ export default function Platforms() {
                     loadData();
                 })
                 .catch((err) => {
+                    if (!mounted) return;
                     setShopifyError(err.message);
                     toast.error('Shopify connection failed', {
                         id: toastId,
@@ -103,6 +106,8 @@ export default function Platforms() {
                         duration: 10000,
                     });
                 });
+
+            return () => { mounted = false; };
         } else if (connected === 'true') {
             // Generic callback redirect with ?connected=true (eBay, legacy Shopify, etc.)
             navigate(location.pathname, { replace: true });
