@@ -244,7 +244,7 @@ Only include genuinely useful facts. Return ONLY the JSON array, no other text.`
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-3-haiku-20240307',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 512,
       messages: [{ role: 'user', content: extractionPrompt }],
     }),
@@ -851,7 +851,7 @@ ${mode === 'demo/test' ?
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-3-haiku-20240307',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 2048,
       system: systemPrompt,
       messages,
