@@ -91,16 +91,21 @@ export default function Layout({ children, currentPageName }) {
         const fetchUser = async () => {
             try {
                 let currentUser;
-                try {
-                    currentUser = await User.me();
-                } catch (firstErr) {
-                    // After an OAuth redirect the Supabase client needs a moment to restore
-                    // the session from localStorage. Retry once before giving up.
-                    if (firstErr.name === 'AuthSessionMissingError') {
-                        await new Promise(r => setTimeout(r, 800));
+                // After an OAuth redirect (e.g. Shopify) the Supabase client needs time
+                // to restore the session from localStorage and refresh the token.
+                // Retry up to 10× with 300 ms gaps (= up to 3 s) before treating the
+                // user as unauthenticated.
+                const maxAttempts = 10;
+                for (let i = 0; i < maxAttempts; i++) {
+                    try {
                         currentUser = await User.me();
-                    } else {
-                        throw firstErr;
+                        break;
+                    } catch (err) {
+                        if (err.name === 'AuthSessionMissingError' && i < maxAttempts - 1) {
+                            await new Promise(r => setTimeout(r, 300));
+                            continue;
+                        }
+                        throw err;
                     }
                 }
                 setUser(currentUser);
