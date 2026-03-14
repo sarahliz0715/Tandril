@@ -61,7 +61,25 @@ export default function Platforms() {
             // New flow: frontend calls the exchange function with user's session JWT
             navigate(location.pathname, { replace: true });
             const toastId = toast.loading('Connecting your Shopify store...');
-            shopifyAuthExchange({ code: shopifyCode, state: shopifyState, shop: shopifyShop })
+
+            // Retry wrapper: the Supabase session may not be restored from localStorage
+            // yet right after an OAuth redirect. Retry up to 5× with a short delay.
+            const exchangeWithRetry = async () => {
+                const maxAttempts = 5;
+                for (let i = 0; i < maxAttempts; i++) {
+                    try {
+                        return await shopifyAuthExchange({ code: shopifyCode, state: shopifyState, shop: shopifyShop });
+                    } catch (err) {
+                        if (err.name === 'AuthSessionMissingError' && i < maxAttempts - 1) {
+                            await new Promise(r => setTimeout(r, 500));
+                            continue;
+                        }
+                        throw err;
+                    }
+                }
+            };
+
+            exchangeWithRetry()
                 .then((result) => {
                     if (result?.success === false || result?.error) {
                         throw new Error(result.error || 'Connection failed');
