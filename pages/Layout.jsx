@@ -90,7 +90,19 @@ export default function Layout({ children, currentPageName }) {
     useEffect(() => {
         const fetchUser = async () => {
             try {
-                const currentUser = await User.me();
+                let currentUser;
+                try {
+                    currentUser = await User.me();
+                } catch (firstErr) {
+                    // After an OAuth redirect the Supabase client needs a moment to restore
+                    // the session from localStorage. Retry once before giving up.
+                    if (firstErr.name === 'AuthSessionMissingError') {
+                        await new Promise(r => setTimeout(r, 800));
+                        currentUser = await User.me();
+                    } else {
+                        throw firstErr;
+                    }
+                }
                 setUser(currentUser);
 
                 const excludedPages = ['Onboarding', 'Home', 'ShopifyCallback', 'TermsOfService', 'PrivacyPolicy', 'Pricing', 'EmailSignups', 'Survey'];
