@@ -25,13 +25,25 @@ export default function GlobalCommandBar({ open, onOpenChange }) {
     const [recognition, setRecognition] = useState(null);
 
     useEffect(() => {
-        // Load user and platforms
+        // Load user and platforms — retry User.me() on AuthSessionMissingError to
+        // handle the race condition where Supabase hasn't restored the session yet.
         const loadData = async () => {
             try {
-                const [userData, platforms] = await Promise.all([
-                    User.me(),
-                    Platform.filter({ status: 'connected' })
-                ]);
+                let userData;
+                const maxAttempts = 10;
+                for (let i = 0; i < maxAttempts; i++) {
+                    try {
+                        userData = await User.me();
+                        break;
+                    } catch (err) {
+                        if (err.name === 'AuthSessionMissingError' && i < maxAttempts - 1) {
+                            await new Promise(r => setTimeout(r, 300));
+                            continue;
+                        }
+                        throw err;
+                    }
+                }
+                const platforms = await Platform.filter({ status: 'connected' });
                 setUser(userData);
                 setConnectedPlatforms(platforms);
             } catch (error) {

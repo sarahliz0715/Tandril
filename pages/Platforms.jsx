@@ -156,8 +156,23 @@ export default function Platforms() {
     const loadData = useCallback(async () => {
         setIsLoading(true);
         try {
-            // 1. Fetch current user
-            const user = await User.me();
+            // 1. Fetch current user — retry up to 3 s on AuthSessionMissingError to
+            //    handle the race condition where Supabase hasn't restored the session
+            //    from localStorage yet (e.g. right after an OAuth redirect).
+            let user;
+            const maxAttempts = 10;
+            for (let i = 0; i < maxAttempts; i++) {
+                try {
+                    user = await User.me();
+                    break;
+                } catch (err) {
+                    if (err.name === 'AuthSessionMissingError' && i < maxAttempts - 1) {
+                        await new Promise(r => setTimeout(r, 300));
+                        continue;
+                    }
+                    throw err;
+                }
+            }
             setCurrentUser(user);
             const isBeta = user && user.user_mode === 'beta';
 
