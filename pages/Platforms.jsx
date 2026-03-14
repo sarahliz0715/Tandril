@@ -70,7 +70,12 @@ export default function Platforms() {
                     try {
                         return await shopifyAuthExchange({ code: shopifyCode, state: shopifyState, shop: shopifyShop });
                     } catch (err) {
-                        if (err.name === 'AuthSessionMissingError' && i < maxAttempts - 1) {
+                        // Retry on session-missing errors: the Supabase session may not be
+                        // restored from localStorage yet right after the OAuth redirect.
+                        // 'Unauthorized' comes from the edge function when it receives the
+                        // anon key instead of a valid user JWT.
+                        const isSessionNotReady = err.name === 'AuthSessionMissingError' || err.message === 'Unauthorized';
+                        if (isSessionNotReady && i < maxAttempts - 1) {
                             await new Promise(r => setTimeout(r, 500));
                             continue;
                         }
