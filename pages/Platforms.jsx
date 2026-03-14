@@ -73,7 +73,6 @@ export default function Platforms() {
             const waitForSession = async () => {
                 const maxAttempts = 10;
                 for (let i = 0; i < maxAttempts; i++) {
-                    if (!mounted) throw new Error('Component unmounted');
                     const { data } = await supabase.auth.getSession();
                     if (data?.session) return data.session;
                     if (i < maxAttempts - 1) await new Promise(r => setTimeout(r, 300));
@@ -83,13 +82,11 @@ export default function Platforms() {
 
             const run = async () => {
                 await waitForSession();
-                if (!mounted) return;
                 return await shopifyAuthExchange({ code: shopifyCode, state: shopifyState, shop: shopifyShop });
             };
 
             run()
                 .then((result) => {
-                    if (!mounted) return;
                     if (result?.success === false || result?.error) {
                         throw new Error(result.error || 'Connection failed');
                     }
@@ -97,11 +94,12 @@ export default function Platforms() {
                         id: toastId,
                         description: `${shopifyShop} is now connected.`
                     });
-                    loadData();
+                    if (mounted) loadData();
                 })
                 .catch((err) => {
-                    if (!mounted) return;
-                    setShopifyError(err.message);
+                    // Always update the toast so the spinner doesn't spin forever.
+                    // Only update React state if the component is still mounted.
+                    if (mounted) setShopifyError(err.message);
                     toast.error('Shopify connection failed', {
                         id: toastId,
                         description: err.message,
