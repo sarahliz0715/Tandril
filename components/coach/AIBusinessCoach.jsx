@@ -918,29 +918,35 @@ export default function AIBusinessCoach() {
                 <div className="flex flex-col items-center justify-center h-full text-center">
                   <Zap className="w-16 h-16 text-purple-400 mb-4" />
                   <h3 className="text-lg font-semibold text-slate-900 mb-2">
-                    Hey, I'm Orion - Your Business Wingman
+                    Hey, I'm Orion — your business wingman 👋
                   </h3>
-                  <p className="text-sm text-slate-600 max-w-md mb-3">
-                    Ask me anything about your business. I'm here to help you grow, spot opportunities, and tackle challenges head-on.
+                  <p className="text-sm text-slate-600 max-w-md mb-1">
+                    Your store is connected. Here's what I can do for you right now — just click a prompt or type anything below.
                   </p>
-                  <div className="mt-6 grid gap-2">
+                  <div className="mt-5 grid gap-2 w-full max-w-md">
                     <button
-                      className="text-sm text-left px-4 py-2 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-900 transition-colors"
-                      onClick={() => setChatInput('How can I increase my average order value?')}
+                      className="text-sm text-left px-4 py-3 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-900 transition-colors border border-purple-100"
+                      onClick={() => setChatInput("What's a quick overview of my store right now?")}
                     >
-                      💰 How can I grow my average order value?
+                      📊 Give me a quick overview of my store
                     </button>
                     <button
-                      className="text-sm text-left px-4 py-2 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-900 transition-colors"
-                      onClick={() => setChatInput('What products should I focus on promoting?')}
+                      className="text-sm text-left px-4 py-3 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-900 transition-colors border border-purple-100"
+                      onClick={() => setChatInput('Do I have any products running low on stock?')}
                     >
-                      🚀 What should I be promoting right now?
+                      📦 Do I have anything running low on stock?
                     </button>
                     <button
-                      className="text-sm text-left px-4 py-2 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-900 transition-colors"
-                      onClick={() => setChatInput('Give me a quick analysis of my business')}
+                      className="text-sm text-left px-4 py-3 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-900 transition-colors border border-purple-100"
+                      onClick={() => setChatInput('What are my best-selling products and what should I do with that info?')}
                     >
-                      📊 Give me a quick business analysis
+                      🚀 What are my best sellers and what should I do with them?
+                    </button>
+                    <button
+                      className="text-sm text-left px-4 py-3 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-900 transition-colors border border-purple-100"
+                      onClick={() => setChatInput('What are the top 3 things I should focus on to grow my store this week?')}
+                    >
+                      🎯 What should I focus on this week?
                     </button>
                   </div>
                 </div>

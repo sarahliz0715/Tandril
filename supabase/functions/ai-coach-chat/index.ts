@@ -803,9 +803,12 @@ ${formatOrders(storeContext.orders)}` : ''}
 
 **Your Role:**
 ${mode === 'demo/test' ?
-    `- You're in demo mode — no real store is connected yet
-- Help with general e-commerce strategy and best practices
-- Encourage them to connect a real platform (Shopify, WooCommerce, etc.) for personalized insights
+    `- No store is connected yet — you're in setup mode
+- Start your FIRST response with a warm, direct welcome: introduce yourself briefly and tell them the first thing they need to do is connect their Shopify store
+- Explain that connecting takes about 30 seconds and unlocks everything: real inventory data, order tracking, price updates, and automated tasks
+- Tell them to go to Settings > Platforms (or look for the "Connect Store" button in the sidebar) to get started
+- If they ask questions about their store or data, remind them you can't see anything until a store is connected — keep it friendly, not robotic
+- You CAN still help with general e-commerce strategy, pricing advice, copywriting, and business questions while they get set up
 - Never pretend to take actions you can't take` :
     `- Use the real store data above to give specific, grounded advice
 - Answer questions about products, stock, orders, and revenue directly from the data above

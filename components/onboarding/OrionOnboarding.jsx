@@ -622,6 +622,14 @@ function AutomationStep({ recommendations, onNext }) {
   const [selectedAutomation, setSelectedAutomation] = useState(0);
   const [isSettingUp, setIsSettingUp] = useState(false);
 
+  const hasAutomations = recommendations?.recommended_automations?.length > 0;
+
+  useEffect(() => {
+    if (!hasAutomations) {
+      onNext();
+    }
+  }, [hasAutomations]);
+
   const handleSetup = async () => {
     setIsSettingUp(true);
     // Simulate automation setup
@@ -632,11 +640,7 @@ function AutomationStep({ recommendations, onNext }) {
     }, 1500);
   };
 
-  if (!recommendations?.recommended_automations || recommendations.recommended_automations.length === 0) {
-    // Skip to next step if no automations
-    useEffect(() => {
-      onNext();
-    }, []);
+  if (!hasAutomations) {
     return null;
   }
 
