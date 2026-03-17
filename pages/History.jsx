@@ -8,19 +8,20 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { 
-  Loader2, 
-  Search, 
-  Filter, 
-  CheckCircle, 
-  XCircle, 
+import {
+  Loader2,
+  Search,
+  Filter,
+  CheckCircle,
+  XCircle,
   Clock,
   Play,
   Trash2,
   FileText,
   Download,
   AlertCircle,
-  History as HistoryIcon
+  History as HistoryIcon,
+  RotateCcw
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -61,7 +62,15 @@ export default function History() {
   const [selectedCommand, setSelectedCommand] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [platformFilter, setPlatformFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
+  const [trackingStartDates, setTrackingStartDates] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('timeSaved_trackingStartDates') || '{}');
+    } catch {
+      return {};
+    }
+  });
   const navigate = useNavigate();
   const { isOpen, config, confirm, cancel } = useConfirmDialog();
 
@@ -122,10 +131,18 @@ export default function History() {
       result = result.filter(cmd => cmd.status === statusFilter);
     }
 
+    // Apply platform filter
+    if (platformFilter !== 'all') {
+      result = result.filter(cmd => {
+        const targets = (cmd.platform_targets || []).map(p => p.toLowerCase());
+        return targets.includes(platformFilter);
+      });
+    }
+
     // Apply search
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
-      result = result.filter(cmd => 
+      result = result.filter(cmd =>
         cmd.command_text?.toLowerCase().includes(term) ||
         cmd.ai_interpretation?.toLowerCase().includes(term)
       );
@@ -148,7 +165,7 @@ export default function History() {
     }
 
     setFilteredCommands(result);
-  }, [commands, searchTerm, statusFilter, sortBy]);
+  }, [commands, searchTerm, statusFilter, platformFilter, sortBy]);
 
   // Handle command deletion with confirmation
   const handleDelete = useCallback(async (command) => {
@@ -216,20 +233,55 @@ export default function History() {
     }
   }, [filteredCommands]);
 
+  // Derive unique platforms from command history
+  const availablePlatforms = useMemo(() => {
+    const platforms = new Set();
+    commands.forEach(c => {
+      (c.platform_targets || []).forEach(p => {
+        if (p) platforms.add(p.toLowerCase());
+      });
+    });
+    return Array.from(platforms).sort();
+  }, [commands]);
+
+  // Reset tracking start date for a given platform
+  const handleResetTracking = useCallback((platform) => {
+    const key = platform === 'all' ? '__all__' : platform;
+    const updated = { ...trackingStartDates, [key]: new Date().toISOString() };
+    setTrackingStartDates(updated);
+    localStorage.setItem('timeSaved_trackingStartDates', JSON.stringify(updated));
+    toast.success(`Time saved tracking reset${platform !== 'all' ? ` for ${platform}` : ''}`);
+  }, [trackingStartDates]);
+
   // Statistics
   const stats = useMemo(() => {
-    const completedCommands = commands.filter(c => c.status === 'completed');
+    const trackingKey = platformFilter === 'all' ? '__all__' : platformFilter;
+    const trackingStart = trackingStartDates[trackingKey]
+      ? new Date(trackingStartDates[trackingKey])
+      : null;
+
+    const completedCommands = commands.filter(c => {
+      if (c.status !== 'completed') return false;
+      if (trackingStart && new Date(c.created_at) < trackingStart) return false;
+      if (platformFilter !== 'all') {
+        const targets = (c.platform_targets || []).map(p => p.toLowerCase());
+        if (!targets.includes(platformFilter)) return false;
+      }
+      return true;
+    });
+
     return {
       total: commands.length,
-      completed: completedCommands.length,
+      completed: commands.filter(c => c.status === 'completed').length,
       failed: commands.filter(c => c.status === 'failed').length,
       totalSuccessful: commands.reduce((sum, c) => sum + (c.results?.success_count || 0), 0),
       avgExecutionTime: commands.length > 0
         ? (commands.reduce((sum, c) => sum + (c.execution_time || 0), 0) / commands.length).toFixed(1)
         : 0,
       timeSaved: formatTimeSaved(calculateTotalMinutesSaved(completedCommands)),
+      trackingStart,
     };
-  }, [commands]);
+  }, [commands, platformFilter, trackingStartDates]);
 
   // Get status badge
   const getStatusBadge = (status) => {
@@ -295,10 +347,38 @@ export default function History() {
             <p className="text-2xl font-bold text-slate-900">{stats.avgExecutionTime}</p>
           </CardContent>
         </Card>
-        <Card className="border-indigo-200 bg-indigo-50">
-          <CardContent className="p-4">
-            <p className="text-sm text-indigo-600 font-medium">Time Saved</p>
+        <Card className="border-indigo-200 bg-indigo-50 col-span-2 sm:col-span-1">
+          <CardContent className="p-4 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm text-indigo-600 font-medium">Time Saved</p>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs text-indigo-500 hover:text-indigo-700"
+                onClick={() => handleResetTracking(platformFilter)}
+                title="Reset tracking start date"
+              >
+                <RotateCcw className="w-3 h-3 mr-1" />
+                Reset
+              </Button>
+            </div>
             <p className="text-2xl font-bold text-indigo-700">{stats.timeSaved}</p>
+            <Select value={platformFilter} onValueChange={setPlatformFilter}>
+              <SelectTrigger className="h-7 text-xs border-indigo-200 bg-white">
+                <SelectValue placeholder="All platforms" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All platforms</SelectItem>
+                {availablePlatforms.map(p => (
+                  <SelectItem key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {stats.trackingStart && (
+              <p className="text-xs text-indigo-400">
+                Since {format(stats.trackingStart, 'MMM d, h:mm a')}
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -323,7 +403,7 @@ export default function History() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <Input
@@ -344,6 +424,17 @@ export default function History() {
                 <SelectItem value="failed">Failed</SelectItem>
                 <SelectItem value="executing">Executing</SelectItem>
                 <SelectItem value="pending">Pending</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={platformFilter} onValueChange={setPlatformFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Filter by platform" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Platforms</SelectItem>
+                {availablePlatforms.map(p => (
+                  <SelectItem key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Select value={sortBy} onValueChange={setSortBy}>
@@ -370,6 +461,7 @@ export default function History() {
                 onClear={() => {
                   setSearchTerm('');
                   setStatusFilter('all');
+                  setPlatformFilter('all');
                 }}
               />
             )
