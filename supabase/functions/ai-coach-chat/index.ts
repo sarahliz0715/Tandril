@@ -97,7 +97,12 @@ serve(async (req) => {
       // Await the assistant message save so it completes before the function returns.
       // Fire-and-forget saves are abandoned when Deno terminates the execution context.
       try {
-        await saveMessage(supabaseClient, user.id, conversationId, 'assistant', response);
+        // Append a compact action summary so Orion's history shows what was proposed.
+        // This lets Orion accurately track multi-step batch progress (e.g. spring SEO).
+        const responseToSave = pendingAction
+          ? `${response}\n\n_[Action proposed: ${formatActionSummary(pendingAction)}]_`
+          : response;
+        await saveMessage(supabaseClient, user.id, conversationId, 'assistant', responseToSave);
       } catch (e) {
         console.warn('[Orion] Could not save assistant message:', e.message);
       }
@@ -283,6 +288,28 @@ Only include genuinely useful facts. Return ONLY the JSON array, no other text.`
         },
         { onConflict: 'user_id,key' }
       );
+  }
+}
+
+// ─── Action Summary Formatter ─────────────────────────────────────────────────
+
+function formatActionSummary(action: any): string {
+  const name = action.product_name || action.title || action.sku || 'product';
+  switch (action.type) {
+    case 'update_title':
+      return `Update title of "${name}" → "${action.new_title}"`;
+    case 'update_inventory':
+      return `Set inventory for "${name}" to ${action.quantity}`;
+    case 'update_price':
+      return `Update price for "${name}" to $${action.price}`;
+    case 'create_product':
+      return `Create product "${action.title}"`;
+    case 'upload_image':
+      return `Upload image for "${name}"`;
+    case 'update_metafield':
+      return `Set ${action.namespace}.${action.key} on "${name}"`;
+    default:
+      return `${action.type} on "${name}"`;
   }
 }
 
@@ -786,6 +813,11 @@ Rules for actions:
 - If you don't have enough info (missing price, missing title, etc.), ask for it before generating the action block
 - For upload_image: only generate this action when the user has actually uploaded an image file in their message. Never reference image URLs — only use uploaded files.
 
+**Tracking multi-step batch operations (CRITICAL):**
+When you execute a batch job one product at a time (e.g. updating all titles for spring SEO), your previous messages in the conversation history will contain lines like:
+  `_[Action proposed: Update title of "Product Name" → "New Title"]_`
+These lines mean you proposed that action and the conversation continued — so the user approved and it was executed. When asked "are we done?" or "check again", **scan your own previous messages in this conversation for these `[Action proposed: ...]` lines** to build an accurate list of what has already been completed. Do NOT rely on memory or guess — read the conversation history. Only products that do NOT have a corresponding `[Action proposed: ...]` line in your history still need work.
+
 **Current Mode:** ${mode === 'demo/test' ? 'Demo/Test Mode - No real store connected yet' : 'Production Mode - Real store data loaded below'}
 
 **Store Overview:**
@@ -814,7 +846,7 @@ ${mode === 'demo/test' ?
 - Answer questions about products, stock, orders, and revenue directly from the data above
 - Proactively flag low stock, pricing opportunities, and trends you spot
 - When asked to DO something in the store (add/update inventory, change prices, create products, rename/SEO-update titles, add images to products), generate an ORION_ACTION block as described above — the user will confirm before anything executes. For image uploads always use type "upload_image", never "update_product".
-- Only one action per response; if the user asks to update multiple products (e.g. spring-theme all titles), propose all the new titles in your message first, then generate an action for the FIRST product — after they approve, you'll do the next one
+- Only one action per response; if the user asks to update multiple products (e.g. spring-theme all titles), propose all the new titles in your message first, then generate an action for the FIRST product — after they approve, you'll do the next one. Track progress by reading your own `[Action proposed: ...]` lines in the conversation history — never re-propose an action you can already see was proposed
 - Be direct and honest — a real wingman delivers results, not just advice`}
 
 **Communication Style:**
