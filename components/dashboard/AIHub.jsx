@@ -28,15 +28,9 @@ const HubCard = ({ title, value, description, icon: Icon, iconColor, linkTo }) =
 };
 
 export default function AIHub({ stats }) {
-    const formatSeconds = (seconds) => {
-        if (!seconds || seconds < 3600) return "Just getting started!";
-        const hours = Math.floor(seconds / 3600);
-        return `${hours} hour${hours > 1 ? 's' : ''}`;
-      };
-
     return (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <HubCard 
+            <HubCard
                 title="Recent Sales Activity"
                 value={`$${stats.recentRevenue.toLocaleString()}`}
                 description={`From ${stats.recentOrders} new orders`}
@@ -44,7 +38,7 @@ export default function AIHub({ stats }) {
                 iconColor="bg-green-500"
                 linkTo={createPageUrl('Orders')}
             />
-            <HubCard 
+            <HubCard
                 title="Critical Insights"
                 value={`${stats.criticalAlerts} Alerts`}
                 description="Urgent issues needing review"
@@ -52,7 +46,7 @@ export default function AIHub({ stats }) {
                 iconColor="bg-red-500"
                 linkTo={createPageUrl('Inbox')}
             />
-            <HubCard 
+            <HubCard
                 title="AI Recommendations"
                 value={`${stats.newRecommendations} New Ideas`}
                 description="Growth & profit opportunities"
@@ -60,10 +54,10 @@ export default function AIHub({ stats }) {
                 iconColor="bg-amber-500"
                 linkTo={createPageUrl('AIAdvisor')}
             />
-            <HubCard 
-                title="Time Automated"
-                value={`${stats.automationsRun} Tasks Handled`}
-                description="Completed by your AI agent"
+            <HubCard
+                title="Tasks Handled"
+                value={stats.timeAutomated || '0 min'}
+                description={`${stats.automationsRun} task${stats.automationsRun !== 1 ? 's' : ''} completed by your AI agent`}
                 icon={Bot}
                 iconColor="bg-indigo-500"
                 linkTo={createPageUrl('History')}
