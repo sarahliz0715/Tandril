@@ -69,10 +69,12 @@ serve(async (req) => {
         console.warn('[Orion] Could not load history/memory:', e.message);
       }
 
-      // Save the user's message to DB (non-fatal if it fails)
-      saveMessage(supabaseClient, user.id, conversationId, 'user', message).catch(
-        (e) => console.warn('[Orion] Could not save user message:', e.message)
-      );
+      // Save the user's message to DB before calling Claude so it persists
+      try {
+        await saveMessage(supabaseClient, user.id, conversationId, 'user', message);
+      } catch (e) {
+        console.warn('[Orion] Could not save user message:', e.message);
+      }
     }
 
     // Get Orion's response
@@ -92,12 +94,15 @@ serve(async (req) => {
     }
 
     if (conversationId) {
-      // Save Orion's response to DB (non-fatal)
-      saveMessage(supabaseClient, user.id, conversationId, 'assistant', response).catch(
-        (e) => console.warn('[Orion] Could not save assistant message:', e.message)
-      );
+      // Await the assistant message save so it completes before the function returns.
+      // Fire-and-forget saves are abandoned when Deno terminates the execution context.
+      try {
+        await saveMessage(supabaseClient, user.id, conversationId, 'assistant', response);
+      } catch (e) {
+        console.warn('[Orion] Could not save assistant message:', e.message);
+      }
 
-      // Extract and save any new memory insights (non-blocking)
+      // Memory extraction is non-essential — keep it best-effort
       extractAndSaveMemory(supabaseClient, user.id, conversationId, message, response).catch(
         (e) => console.error('[Orion] Memory extraction failed:', e)
       );
