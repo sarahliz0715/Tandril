@@ -50,9 +50,12 @@ export default function AIBusinessCoach() {
   const fileInputRef = useRef(null);
   const loadedTabsRef = useRef(new Set());
   const lastSentFilesRef = useRef([]);
+  // Prevents loadRecentHistory from overwriting state after the user has started interacting
+  const historyLoadAbortRef = useRef(false);
 
   // Load most recent conversation history on mount
   useEffect(() => {
+    historyLoadAbortRef.current = false;
     loadRecentHistory();
   }, []);
 
@@ -60,7 +63,7 @@ export default function AIBusinessCoach() {
     setIsHistoryLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user || historyLoadAbortRef.current) return;
 
       // Get the most recent conversation
       const { data: conversations } = await supabase
@@ -70,7 +73,7 @@ export default function AIBusinessCoach() {
         .order('updated_at', { ascending: false })
         .limit(1);
 
-      if (!conversations || conversations.length === 0) return;
+      if (!conversations || conversations.length === 0 || historyLoadAbortRef.current) return;
 
       const latestConvId = conversations[0].id;
       setConversationId(latestConvId);
@@ -83,6 +86,9 @@ export default function AIBusinessCoach() {
         .eq('user_id', user.id)
         .order('created_at', { ascending: true })
         .limit(50);
+
+      // Final check: abort if user interacted while we were loading messages
+      if (historyLoadAbortRef.current) return;
 
       if (messages && messages.length > 0) {
         setChatMessages(messages.map(m => ({ role: m.role, content: m.content })));
@@ -155,6 +161,9 @@ export default function AIBusinessCoach() {
 
   const handleSendMessage = async () => {
     if (!chatInput.trim() && uploadedFiles.length === 0) return;
+
+    // Prevent any in-flight loadRecentHistory from overwriting messages after this point
+    historyLoadAbortRef.current = true;
 
     const userMessage = chatInput.trim();
     setChatInput('');
