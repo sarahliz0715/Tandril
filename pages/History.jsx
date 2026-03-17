@@ -25,6 +25,7 @@ import {
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import CommandDetailsModal from '../components/history/CommandDetailsModal';
+import { minutesForCommand, calculateTotalMinutesSaved, formatTimeSaved } from '@/lib/timeEstimation';
 import { handleAuthError } from '@/utils/authHelpers';
 import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 import { NoDataEmptyState, NoResultsEmptyState } from '../components/common/EmptyState';
@@ -217,14 +218,16 @@ export default function History() {
 
   // Statistics
   const stats = useMemo(() => {
+    const completedCommands = commands.filter(c => c.status === 'completed');
     return {
       total: commands.length,
-      completed: commands.filter(c => c.status === 'completed').length,
+      completed: completedCommands.length,
       failed: commands.filter(c => c.status === 'failed').length,
       totalSuccessful: commands.reduce((sum, c) => sum + (c.results?.success_count || 0), 0),
-      avgExecutionTime: commands.length > 0 
+      avgExecutionTime: commands.length > 0
         ? (commands.reduce((sum, c) => sum + (c.execution_time || 0), 0) / commands.length).toFixed(1)
-        : 0
+        : 0,
+      timeSaved: formatTimeSaved(calculateTotalMinutesSaved(completedCommands)),
     };
   }, [commands]);
 
@@ -261,7 +264,7 @@ export default function History() {
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         <Card>
           <CardContent className="p-4">
             <p className="text-sm text-slate-500">Total Commands</p>
@@ -290,6 +293,12 @@ export default function History() {
           <CardContent className="p-4">
             <p className="text-sm text-slate-500">Avg Time (s)</p>
             <p className="text-2xl font-bold text-slate-900">{stats.avgExecutionTime}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-indigo-200 bg-indigo-50">
+          <CardContent className="p-4">
+            <p className="text-sm text-indigo-600 font-medium">Time Saved</p>
+            <p className="text-2xl font-bold text-indigo-700">{stats.timeSaved}</p>
           </CardContent>
         </Card>
       </div>
@@ -388,6 +397,11 @@ export default function History() {
                       <p className="text-xs text-slate-500">
                         {command.results.success_count || 0} succeeded, {command.results.failure_count || 0} failed
                         {command.execution_time && ` • ${command.execution_time}s`}
+                        {command.status === 'completed' && (
+                          <span className="ml-2 text-indigo-500 font-medium">
+                            ~{formatTimeSaved(minutesForCommand(command))} saved
+                          </span>
+                        )}
                       </p>
                     )}
                   </div>

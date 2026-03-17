@@ -28,6 +28,7 @@ import QuickActionsHub from '../components/dashboard/QuickActionsHub';
 import DashboardWidget from '../components/dashboard/DashboardWidget';
 import AutomationStatus from '../components/dashboard/AutomationStatus';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import { calculateTotalMinutesSaved, formatTimeSaved } from '@/lib/timeEstimation';
 import { generateDemoData } from '@/lib/functions';
 import LayoutReminder from '../components/common/LayoutReminder';
 import WidgetManager from '../components/common/WidgetManager';
@@ -123,6 +124,7 @@ export default function Dashboard() {
     criticalAlerts: 0,
     newRecommendations: 0,
     automationsRun: 0,
+    timeAutomated: '0 min',
   });
   const [showBetaInviteModal, setShowBetaInviteModal] = useState(false);
   const navigate = useNavigate();
@@ -200,7 +202,9 @@ export default function Dashboard() {
 
       const criticalAlertsCount = alertsData.filter(a => a.priority === 'high' || a.priority === 'urgent').length;
       const newRecommendationsCount = recommendationsData.filter(r => r.status === 'new').length;
-      const automationsRunCount = commandsData.filter(c => new Date(c.created_at) > lastWeek && c.status === 'completed').length;
+      const recentCompleted = commandsData.filter(c => new Date(c.created_at) > lastWeek && c.status === 'completed');
+      const automationsRunCount = recentCompleted.length;
+      const minutesSaved = calculateTotalMinutesSaved(recentCompleted);
 
       setHubStats({
         recentRevenue: recentRevenue,
@@ -208,6 +212,7 @@ export default function Dashboard() {
         criticalAlerts: criticalAlertsCount,
         newRecommendations: newRecommendationsCount,
         automationsRun: automationsRunCount,
+        timeAutomated: formatTimeSaved(minutesSaved),
       });
 
     } catch (error) {
@@ -232,6 +237,7 @@ export default function Dashboard() {
           criticalAlerts: 0,
           newRecommendations: 0,
           automationsRun: 0,
+          timeAutomated: '0 min',
         });
         return;
       }
@@ -249,6 +255,7 @@ export default function Dashboard() {
           criticalAlerts: 0,
           newRecommendations: 0,
           automationsRun: 0,
+          timeAutomated: '0 min',
         });
         
         toast.info("Connecting to server...", {
