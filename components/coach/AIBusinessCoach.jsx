@@ -50,12 +50,9 @@ export default function AIBusinessCoach() {
   const fileInputRef = useRef(null);
   const loadedTabsRef = useRef(new Set());
   const lastSentFilesRef = useRef([]);
-  // Prevents loadRecentHistory from overwriting state after the user has started interacting
-  const historyLoadAbortRef = useRef(false);
 
   // Load most recent conversation history on mount
   useEffect(() => {
-    historyLoadAbortRef.current = false;
     loadRecentHistory();
   }, []);
 
@@ -63,7 +60,7 @@ export default function AIBusinessCoach() {
     setIsHistoryLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user || historyLoadAbortRef.current) return;
+      if (!user) return;
 
       // Get the most recent conversation
       const { data: conversations } = await supabase
@@ -73,10 +70,11 @@ export default function AIBusinessCoach() {
         .order('updated_at', { ascending: false })
         .limit(1);
 
-      if (!conversations || conversations.length === 0 || historyLoadAbortRef.current) return;
+      if (!conversations || conversations.length === 0) return;
 
       const latestConvId = conversations[0].id;
-      setConversationId(latestConvId);
+      // Only set conversationId if not already established by a concurrent send
+      setConversationId(prev => prev === null ? latestConvId : prev);
 
       // Load its messages
       const { data: messages } = await supabase
@@ -87,11 +85,9 @@ export default function AIBusinessCoach() {
         .order('created_at', { ascending: true })
         .limit(50);
 
-      // Final check: abort if user interacted while we were loading messages
-      if (historyLoadAbortRef.current) return;
-
       if (messages && messages.length > 0) {
-        setChatMessages(messages.map(m => ({ role: m.role, content: m.content })));
+        // Only set messages if the user hasn't already sent anything this session
+        setChatMessages(prev => prev.length === 0 ? messages.map(m => ({ role: m.role, content: m.content })) : prev);
       }
     } catch (error) {
       console.error('[Orion] Failed to load history:', error);
@@ -161,9 +157,6 @@ export default function AIBusinessCoach() {
 
   const handleSendMessage = async () => {
     if (!chatInput.trim() && uploadedFiles.length === 0) return;
-
-    // Prevent any in-flight loadRecentHistory from overwriting messages after this point
-    historyLoadAbortRef.current = true;
 
     const userMessage = chatInput.trim();
     setChatInput('');
@@ -1133,7 +1126,7 @@ export default function AIBusinessCoach() {
                     variant="outline"
                     size="icon"
                     onClick={() => fileInputRef.current?.click()}
-                    disabled={isChatLoading}
+                    disabled={isChatLoading || isHistoryLoading}
                     title="Upload file"
                   >
                     <Paperclip className="w-4 h-4" />
@@ -1142,7 +1135,7 @@ export default function AIBusinessCoach() {
                     variant="outline"
                     size="icon"
                     onClick={toggleVoiceInput}
-                    disabled={isChatLoading}
+                    disabled={isChatLoading || isHistoryLoading}
                     className={isRecording ? 'bg-red-100 border-red-300' : ''}
                     title="Voice input"
                   >
@@ -1154,18 +1147,18 @@ export default function AIBusinessCoach() {
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey && !isChatLoading) {
+                    if (e.key === 'Enter' && !e.shiftKey && !isChatLoading && !isHistoryLoading) {
                       e.preventDefault();
                       handleSendMessage();
                     }
                   }}
-                  disabled={isChatLoading}
+                  disabled={isChatLoading || isHistoryLoading}
                   rows={4}
                   className="flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 />
                 <Button
                   onClick={handleSendMessage}
-                  disabled={isChatLoading || (!chatInput.trim() && uploadedFiles.length === 0)}
+                  disabled={isChatLoading || isHistoryLoading || (!chatInput.trim() && uploadedFiles.length === 0)}
                   className="self-end"
                 >
                   <Send className="w-4 h-4" />
