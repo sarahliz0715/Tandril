@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
 import { SavedCommand } from '@/lib/entities';
+import { supabase } from '@/lib/supabaseClient';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,7 +35,8 @@ export default function SavedCommandFormModal({ onClose, onSave, commandToEdit }
             if (command.id) {
                 await SavedCommand.update(command.id, command);
             } else {
-                await SavedCommand.create(command);
+                const { data: { user } } = await supabase.auth.getUser();
+                await SavedCommand.create({ ...command, user_id: user.id });
             }
             onSave();
             onClose();
