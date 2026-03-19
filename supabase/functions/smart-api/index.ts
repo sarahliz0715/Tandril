@@ -281,9 +281,14 @@ serve(async (req) => {
     }
 
     if (conversationId) {
-      saveMessage(supabaseClient, user.id, conversationId, 'assistant', response).catch(
-        (e) => console.warn('[Orion] Could not save assistant message:', e.message)
-      );
+      // Await the assistant message save so it completes before the function returns.
+      // Fire-and-forget saves are abandoned when Deno terminates the execution context.
+      try {
+        await saveMessage(supabaseClient, user.id, conversationId, 'assistant', response);
+      } catch (e: any) {
+        console.warn('[Orion] Could not save assistant message:', e.message);
+      }
+      // Memory extraction is non-essential — keep it best-effort
       extractAndSaveMemory(supabaseClient, user.id, conversationId, message, response).catch(
         (e) => console.error('[Orion] Memory extraction failed:', e)
       );
