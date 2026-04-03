@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Loader2, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import { connectBigCommerce } from '@/lib/functions';
+import { initiateOAuth } from '@/lib/supabaseFunctions';
 
 /**
  * BigCommerce Connect Button
@@ -22,25 +23,17 @@ export default function BigCommerceConnectButton({ onConnectionSuccess, disabled
     const handleOAuthConnect = async () => {
         setIsLoading(true);
         try {
-            // TODO: Implement actual BigCommerce OAuth flow
-            // This would redirect to BigCommerce for authorization
-
-            toast.info("BigCommerce OAuth coming soon", {
-                description: "We're finalizing the BigCommerce integration. Your connection will be available soon!"
-            });
-
-            // const response = await initiateBigCommerceAuth();
-            // if (response.data.authUrl) {
-            //     window.location.href = response.data.authUrl;
-            // }
-
-            setIsModalOpen(false);
+            const response = await initiateOAuth({ platform: 'bigcommerce' });
+            if (response?.auth_url) {
+                window.location.href = response.auth_url;
+            } else {
+                throw new Error(response?.error || 'Failed to get BigCommerce authorization URL');
+            }
         } catch (error) {
             console.error("BigCommerce OAuth error:", error);
             toast.error("Connection Failed", {
                 description: error.message || "Failed to connect to BigCommerce"
             });
-        } finally {
             setIsLoading(false);
         }
     };

@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Loader2, ExternalLink, Package } from 'lucide-react';
 import { toast } from 'sonner';
 import { connectFaire } from '@/lib/functions';
+import { initiateOAuth } from '@/lib/supabaseFunctions';
 
 /**
  * Faire Wholesale Connect Button
@@ -22,23 +23,17 @@ export default function FaireConnectButton({ onConnectionSuccess, disabled = fal
     const handleOAuthConnect = async () => {
         setIsLoading(true);
         try {
-            // TODO: Implement actual Faire OAuth flow
-            toast.info("Faire OAuth coming soon", {
-                description: "We're finalizing the Faire wholesale integration. Your connection will be available soon!"
-            });
-
-            // const response = await initiateFaireAuth();
-            // if (response.data.authUrl) {
-            //     window.location.href = response.data.authUrl;
-            // }
-
-            setIsModalOpen(false);
+            const response = await initiateOAuth({ platform: 'faire' });
+            if (response?.auth_url) {
+                window.location.href = response.auth_url;
+            } else {
+                throw new Error(response?.error || 'Failed to get Faire authorization URL');
+            }
         } catch (error) {
             console.error("Faire OAuth error:", error);
             toast.error("Connection Failed", {
                 description: error.message || "Failed to connect to Faire"
             });
-        } finally {
             setIsLoading(false);
         }
     };
