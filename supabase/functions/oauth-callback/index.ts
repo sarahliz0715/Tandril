@@ -204,6 +204,87 @@ async function exchangeSquarespace(code: string): Promise<any> {
   };
 }
 
+async function exchangeBigCommerce(code: string, context: string): Promise<any> {
+  const clientId = Deno.env.get('BIGCOMMERCE_CLIENT_ID');
+  const clientSecret = Deno.env.get('BIGCOMMERCE_CLIENT_SECRET');
+  if (!clientId || !clientSecret) throw new Error('BigCommerce credentials not configured');
+  if (!context) throw new Error('Missing BigCommerce store context');
+
+  const res = await fetch('https://login.bigcommerce.com/oauth2/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+      scope: 'store_v2_products store_v2_orders store_v2_customers store_v2_information_read_only',
+      grant_type: 'authorization_code',
+      redirect_uri: CALLBACK_URL,
+      context,
+    }),
+  });
+  if (!res.ok) throw new Error(`BigCommerce token exchange failed: ${await res.text()}`);
+  const tokens = await res.json();
+
+  // context format from callback: "stores/{store_hash}"
+  const storeHash = (tokens.context || context).split('/')[1] || '';
+  const displayName = tokens.user?.email || tokens.user?.username || storeHash || 'BigCommerce Store';
+
+  return {
+    credentials: { access_token: tokens.access_token, store_hash: storeHash },
+    name: `BigCommerce - ${displayName}`,
+    store_url: storeHash ? `https://store-${storeHash}.mybigcommerce.com` : undefined,
+    metadata: {
+      user_id: tokens.user?.id,
+      username: tokens.user?.username,
+      email: tokens.user?.email,
+      scope: tokens.scope,
+      store_hash: storeHash,
+    },
+  };
+}
+
+async function exchangeFaire(code: string): Promise<any> {
+  const clientId = Deno.env.get('FAIRE_CLIENT_ID');
+  const clientSecret = Deno.env.get('FAIRE_CLIENT_SECRET');
+  if (!clientId || !clientSecret) throw new Error('Faire credentials not configured');
+
+  const res = await fetch('https://www.faire.com/api/v2/external/apps/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+      grant_type: 'authorization_code',
+      redirect_uri: CALLBACK_URL,
+    }),
+  });
+  if (!res.ok) throw new Error(`Faire token exchange failed: ${await res.text()}`);
+  const tokens = await res.json();
+
+  const brandToken = tokens.brand_token || '';
+  let brandName = 'Faire Brand';
+
+  if (tokens.access_token) {
+    try {
+      const brandRes = await fetch('https://www.faire.com/api/v2/brands/me', {
+        headers: { 'X-FAIRE-ACCESS-TOKEN': tokens.access_token },
+      });
+      if (brandRes.ok) {
+        const brandData = await brandRes.json();
+        brandName = brandData.name || brandName;
+      }
+    } catch (_) { /* ignore, use default name */ }
+  }
+
+  return {
+    credentials: { access_token: tokens.access_token, brand_token: brandToken },
+    name: `Faire - ${brandName}`,
+    metadata: { brand_token: brandToken },
+  };
+}
+
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
 serve(async (req) => {
@@ -213,7 +294,7 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { code, state } = body;
+    const { code, state, context } = body;
     if (!code || !state) throw new Error('Missing code or state');
 
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -262,11 +343,17 @@ serve(async (req) => {
       case 'squarespace':
         result = await exchangeSquarespace(code);
         break;
+      case 'bigcommerce':
+        result = await exchangeBigCommerce(code, context ?? '');
+        break;
+      case 'faire':
+        result = await exchangeFaire(code);
+        break;
       default:
         throw new Error(`Unsupported platform: ${platform}`);
     }
 
-    const platformData = {
+    const platformData: Record<string, any> = {
       user_id: userId,
       platform_type: platform,
       name: result.name,
@@ -275,6 +362,7 @@ serve(async (req) => {
       is_active: true,
       last_synced_at: new Date().toISOString(),
       metadata: result.metadata ?? {},
+      ...(result.store_url ? { store_url: result.store_url } : {}),
     };
 
     // Upsert platform record

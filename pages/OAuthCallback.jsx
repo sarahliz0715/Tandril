@@ -15,6 +15,8 @@ const PLATFORM_NAMES = {
   square: 'Square',
   wix: 'Wix',
   squarespace: 'Squarespace',
+  bigcommerce: 'BigCommerce',
+  faire: 'Faire',
 };
 
 export default function OAuthCallback() {
@@ -34,6 +36,8 @@ export default function OAuthCallback() {
         const state = params.get('state');
         const error = params.get('error');
         const errorDesc = params.get('error_description');
+        // BigCommerce returns a 'context' param (e.g. "stores/abc123") needed for token exchange
+        const context = params.get('context');
 
         // Look up platform name from the stored state (best-effort via API response)
         // We'll get the real name after the callback succeeds.
@@ -56,7 +60,11 @@ export default function OAuthCallback() {
 
         if (mounted) setMessage('Processing authorization...');
 
-        const response = await api.functions.invoke('oauth-callback', { code, state });
+        const response = await api.functions.invoke('oauth-callback', {
+          code,
+          state,
+          ...(context ? { context } : {}),
+        });
 
         if (!mounted) return;
 

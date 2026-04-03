@@ -8,6 +8,8 @@
 //   Square:       SQUARE_APPLICATION_ID, SQUARE_APPLICATION_SECRET
 //   Wix:          WIX_CLIENT_ID, WIX_CLIENT_SECRET
 //   Squarespace:  SQUARESPACE_CLIENT_ID, SQUARESPACE_CLIENT_SECRET
+//   BigCommerce:  BIGCOMMERCE_CLIENT_ID, BIGCOMMERCE_CLIENT_SECRET
+//   Faire:        FAIRE_CLIENT_ID, FAIRE_CLIENT_SECRET
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -91,6 +93,18 @@ const PLATFORM_CONFIG: Record<string, PlatformConfig> = {
     authUrl: 'https://login.squarespace.com/api/1/login/oauth/provider/authorize',
     scopes: 'website.orders.read website.orders.write website.inventory.read website.inventory.write website.products.read website.products.write',
     clientIdEnv: 'SQUARESPACE_CLIENT_ID',
+    scopeSeparator: ' ',
+  },
+  bigcommerce: {
+    authUrl: 'https://login.bigcommerce.com/oauth2/authorize',
+    scopes: 'store_v2_products store_v2_orders store_v2_customers store_v2_information_read_only',
+    clientIdEnv: 'BIGCOMMERCE_CLIENT_ID',
+    scopeSeparator: ' ',
+  },
+  faire: {
+    authUrl: 'https://app.faire.com/oauth/authorize',
+    scopes: 'read:products write:products read:orders write:orders',
+    clientIdEnv: 'FAIRE_CLIENT_ID',
     scopeSeparator: ' ',
   },
 };
