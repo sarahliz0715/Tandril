@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -369,6 +370,110 @@ export default function AIBusinessCoach() {
             { label: 'Alt text', value: action.alt_text },
           ],
         };
+      case 'update_status':
+        return {
+          icon: '🔄', title: 'Update Product Status',
+          fields: [
+            { label: 'Product', value: action.product_name || action.sku },
+            { label: 'New status', value: action.status },
+          ],
+        };
+      case 'update_description':
+        return {
+          icon: '📝', title: 'Update Product Description',
+          fields: [
+            { label: 'Product', value: action.product_name || action.sku },
+            { label: 'Preview', value: (action.description || '').slice(0, 160) + ((action.description || '').length > 160 ? '…' : '') },
+          ],
+        };
+      case 'update_seo_listing':
+        return {
+          icon: '🔍', title: 'Update SEO Listing (Google)',
+          fields: [
+            { label: 'Product', value: action.product_name || action.sku },
+            { label: 'SEO title', value: action.seo_title },
+            { label: 'SEO description', value: action.seo_description },
+          ],
+        };
+      case 'update_url_handle':
+        return {
+          icon: '🔗', title: 'Update URL Handle/Slug',
+          fields: [
+            { label: 'Product', value: action.product_name || action.sku },
+            { label: 'New handle', value: action.new_handle },
+          ],
+        };
+      case 'update_tags':
+        return {
+          icon: '🏷️', title: 'Update Product Tags',
+          fields: [
+            { label: 'Product', value: action.product_name || action.sku },
+            { label: 'Tags', value: Array.isArray(action.tags) ? action.tags.join(', ') : String(action.tags || '') },
+          ],
+        };
+      case 'ebay_create_listing':
+        return {
+          icon: '🛒', title: 'Create eBay Listing',
+          fields: [
+            { label: 'Title', value: action.title },
+            { label: 'SKU', value: action.sku || 'N/A' },
+            { label: 'Price', value: `$${action.price || 0}` },
+            { label: 'Quantity', value: action.quantity ?? 0 },
+          ].filter(Boolean),
+        };
+      case 'ebay_update_inventory':
+        return {
+          icon: '📦', title: 'Update eBay Inventory',
+          fields: [
+            { label: 'Listing', value: action.product_name || action.sku },
+            { label: 'New quantity', value: `${action.quantity} units` },
+          ],
+        };
+      case 'ebay_update_price':
+        return {
+          icon: '💰', title: 'Update eBay Price',
+          fields: [
+            { label: 'Listing', value: action.product_name || action.sku },
+            { label: 'New price', value: `$${action.price}` },
+          ],
+        };
+      case 'ebay_update_title':
+        return {
+          icon: '✏️', title: 'Update eBay Listing Title',
+          fields: [
+            { label: 'Listing', value: action.product_name || action.sku },
+            { label: 'New title', value: action.new_title },
+          ],
+        };
+      case 'ebay_update_description':
+        return {
+          icon: '📝', title: 'Update eBay Description',
+          fields: [
+            { label: 'Listing', value: action.product_name || action.sku },
+            { label: 'Preview', value: (action.description || '').slice(0, 160) + ((action.description || '').length > 160 ? '…' : '') },
+          ],
+        };
+      case 'ebay_update_image':
+        return {
+          icon: '🖼️', title: 'Update eBay Listing Images',
+          fields: [
+            { label: 'Listing', value: action.product_name || action.sku },
+          ],
+        };
+      case 'ebay_end_listing':
+        return {
+          icon: '🔴', title: 'End eBay Listing',
+          fields: [
+            { label: 'Listing', value: action.product_name || action.sku },
+          ],
+        };
+      case 'ebay_relist':
+        return {
+          icon: '🟢', title: 'Relist on eBay',
+          fields: [
+            { label: 'Listing', value: action.product_name || action.sku },
+          ],
+        };
       case 'woo_create_product':
         return {
           icon: '➕', title: 'Create New Product (WooCommerce)',
@@ -403,6 +508,11 @@ export default function AIBusinessCoach() {
             case 'update_image_alt':
             case 'update_image_alt_text': return `🔍 Alt text → "${a.alt_text}"`;
             case 'update_metafield': return `🔧 ${(a.metafield_key || '').replace(/_/g, ' ')} → "${a.metafield_value}"`;
+            case 'update_description': return `📝 Description updated`;
+            case 'update_seo_listing': return `🔍 SEO: "${a.seo_title}"`;
+            case 'update_url_handle': return `🔗 URL → "${a.new_handle}"`;
+            case 'update_tags': return `🏷️ Tags → ${Array.isArray(a.tags) ? a.tags.join(', ') : a.tags}`;
+            case 'update_status': return `🔄 Status → ${a.status}`;
             default: return `⚡ ${a.type}`;
           }
         });
@@ -413,7 +523,7 @@ export default function AIBusinessCoach() {
       }
       case 'batch_update': {
         const updates = action.updates || [];
-        const fieldLabel = action.field === 'title' ? 'Title' : action.field === 'price' ? 'Price' : action.field === 'inventory' ? 'Stock' : action.field === 'image_alt' ? 'Alt Text' : action.field === 'metafield' ? `Metafield: ${action.metafield_key || ''}` : action.field;
+        const fieldLabel = action.field === 'title' ? 'Title' : action.field === 'price' ? 'Price' : action.field === 'inventory' ? 'Stock' : action.field === 'image_alt' ? 'Alt Text' : action.field === 'metafield' ? `Metafield: ${action.metafield_key || ''}` : action.field === 'description' ? 'Description' : action.field === 'url_handle' ? 'URL Handle' : action.field === 'seo_listing' ? 'SEO Listing' : action.field;
         return {
           icon: '🗂️', title: `Update ${fieldLabel} on ${updates.length} Products`,
           fields: [
@@ -958,7 +1068,20 @@ export default function AIBusinessCoach() {
                               : 'bg-slate-100 text-slate-900'
                           }`}
                         >
-                          <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                          {msg.role === 'user' ? (
+                            <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                          ) : (
+                            <ReactMarkdown
+                              className="text-sm prose prose-sm prose-slate max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0"
+                              components={{
+                                a: ({ children, ...props }) => (
+                                  <a {...props} target="_blank" rel="noopener noreferrer" className="text-purple-700 hover:underline">{children}</a>
+                                ),
+                              }}
+                            >
+                              {msg.content}
+                            </ReactMarkdown>
+                          )}
                         </div>
                         {/* ── Action Queue UI ─────────────────────────── */}
                         {msg.pendingActions?.length > 0 && (() => {
