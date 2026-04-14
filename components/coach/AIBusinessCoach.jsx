@@ -49,6 +49,7 @@ export default function AIBusinessCoach() {
   const [conversationId, setConversationId] = useState(null);
   const chatEndRef = useRef(null);
   const fileInputRef = useRef(null);
+  const textareaRef = useRef(null);
   const loadedTabsRef = useRef(new Set());
   const lastSentFilesRef = useRef([]);
 
@@ -161,6 +162,9 @@ export default function AIBusinessCoach() {
 
     const userMessage = chatInput.trim();
     setChatInput('');
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
 
     const filesDisplay = uploadedFiles.length > 0
       ? `\n📎 ${uploadedFiles.map(f => f.name).join(', ')}`
@@ -641,21 +645,17 @@ export default function AIBusinessCoach() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-2">
       {/* Header */}
-      <Card className="bg-gradient-to-r from-green-600 to-emerald-500 text-white border-0">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-3">
-            <Zap className="w-8 h-8" />
-            <div>
-              <h2 className="text-2xl font-bold">Orion - Your AI Business Wingman</h2>
-              <p className="text-green-100 text-sm font-normal">
-                Your wingman for growth, strategy, and business success
-              </p>
-            </div>
-          </CardTitle>
-        </CardHeader>
-      </Card>
+      <div className="bg-gradient-to-r from-green-600 to-emerald-500 text-white rounded-lg px-4 py-3 flex items-center gap-2">
+        <Zap className="w-5 h-5 flex-shrink-0" />
+        <div>
+          <h2 className="text-base font-bold leading-tight">Orion - Your AI Business Wingman</h2>
+          <p className="text-green-100 text-xs font-normal leading-tight">
+            Your wingman for growth, strategy, and business success
+          </p>
+        </div>
+      </div>
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -1266,9 +1266,17 @@ export default function AIBusinessCoach() {
                   </Button>
                 </div>
                 <textarea
+                  ref={textareaRef}
                   placeholder="Ask Orion anything... (Shift+Enter for new line)"
                   value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
+                  onChange={(e) => {
+                    setChatInput(e.target.value);
+                    const ta = textareaRef.current;
+                    if (ta) {
+                      ta.style.height = 'auto';
+                      ta.style.height = Math.min(ta.scrollHeight, 128) + 'px';
+                    }
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey && !isChatLoading && !isHistoryLoading) {
                       e.preventDefault();
@@ -1276,8 +1284,8 @@ export default function AIBusinessCoach() {
                     }
                   }}
                   disabled={isChatLoading || isHistoryLoading}
-                  rows={4}
-                  className="flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  rows={1}
+                  className="flex-1 resize-none overflow-y-auto rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 />
                 <Button
                   onClick={handleSendMessage}

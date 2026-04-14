@@ -102,6 +102,24 @@ function summarizeOrionAction(action: any): string {
     }
     case 'woo_create_product':        return `Created WooCommerce product: "${name}"`;
     case 'woo_bulk_create_products':  return `Created ${(action.products || []).length} WooCommerce products`;
+    case 'ecwid_create_product':      return `Created Ecwid product: "${action.title || name}"`;
+    case 'ecwid_update_inventory':    return `Updated Ecwid inventory for "${name}" → ${action.quantity} units`;
+    case 'ecwid_update_price':        return `Updated Ecwid price for "${name}" → $${action.price}`;
+    case 'ecwid_update_title':        return `Updated Ecwid title for "${name}"`;
+    case 'ecwid_update_description':  return `Updated Ecwid description for "${name}"`;
+    case 'magento_create_product':    return `Created Magento product: "${action.title || name}"`;
+    case 'magento_update_inventory':  return `Updated Magento inventory for "${name}" → ${action.quantity} units`;
+    case 'magento_update_price':      return `Updated Magento price for "${name}" → $${action.price}`;
+    case 'magento_update_title':      return `Updated Magento title for "${name}"`;
+    case 'magento_update_description':return `Updated Magento description for "${name}"`;
+    case 'prestashop_create_product': return `Created PrestaShop product: "${action.title || name}"`;
+    case 'prestashop_update_inventory':return `Updated PrestaShop inventory for "${name}" → ${action.quantity} units`;
+    case 'prestashop_update_price':   return `Updated PrestaShop price for "${name}" → $${action.price}`;
+    case 'prestashop_update_title':   return `Updated PrestaShop title for "${name}"`;
+    case 'wish_update_inventory':     return `Updated Wish inventory for "${name}" → ${action.quantity} units`;
+    case 'wish_update_price':         return `Updated Wish price for "${name}" → $${action.price}`;
+    case 'walmart_update_inventory':  return `Updated Walmart inventory for "${name}" → ${action.quantity} units`;
+    case 'walmart_update_price':      return `Updated Walmart price for "${name}" → $${action.price}`;
     default:                          return `Orion action: ${action.type} on "${name}"`;
   }
 }
@@ -1546,6 +1564,391 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: summary, success_count: results.length, fail_count: errors.length, results, errors };
     }
 
+    // ── Ecwid write actions ───────────────────────────────────────────────────
+
+    case 'ecwid_update_inventory':
+    case 'ecwid_update_price':
+    case 'ecwid_update_title':
+    case 'ecwid_update_description': {
+      const { data: ecwidPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'ecwid').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!ecwidPlats || ecwidPlats.length === 0) throw new Error('No connected Ecwid store found.');
+      const ecwid = ecwidPlats[0];
+      const { store_id, access_token: ecwidToken } = ecwid.credentials;
+      const ecwidBase = `https://app.ecwid.com/api/v3/${store_id}`;
+      const ecwidHeaders = { 'Authorization': `Bearer ${ecwidToken}`, 'Content-Type': 'application/json' };
+
+      // Find the product by name or sku
+      const searchQuery = action.sku && action.sku !== 'N/A'
+        ? `sku=${encodeURIComponent(action.sku)}`
+        : `keyword=${encodeURIComponent(action.product_name || '')}`;
+      const searchRes = await fetch(`${ecwidBase}/products?${searchQuery}&limit=5`, { headers: ecwidHeaders });
+      if (!searchRes.ok) throw new Error(`Ecwid product search failed: ${await searchRes.text()}`);
+      const searchData = await searchRes.json();
+      const ecwidProduct = (searchData.items || [])[0];
+      if (!ecwidProduct) throw new Error(`Product "${action.product_name || action.sku}" not found in Ecwid.`);
+      const productId = ecwidProduct.id;
+
+      if (action.type === 'ecwid_update_inventory') {
+        const updateRes = await fetch(`${ecwidBase}/products/${productId}`, {
+          method: 'PUT', headers: ecwidHeaders,
+          body: JSON.stringify({ quantity: Number(action.quantity) }),
+        });
+        if (!updateRes.ok) throw new Error(`Ecwid inventory update failed: ${await updateRes.text()}`);
+        return { message: `Updated Ecwid inventory for "${ecwidProduct.name}" to ${action.quantity} units` };
+      }
+
+      if (action.type === 'ecwid_update_price') {
+        const updateRes = await fetch(`${ecwidBase}/products/${productId}`, {
+          method: 'PUT', headers: ecwidHeaders,
+          body: JSON.stringify({ price: Number(action.price) }),
+        });
+        if (!updateRes.ok) throw new Error(`Ecwid price update failed: ${await updateRes.text()}`);
+        return { message: `Updated Ecwid price for "${ecwidProduct.name}" to $${action.price}` };
+      }
+
+      if (action.type === 'ecwid_update_title') {
+        const updateRes = await fetch(`${ecwidBase}/products/${productId}`, {
+          method: 'PUT', headers: ecwidHeaders,
+          body: JSON.stringify({ name: action.new_title }),
+        });
+        if (!updateRes.ok) throw new Error(`Ecwid title update failed: ${await updateRes.text()}`);
+        return { message: `Updated Ecwid title for "${ecwidProduct.name}" → "${action.new_title}"` };
+      }
+
+      if (action.type === 'ecwid_update_description') {
+        const updateRes = await fetch(`${ecwidBase}/products/${productId}`, {
+          method: 'PUT', headers: ecwidHeaders,
+          body: JSON.stringify({ description: action.description }),
+        });
+        if (!updateRes.ok) throw new Error(`Ecwid description update failed: ${await updateRes.text()}`);
+        return { message: `Updated Ecwid description for "${ecwidProduct.name}"` };
+      }
+      break;
+    }
+
+    case 'ecwid_create_product': {
+      const { data: ecwidPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'ecwid').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!ecwidPlats || ecwidPlats.length === 0) throw new Error('No connected Ecwid store found.');
+      const ecwid = ecwidPlats[0];
+      const { store_id, access_token: ecwidToken } = ecwid.credentials;
+      const ecwidBase = `https://app.ecwid.com/api/v3/${store_id}`;
+      const ecwidHeaders = { 'Authorization': `Bearer ${ecwidToken}`, 'Content-Type': 'application/json' };
+      const body: any = {
+        name: action.title,
+        price: Number(action.price) || 0,
+        quantity: Number(action.quantity) || 0,
+        sku: action.sku || undefined,
+        description: action.description || undefined,
+        enabled: true,
+      };
+      const createRes = await fetch(`${ecwidBase}/products`, {
+        method: 'POST', headers: ecwidHeaders, body: JSON.stringify(body),
+      });
+      if (!createRes.ok) throw new Error(`Ecwid product creation failed: ${await createRes.text()}`);
+      return { message: `Created Ecwid product: "${action.title}"` };
+    }
+
+    // ── Magento write actions ─────────────────────────────────────────────────
+
+    case 'magento_update_inventory':
+    case 'magento_update_price':
+    case 'magento_update_title':
+    case 'magento_update_description': {
+      const { data: magentoPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'magento').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!magentoPlats || magentoPlats.length === 0) throw new Error('No connected Magento store found.');
+      const magento = magentoPlats[0];
+      const magentoBase = magento.store_url.replace(/\/$/, '');
+      const magentoToken = magento.credentials.access_token;
+      const magentoHeaders = { 'Authorization': `Bearer ${magentoToken}`, 'Content-Type': 'application/json' };
+
+      // Look up the product by SKU
+      const sku = action.sku && action.sku !== 'N/A' ? action.sku : null;
+      if (!sku) throw new Error('SKU is required for Magento actions. Ask the user for the product SKU.');
+      const encodedSku = encodeURIComponent(sku);
+
+      if (action.type === 'magento_update_inventory') {
+        // Magento StockItems API
+        const stockRes = await fetch(`${magentoBase}/rest/V1/products/${encodedSku}/stockItems/1`, { headers: magentoHeaders });
+        if (!stockRes.ok) throw new Error(`Magento stock lookup failed: ${await stockRes.text()}`);
+        const stockData = await stockRes.json();
+        const updateRes = await fetch(`${magentoBase}/rest/V1/products/${encodedSku}/stockItems/${stockData.item_id}`, {
+          method: 'PUT', headers: magentoHeaders,
+          body: JSON.stringify({ stockItem: { qty: Number(action.quantity), is_in_stock: Number(action.quantity) > 0 } }),
+        });
+        if (!updateRes.ok) throw new Error(`Magento inventory update failed: ${await updateRes.text()}`);
+        return { message: `Updated Magento inventory for "${action.product_name || sku}" to ${action.quantity} units` };
+      }
+
+      if (action.type === 'magento_update_price') {
+        const updateRes = await fetch(`${magentoBase}/rest/V1/products/${encodedSku}`, {
+          method: 'PUT', headers: magentoHeaders,
+          body: JSON.stringify({ product: { sku, price: Number(action.price) } }),
+        });
+        if (!updateRes.ok) throw new Error(`Magento price update failed: ${await updateRes.text()}`);
+        return { message: `Updated Magento price for "${action.product_name || sku}" to $${action.price}` };
+      }
+
+      if (action.type === 'magento_update_title') {
+        const updateRes = await fetch(`${magentoBase}/rest/V1/products/${encodedSku}`, {
+          method: 'PUT', headers: magentoHeaders,
+          body: JSON.stringify({ product: { sku, name: action.new_title } }),
+        });
+        if (!updateRes.ok) throw new Error(`Magento title update failed: ${await updateRes.text()}`);
+        return { message: `Updated Magento title for "${action.product_name || sku}" → "${action.new_title}"` };
+      }
+
+      if (action.type === 'magento_update_description') {
+        const updateRes = await fetch(`${magentoBase}/rest/V1/products/${encodedSku}`, {
+          method: 'PUT', headers: magentoHeaders,
+          body: JSON.stringify({ product: { sku, custom_attributes: [{ attribute_code: 'description', value: action.description }] } }),
+        });
+        if (!updateRes.ok) throw new Error(`Magento description update failed: ${await updateRes.text()}`);
+        return { message: `Updated Magento description for "${action.product_name || sku}"` };
+      }
+      break;
+    }
+
+    case 'magento_create_product': {
+      const { data: magentoPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'magento').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!magentoPlats || magentoPlats.length === 0) throw new Error('No connected Magento store found.');
+      const magento = magentoPlats[0];
+      const magentoBase = magento.store_url.replace(/\/$/, '');
+      const magentoToken = magento.credentials.access_token;
+      const magentoHeaders = { 'Authorization': `Bearer ${magentoToken}`, 'Content-Type': 'application/json' };
+      const createBody = {
+        product: {
+          sku: action.sku || `ORION-${Date.now()}`,
+          name: action.title,
+          price: Number(action.price) || 0,
+          status: 1,
+          visibility: 4,
+          type_id: 'simple',
+          attribute_set_id: 4,
+          extension_attributes: { stock_item: { qty: Number(action.quantity) || 0, is_in_stock: true } },
+          custom_attributes: action.description
+            ? [{ attribute_code: 'description', value: action.description }]
+            : [],
+        },
+      };
+      const createRes = await fetch(`${magentoBase}/rest/V1/products`, {
+        method: 'POST', headers: magentoHeaders, body: JSON.stringify(createBody),
+      });
+      if (!createRes.ok) throw new Error(`Magento product creation failed: ${await createRes.text()}`);
+      return { message: `Created Magento product: "${action.title}"` };
+    }
+
+    // ── PrestaShop write actions ──────────────────────────────────────────────
+
+    case 'prestashop_update_inventory':
+    case 'prestashop_update_price':
+    case 'prestashop_update_title': {
+      const { data: psPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'prestashop').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!psPlats || psPlats.length === 0) throw new Error('No connected PrestaShop store found.');
+      const ps = psPlats[0];
+      const psBase = ps.store_url.replace(/\/$/, '');
+      const psEncoded = btoa(`${ps.credentials.api_key}:`);
+      const psHeaders = { 'Authorization': `Basic ${psEncoded}`, 'Content-Type': 'application/json' };
+
+      // Look up by reference (SKU) or keyword
+      const searchRef = action.sku && action.sku !== 'N/A' ? action.sku : '';
+      let psProductId: string | null = null;
+      let psCurrentProduct: any = null;
+
+      if (searchRef) {
+        const searchRes = await fetch(`${psBase}/api/products?output_format=JSON&filter[reference]=${encodeURIComponent(searchRef)}&display=[id,reference,name]`, { headers: psHeaders });
+        if (searchRes.ok) {
+          const sd = await searchRes.json();
+          psProductId = sd?.products?.[0]?.id?.toString() || null;
+        }
+      }
+      if (!psProductId && action.product_name) {
+        const searchRes = await fetch(`${psBase}/api/products?output_format=JSON&filter[name]=%25${encodeURIComponent(action.product_name)}%25&display=[id,name]`, { headers: psHeaders });
+        if (searchRes.ok) {
+          const sd = await searchRes.json();
+          psProductId = sd?.products?.[0]?.id?.toString() || null;
+        }
+      }
+      if (!psProductId) throw new Error(`Product "${action.product_name || action.sku}" not found in PrestaShop.`);
+
+      // Fetch full product XML for PUT
+      const getRes = await fetch(`${psBase}/api/products/${psProductId}`, {
+        headers: { 'Authorization': `Basic ${psEncoded}`, 'Accept': 'application/xml' },
+      });
+      if (!getRes.ok) throw new Error(`PrestaShop product fetch failed: ${await getRes.text()}`);
+      let productXml = await getRes.text();
+
+      if (action.type === 'prestashop_update_price') {
+        productXml = productXml.replace(/<price><!\[CDATA\[.*?\]\]><\/price>/, `<price><![CDATA[${Number(action.price).toFixed(6)}]]></price>`);
+        productXml = productXml.replace(/<price>[^<]*<\/price>/, `<price>${Number(action.price).toFixed(6)}</price>`);
+      }
+      if (action.type === 'prestashop_update_title') {
+        // Update the name in the default language
+        productXml = productXml.replace(/(<name>[\s\S]*?<language[^>]*>)[\s\S]*?(<\/language>)/, `$1<![CDATA[${action.new_title}]]>$2`);
+      }
+
+      const putRes = await fetch(`${psBase}/api/products/${psProductId}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Basic ${psEncoded}`, 'Content-Type': 'application/xml' },
+        body: productXml,
+      });
+      if (!putRes.ok) throw new Error(`PrestaShop update failed: ${await putRes.text()}`);
+
+      if (action.type === 'prestashop_update_inventory') {
+        // PrestaShop inventory lives in stock_availables
+        const stockRes = await fetch(`${psBase}/api/stock_availables?output_format=JSON&filter[id_product]=${psProductId}&display=[id,quantity]`, { headers: psHeaders });
+        if (!stockRes.ok) throw new Error(`PrestaShop stock lookup failed: ${await stockRes.text()}`);
+        const stockData = await stockRes.json();
+        const stockId = stockData?.stock_availables?.[0]?.id;
+        if (!stockId) throw new Error('Could not find PrestaShop stock_available record for this product.');
+
+        const getStockRes = await fetch(`${psBase}/api/stock_availables/${stockId}`, {
+          headers: { 'Authorization': `Basic ${psEncoded}`, 'Accept': 'application/xml' },
+        });
+        if (!getStockRes.ok) throw new Error(`PrestaShop stock fetch failed: ${await getStockRes.text()}`);
+        let stockXml = await getStockRes.text();
+        stockXml = stockXml.replace(/<quantity>[^<]*<\/quantity>/, `<quantity>${Number(action.quantity)}</quantity>`);
+        const updateStockRes = await fetch(`${psBase}/api/stock_availables/${stockId}`, {
+          method: 'PUT',
+          headers: { 'Authorization': `Basic ${psEncoded}`, 'Content-Type': 'application/xml' },
+          body: stockXml,
+        });
+        if (!updateStockRes.ok) throw new Error(`PrestaShop stock update failed: ${await updateStockRes.text()}`);
+        return { message: `Updated PrestaShop inventory for "${action.product_name || action.sku}" to ${action.quantity} units` };
+      }
+
+      const labels: Record<string, string> = {
+        prestashop_update_price: `Updated PrestaShop price for "${action.product_name || action.sku}" to $${action.price}`,
+        prestashop_update_title: `Updated PrestaShop title for "${action.product_name || action.sku}" → "${action.new_title}"`,
+      };
+      return { message: labels[action.type] || 'PrestaShop update complete' };
+    }
+
+    case 'prestashop_create_product': {
+      const { data: psPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'prestashop').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!psPlats || psPlats.length === 0) throw new Error('No connected PrestaShop store found.');
+      const ps = psPlats[0];
+      const psBase = ps.store_url.replace(/\/$/, '');
+      const psEncoded = btoa(`${ps.credentials.api_key}:`);
+
+      // Fetch the blank schema first to get required default fields
+      const schemaRes = await fetch(`${psBase}/api/products?schema=blank`, {
+        headers: { 'Authorization': `Basic ${psEncoded}`, 'Accept': 'application/xml' },
+      });
+      if (!schemaRes.ok) throw new Error(`PrestaShop schema fetch failed: ${await schemaRes.text()}`);
+      let schema = await schemaRes.text();
+
+      // Fill in required fields
+      schema = schema
+        .replace(/<name><!\[CDATA\[.*?\]\]><\/name>/, `<name><![CDATA[${action.title}]]></name>`)
+        .replace(/<reference><!\[CDATA\[.*?\]\]><\/reference>/, `<reference><![CDATA[${action.sku || ''}]]></reference>`)
+        .replace(/<price><!\[CDATA\[.*?\]\]><\/price>/, `<price><![CDATA[${Number(action.price || 0).toFixed(6)}]]></price>`)
+        .replace(/<active><!\[CDATA\[.*?\]\]><\/active>/, `<active><![CDATA[1]]></active>`);
+
+      const createRes = await fetch(`${psBase}/api/products`, {
+        method: 'POST',
+        headers: { 'Authorization': `Basic ${psEncoded}`, 'Content-Type': 'application/xml' },
+        body: schema,
+      });
+      if (!createRes.ok) throw new Error(`PrestaShop product creation failed: ${await createRes.text()}`);
+      return { message: `Created PrestaShop product: "${action.title}"` };
+    }
+
+    // ── Wish write actions ────────────────────────────────────────────────────
+
+    case 'wish_update_inventory':
+    case 'wish_update_price': {
+      const { data: wishPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'wish').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!wishPlats || wishPlats.length === 0) throw new Error('No connected Wish store found.');
+      const wish = wishPlats[0];
+      const wishToken = wish.credentials.access_token;
+
+      if (!action.sku || action.sku === 'N/A') throw new Error('SKU is required for Wish actions.');
+
+      if (action.type === 'wish_update_inventory') {
+        const params = new URLSearchParams({ access_token: wishToken, sku: action.sku, inventory: String(Number(action.quantity)) });
+        const updateRes = await fetch(`https://merchant.wish.com/api/v3/variant/update?${params}`, { method: 'POST' });
+        if (!updateRes.ok) throw new Error(`Wish inventory update failed: ${await updateRes.text()}`);
+        const data = await updateRes.json();
+        if (data.code !== 0) throw new Error(data.message || 'Wish API error');
+        return { message: `Updated Wish inventory for SKU "${action.sku}" to ${action.quantity} units` };
+      }
+
+      if (action.type === 'wish_update_price') {
+        const params = new URLSearchParams({ access_token: wishToken, sku: action.sku, price: String(Number(action.price)) });
+        const updateRes = await fetch(`https://merchant.wish.com/api/v3/variant/update?${params}`, { method: 'POST' });
+        if (!updateRes.ok) throw new Error(`Wish price update failed: ${await updateRes.text()}`);
+        const data = await updateRes.json();
+        if (data.code !== 0) throw new Error(data.message || 'Wish API error');
+        return { message: `Updated Wish price for SKU "${action.sku}" to $${action.price}` };
+      }
+      break;
+    }
+
+    // ── Walmart write actions ─────────────────────────────────────────────────
+
+    case 'walmart_update_inventory':
+    case 'walmart_update_price': {
+      const { data: walmartPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'walmart').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!walmartPlats || walmartPlats.length === 0) throw new Error('No connected Walmart store found.');
+      const walmart = walmartPlats[0];
+      const { client_id, client_secret } = walmart.credentials;
+
+      // Get a fresh access token
+      const tokenCreds = btoa(`${client_id}:${client_secret}`);
+      const tokenRes = await fetch('https://marketplace.walmartapis.com/v3/token', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${tokenCreds}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'WM_SVC.NAME': 'Walmart Marketplace',
+          'WM_QOS.CORRELATION_ID': crypto.randomUUID(),
+          'Accept': 'application/json',
+        },
+        body: 'grant_type=client_credentials',
+      });
+      if (!tokenRes.ok) throw new Error(`Could not authenticate with Walmart: ${await tokenRes.text()}`);
+      const tokenData = await tokenRes.json();
+      const walmartToken = tokenData.access_token;
+
+      const sku = action.sku && action.sku !== 'N/A' ? action.sku : null;
+      if (!sku) throw new Error('SKU is required for Walmart actions.');
+
+      const walmartHeaders: Record<string, string> = {
+        'Authorization': `Bearer ${walmartToken}`,
+        'WM_SVC.NAME': 'Walmart Marketplace',
+        'WM_QOS.CORRELATION_ID': crypto.randomUUID(),
+        'Accept': 'application/json',
+        'Content-Type': 'application/xml',
+      };
+
+      if (action.type === 'walmart_update_inventory') {
+        const inventoryXml = `<?xml version="1.0" encoding="UTF-8"?><inventory xmlns="http://walmart.com/"><sku>${sku}</sku><quantity><unit>EACH</unit><amount>${Number(action.quantity)}</amount></quantity><fulfillmentLagTime>1</fulfillmentLagTime></inventory>`;
+        const updateRes = await fetch(`https://marketplace.walmartapis.com/v3/inventory?sku=${encodeURIComponent(sku)}`, {
+          method: 'PUT', headers: walmartHeaders, body: inventoryXml,
+        });
+        if (!updateRes.ok) throw new Error(`Walmart inventory update failed: ${await updateRes.text()}`);
+        return { message: `Updated Walmart inventory for SKU "${sku}" to ${action.quantity} units` };
+      }
+
+      if (action.type === 'walmart_update_price') {
+        const priceXml = `<?xml version="1.0" encoding="UTF-8"?><Price xmlns="http://walmart.com/"><itemIdentifier><sku>${sku}</sku></itemIdentifier><pricingList><pricing><currentPrice><value currency="USD" amount="${Number(action.price).toFixed(2)}"/></currentPrice><currentPriceType>BASE</currentPriceType></pricing></pricingList></Price>`;
+        const updateRes = await fetch(`https://marketplace.walmartapis.com/v3/price`, {
+          method: 'PUT', headers: walmartHeaders, body: priceXml,
+        });
+        if (!updateRes.ok) throw new Error(`Walmart price update failed: ${await updateRes.text()}`);
+        return { message: `Updated Walmart price for SKU "${sku}" to $${action.price}` };
+      }
+      break;
+    }
+
     default:
       throw new Error(`Unknown action type: ${action.type}`);
   }
@@ -1865,6 +2268,159 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     productCount = count || 0;
   }
 
+  // Fetch live products from Ecwid, Magento, PrestaShop, Wish, Walmart
+  for (const platform of (platforms || [])) {
+    const pt = platform.platform_type;
+    if (!['ecwid', 'magento', 'prestashop', 'wish', 'walmart'].includes(pt)) continue;
+    try {
+      if (pt === 'ecwid') {
+        const { store_id, access_token: tok } = platform.credentials;
+        const res = await fetch(`https://app.ecwid.com/api/v3/${store_id}/products?limit=100`, {
+          headers: { 'Authorization': `Bearer ${tok}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          for (const p of (data.items || [])) {
+            products.push({
+              id: `ecwid-${p.id}`,
+              title: p.name || 'Unnamed',
+              sku: p.sku || 'N/A',
+              price: p.price || 0,
+              inventory_quantity: p.quantity ?? 0,
+              status: p.enabled ? 'active' : 'draft',
+              vendor: '',
+              product_type: p.categoryIds?.[0]?.toString() || '',
+              tags: '',
+              platform_type: 'ecwid',
+            });
+            productCount++;
+          }
+        }
+      } else if (pt === 'magento') {
+        const magentoBase = platform.store_url.replace(/\/$/, '');
+        const tok = platform.credentials.access_token;
+        const res = await fetch(`${magentoBase}/rest/V1/products?searchCriteria[pageSize]=100`, {
+          headers: { 'Authorization': `Bearer ${tok}`, 'Content-Type': 'application/json' },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          for (const p of (data.items || [])) {
+            const stockAttr = p.extension_attributes?.stock_item;
+            products.push({
+              id: `magento-${p.id}`,
+              title: p.name || 'Unnamed',
+              sku: p.sku || 'N/A',
+              price: p.price || 0,
+              inventory_quantity: stockAttr?.qty ?? 0,
+              status: p.status === 1 ? 'active' : 'draft',
+              vendor: '',
+              product_type: p.type_id || '',
+              tags: '',
+              platform_type: 'magento',
+            });
+            productCount++;
+          }
+        }
+      } else if (pt === 'prestashop') {
+        const psBase = platform.store_url.replace(/\/$/, '');
+        const psEncoded = btoa(`${platform.credentials.api_key}:`);
+        const res = await fetch(`${psBase}/api/products?output_format=JSON&display=[id,name,reference,price,active]&limit=100`, {
+          headers: { 'Authorization': `Basic ${psEncoded}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          for (const p of (data.products || [])) {
+            const name = Array.isArray(p.name) ? p.name[0]?.value : p.name || 'Unnamed';
+            products.push({
+              id: `prestashop-${p.id}`,
+              title: name,
+              sku: p.reference || 'N/A',
+              price: parseFloat(p.price) || 0,
+              inventory_quantity: 0, // Stock fetched separately; keep 0 for context display
+              status: p.active === '1' ? 'active' : 'draft',
+              vendor: '',
+              product_type: '',
+              tags: '',
+              platform_type: 'prestashop',
+            });
+            productCount++;
+          }
+        }
+      } else if (pt === 'wish') {
+        const wishToken = platform.credentials.access_token;
+        const res = await fetch(`https://merchant.wish.com/api/v3/product/multi-get?access_token=${encodeURIComponent(wishToken)}&limit=50&offset=0`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.code === 0) {
+            for (const p of (data.data || [])) {
+              const variants = p.variants || [];
+              const totalQty = variants.reduce((s: number, v: any) => s + (v.inventory || 0), 0);
+              products.push({
+                id: `wish-${p.id}`,
+                title: p.name || 'Unnamed',
+                sku: variants[0]?.sku || 'N/A',
+                price: variants[0]?.price || 0,
+                inventory_quantity: totalQty,
+                status: p.is_enabled ? 'active' : 'draft',
+                vendor: '',
+                product_type: '',
+                tags: '',
+                platform_type: 'wish',
+              });
+              productCount++;
+            }
+          }
+        }
+      } else if (pt === 'walmart') {
+        const { client_id, client_secret } = platform.credentials;
+        const tokenCreds = btoa(`${client_id}:${client_secret}`);
+        const tokenRes = await fetch('https://marketplace.walmartapis.com/v3/token', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Basic ${tokenCreds}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'WM_SVC.NAME': 'Walmart Marketplace',
+            'WM_QOS.CORRELATION_ID': crypto.randomUUID(),
+            'Accept': 'application/json',
+          },
+          body: 'grant_type=client_credentials',
+        });
+        if (tokenRes.ok) {
+          const tokenData = await tokenRes.json();
+          const walmartToken = tokenData.access_token;
+          const itemsRes = await fetch('https://marketplace.walmartapis.com/v3/items?limit=100', {
+            headers: {
+              'Authorization': `Bearer ${walmartToken}`,
+              'WM_SVC.NAME': 'Walmart Marketplace',
+              'WM_QOS.CORRELATION_ID': crypto.randomUUID(),
+              'Accept': 'application/json',
+            },
+          });
+          if (itemsRes.ok) {
+            const itemsData = await itemsRes.json();
+            for (const p of (itemsData.ItemResponse || [])) {
+              products.push({
+                id: `walmart-${p.sku}`,
+                title: p.productName || p.sku || 'Unnamed',
+                sku: p.sku || 'N/A',
+                price: parseFloat(p.price?.amount || '0') || 0,
+                inventory_quantity: 0,
+                status: p.publishedStatus === 'PUBLISHED' ? 'active' : 'draft',
+                vendor: p.brand || '',
+                product_type: p.productType || '',
+                tags: '',
+                platform_type: 'walmart',
+              });
+              productCount++;
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn(`[Orion] ${pt} product fetch failed:`, e.message);
+    }
+  }
+
   // Fetch live eBay data for any connected eBay platforms
   const ebayFetchErrors: string[] = [];
   for (const platform of (platforms || [])) {
@@ -2050,14 +2606,45 @@ When the user asks you to create a product, add inventory, change a price, renam
   WooCommerce actions:
   • woo_create_product
   • woo_bulk_create_products
+  Ecwid actions:
+  • ecwid_create_product
+  • ecwid_update_inventory
+  • ecwid_update_price
+  • ecwid_update_title
+  • ecwid_update_description
+  Magento / Adobe Commerce actions:
+  • magento_create_product
+  • magento_update_inventory
+  • magento_update_price
+  • magento_update_title
+  • magento_update_description
+  PrestaShop actions:
+  • prestashop_create_product
+  • prestashop_update_inventory
+  • prestashop_update_price
+  • prestashop_update_title
+  Wish Marketplace actions:
+  • wish_update_inventory
+  • wish_update_price
+  Walmart Marketplace actions:
+  • walmart_update_inventory
+  • walmart_update_price
 ❌ FORBIDDEN (will always fail): update_product, update_seo, bulk_update, add_image, set_image, woo_update_product, or any other type not in the list above.
 
-eBay vs Shopify action routing:
-- Use ebay_* actions for products whose platform_type is 'ebay' in the product list below
-- Use Shopify actions for products with platform_type 'shopify'
-- For multi_action and batch_update, sub-actions can be either Shopify or eBay types — route per product
+Platform action routing:
+- Use ebay_* actions for products whose platform_type is 'ebay'
+- Use Shopify actions (update_inventory, update_price, etc.) for products with platform_type 'shopify'
+- Use ecwid_* actions for products with platform_type 'ecwid'
+- Use magento_* actions for products with platform_type 'magento'
+- Use prestashop_* actions for products with platform_type 'prestashop'
+- Use wish_* actions for products with platform_type 'wish'
+- Use walmart_* actions for products with platform_type 'walmart'
+- For multi_action and batch_update, sub-actions should use the correct prefix for the product's platform
 - ⚠️ CRITICAL: eBay has NO "draft" or "archived" status. For eBay, the words "deactivate", "draft", "hide", "end", "mark as sold", "remove", "take down" all map to ebay_end_listing. NEVER use update_status on an eBay product.
 - ⚠️ CRITICAL: update_status is Shopify-ONLY. If the user says "draft" or "archive" and the item is from eBay, use ebay_end_listing.
+- ⚠️ For Wish and Walmart, always include the SKU — these platforms identify products by SKU only.
+- ⚠️ For Magento, always include the SKU — Magento's REST API uses SKU as the product identifier.
+- ⚠️ PrestaShop SEO/description updates: use prestashop_update_title for title changes; description updates require manual editing in PrestaShop admin (not yet supported via API).
 
 Context continuity rules (prevents executing wrong actions from short replies):
 - When the user gives a short follow-up reply ("yes", "do it", "draft", "archived", "go ahead", "that one", "sounds good"), ALWAYS apply it to the EXACT item and action from the immediately preceding exchange — not anything else.
@@ -2135,6 +2722,50 @@ To create a single product on WooCommerce:
 
 To bulk-create multiple products on WooCommerce (e.g. from an Etsy CSV migration — single confirmation for the whole batch):
 [ORION_ACTION:{"type":"woo_bulk_create_products","products":[{"name":"Product 1","sku":"SKU-001","price":"19.99","quantity":5,"description":"...","images":["https://..."],"tags":["spring","cotton"]},{"name":"Product 2","sku":"SKU-002","price":"24.99","quantity":10,"description":"...","images":["https://..."],"tags":["summer"]}]}]
+
+— Ecwid Actions —
+
+To create a product on Ecwid:
+[ORION_ACTION:{"type":"ecwid_create_product","title":"Product Name","sku":"SKU-001","price":29.99,"quantity":10,"description":"Full description here"}]
+
+To update Ecwid inventory, price, title, or description:
+[ORION_ACTION:{"type":"ecwid_update_inventory","product_name":"Product Name","sku":"SKU-001","quantity":15}]
+[ORION_ACTION:{"type":"ecwid_update_price","product_name":"Product Name","sku":"SKU-001","price":24.99}]
+[ORION_ACTION:{"type":"ecwid_update_title","product_name":"Product Name","sku":"SKU-001","new_title":"New Product Name"}]
+[ORION_ACTION:{"type":"ecwid_update_description","product_name":"Product Name","sku":"SKU-001","description":"Updated description text here"}]
+
+— Magento / Adobe Commerce Actions —
+
+To create a product on Magento:
+[ORION_ACTION:{"type":"magento_create_product","title":"Product Name","sku":"SKU-001","price":29.99,"quantity":10,"description":"Full description here"}]
+
+To update Magento inventory, price, title, or description (SKU required):
+[ORION_ACTION:{"type":"magento_update_inventory","product_name":"Product Name","sku":"SKU-001","quantity":20}]
+[ORION_ACTION:{"type":"magento_update_price","product_name":"Product Name","sku":"SKU-001","price":34.99}]
+[ORION_ACTION:{"type":"magento_update_title","product_name":"Product Name","sku":"SKU-001","new_title":"New Product Name"}]
+[ORION_ACTION:{"type":"magento_update_description","product_name":"Product Name","sku":"SKU-001","description":"Updated description here"}]
+
+— PrestaShop Actions —
+
+To create a product on PrestaShop:
+[ORION_ACTION:{"type":"prestashop_create_product","title":"Product Name","sku":"SKU-001","price":29.99,"quantity":10}]
+
+To update PrestaShop inventory, price, or title:
+[ORION_ACTION:{"type":"prestashop_update_inventory","product_name":"Product Name","sku":"SKU-001","quantity":15}]
+[ORION_ACTION:{"type":"prestashop_update_price","product_name":"Product Name","sku":"SKU-001","price":19.99}]
+[ORION_ACTION:{"type":"prestashop_update_title","product_name":"Product Name","sku":"SKU-001","new_title":"New Product Name"}]
+
+— Wish Marketplace Actions —
+
+To update Wish inventory or price (SKU required):
+[ORION_ACTION:{"type":"wish_update_inventory","product_name":"Product Name","sku":"SKU-001","quantity":5}]
+[ORION_ACTION:{"type":"wish_update_price","product_name":"Product Name","sku":"SKU-001","price":12.99}]
+
+— Walmart Marketplace Actions —
+
+To update Walmart inventory or price (SKU required):
+[ORION_ACTION:{"type":"walmart_update_inventory","product_name":"Product Name","sku":"SKU-001","quantity":25}]
+[ORION_ACTION:{"type":"walmart_update_price","product_name":"Product Name","sku":"SKU-001","price":49.99}]
 
 To make MULTIPLE changes to ONE product (title + metafield + alt text, etc.) — one confirmation card, all run together:
 [ORION_ACTION:{"type":"multi_action","product_name":"Tie Dye T-Shirt","sku":"TDT-001","description":"Update title, SEO alt text, and material metafield","actions":[{"type":"update_title","new_title":"Vibrant Handmade Tie Dye T-Shirt"},{"type":"update_image_alt","alt_text":"Colorful handmade tie dye t-shirt on white background"},{"type":"update_metafield","metafield_key":"material","metafield_value":"100% Cotton","metafield_type":"single_line_text_field"}]}]
