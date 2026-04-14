@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -59,6 +59,13 @@ export default function AutomationSetupPage() {
 
     const [showConditionalModal, setShowConditionalModal] = useState(false);
     const [editingCondition, setEditingCondition] = useState(null);
+    const [jsonEditorValue, setJsonEditorValue] = useState('');
+    const [jsonError, setJsonError] = useState('');
+
+    useEffect(() => {
+        setJsonEditorValue(JSON.stringify(currentAutomation, null, 2));
+        setJsonError('');
+    }, [currentAutomation]);
 
     // Placeholder for available actions, as used by ConditionalBranchModal
     const actions = [
@@ -239,18 +246,53 @@ export default function AutomationSetupPage() {
                                 <Card>
                                     <CardHeader>
                                         <CardTitle>Advanced Automation Builder</CardTitle>
-                                        <CardDescription>Directly edit the automation's JSON or code definition.</CardDescription>
+                                        <CardDescription>Edit the automation JSON directly. Click Apply to save changes.</CardDescription>
                                     </CardHeader>
-                                    <CardContent>
-                                        <div className="bg-gray-800 text-white p-4 rounded-md font-mono text-sm">
-                                            <pre>{JSON.stringify(currentAutomation, null, 2)}</pre>
+                                    <CardContent className="space-y-3">
+                                        <textarea
+                                            value={jsonEditorValue}
+                                            onChange={(e) => {
+                                                setJsonEditorValue(e.target.value);
+                                                try {
+                                                    JSON.parse(e.target.value);
+                                                    setJsonError('');
+                                                } catch (err) {
+                                                    setJsonError(err.message);
+                                                }
+                                            }}
+                                            className="w-full h-96 bg-gray-900 text-green-400 p-4 rounded-md font-mono text-sm resize-y border border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                            spellCheck={false}
+                                        />
+                                        {jsonError && (
+                                            <p className="text-sm text-red-600 font-mono">Syntax error: {jsonError}</p>
+                                        )}
+                                        <div className="flex gap-2">
+                                            <Button
+                                                onClick={() => {
+                                                    try {
+                                                        const parsed = JSON.parse(jsonEditorValue);
+                                                        handleUpdateAutomation(parsed);
+                                                        toast.success('Automation updated from JSON editor');
+                                                    } catch (err) {
+                                                        setJsonError(err.message);
+                                                        toast.error('Fix JSON errors before saving');
+                                                    }
+                                                }}
+                                                disabled={!!jsonError}
+                                            >
+                                                <Save className="w-4 h-4 mr-2" />
+                                                Apply Changes
+                                            </Button>
+                                            <Button
+                                                variant="outline"
+                                                onClick={() => {
+                                                    setJsonEditorValue(JSON.stringify(currentAutomation, null, 2));
+                                                    setJsonError('');
+                                                }}
+                                            >
+                                                Reset
+                                            </Button>
                                         </div>
-                                        <Alert className="mt-4 bg-yellow-50 border-yellow-200">
-                                            <AlertDescription className="text-yellow-800">
-                                                This is a placeholder for the Advanced Builder. In a full implementation, you would
-                                                have an editor here to directly manipulate the automation's structure, possibly in JSON or a custom DSL.
-                                            </AlertDescription>
-                                        </Alert>
                                     </CardContent>
                                 </Card>
                             </TabsContent>

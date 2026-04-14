@@ -162,8 +162,36 @@ serve(async (req) => {
       console.log(`[BigCommerce] Created new platform connection ${data.id}`);
     }
 
-    // TODO: Trigger initial product sync in background
-    // You can call another Edge Function here to start syncing products
+    // Initial product sync
+    try {
+      const syncRes = await fetch(
+        `https://api.bigcommerce.com/stores/${cleanStoreHash}/v3/catalog/products?limit=100&is_visible=true`,
+        { headers: { 'X-Auth-Token': access_token, 'Accept': 'application/json' } }
+      );
+      if (syncRes.ok) {
+        const bcData = await syncRes.json();
+        const rows = (bcData.data || []).map((p: any) => ({
+          user_id: user.id,
+          platform_type: 'bigcommerce',
+          title: p.name || 'Unnamed',
+          sku: p.sku || `bc-${p.id}`,
+          price: parseFloat(p.price || '0'),
+          inventory_quantity: p.inventory_level ?? 0,
+          status: p.is_visible ? 'active' : 'draft',
+          vendor: '',
+          product_type: p.type || '',
+        }));
+        if (rows.length > 0) {
+          await supabaseClient.from('products').upsert(rows, {
+            onConflict: 'user_id,platform_type,sku',
+            ignoreDuplicates: false,
+          });
+          console.log(`[BigCommerce] Synced ${rows.length} products`);
+        }
+      }
+    } catch (syncErr: any) {
+      console.warn('[BigCommerce] Initial product sync failed (non-critical):', syncErr.message);
+    }
 
     return new Response(
       JSON.stringify({
