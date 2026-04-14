@@ -2234,6 +2234,7 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
           const totalQty = variants.reduce((sum: number, v: any) => sum + (v.inventory_quantity || 0), 0);
           const skus = variants.map((v: any) => v.sku).filter(Boolean).join(', ');
           const prices = variants.map((v: any) => parseFloat(v.price) || 0).filter((n: number) => n > 0);
+          const imageCount = (p.images || []).length;
           return {
             id: p.id,
             title: p.title,
@@ -2247,6 +2248,8 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
             handle: p.handle || '',
             body_html: p.body_html ? p.body_html.replace(/<[^>]*>/g, '').slice(0, 150) : '',
             platform_type: 'shopify',
+            image_count: imageCount,
+            has_images: imageCount > 0,
           };
         });
         productCount = products.length;
@@ -2504,7 +2507,10 @@ async function chatWithClaude(
       const vendor = p.vendor || '';
       const type = p.product_type || p.category || '';
       const handle = p.handle ? ` | Handle: ${p.handle}` : '';
-      return `  - ${name} | SKU: ${sku} | Price: ${price} | Stock: ${stock}${vendor ? ` | Vendor: ${vendor}` : ''}${type ? ` | Type: ${type}` : ''}${status ? ` | Status: ${status}` : ''}${handle}`;
+      const images = p.image_count != null
+        ? ` | Images: ${p.image_count > 0 ? `${p.image_count} ✓` : '0 ❌'}`
+        : '';
+      return `  - ${name} | SKU: ${sku} | Price: ${price} | Stock: ${stock}${vendor ? ` | Vendor: ${vendor}` : ''}${type ? ` | Type: ${type}` : ''}${status ? ` | Status: ${status}` : ''}${handle}${images}`;
     }).join('\n');
   };
 
