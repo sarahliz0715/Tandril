@@ -457,6 +457,128 @@ const ActionConfigForm = ({ actionType, config, onChange }) => {
                 </div>
             );
 
+        case 'wait':
+            return (
+                <div className="space-y-4">
+                    <div className="flex gap-3">
+                        <div className="flex-1">
+                            <Label>Duration</Label>
+                            <Input
+                                type="number"
+                                min="1"
+                                placeholder="e.g., 30"
+                                value={config.wait?.duration || ''}
+                                onChange={(e) => updateNestedConfig('wait', 'duration', Number(e.target.value))}
+                            />
+                        </div>
+                        <div className="w-36">
+                            <Label>Unit</Label>
+                            <Select
+                                value={config.wait?.unit || 'minutes'}
+                                onValueChange={(v) => updateNestedConfig('wait', 'unit', v)}
+                            >
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="seconds">Seconds</SelectItem>
+                                    <SelectItem value="minutes">Minutes</SelectItem>
+                                    <SelectItem value="hours">Hours</SelectItem>
+                                    <SelectItem value="days">Days</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+                </div>
+            );
+
+        case 'webhook':
+            return (
+                <div className="space-y-4">
+                    <div>
+                        <Label>URL</Label>
+                        <Input
+                            placeholder="https://hooks.example.com/trigger"
+                            value={config.webhook?.url || ''}
+                            onChange={(e) => updateNestedConfig('webhook', 'url', e.target.value)}
+                        />
+                    </div>
+                    <div>
+                        <Label>Method</Label>
+                        <Select
+                            value={config.webhook?.method || 'POST'}
+                            onValueChange={(v) => updateNestedConfig('webhook', 'method', v)}
+                        >
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="GET">GET</SelectItem>
+                                <SelectItem value="POST">POST</SelectItem>
+                                <SelectItem value="PUT">PUT</SelectItem>
+                                <SelectItem value="PATCH">PATCH</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div>
+                        <Label>Payload (JSON, optional)</Label>
+                        <Textarea
+                            placeholder={'{"key": "value"}'}
+                            value={config.webhook?.payload ? JSON.stringify(config.webhook.payload, null, 2) : ''}
+                            onChange={(e) => {
+                                try { updateNestedConfig('webhook', 'payload', JSON.parse(e.target.value)); } catch {}
+                            }}
+                            rows={4}
+                        />
+                    </div>
+                    <div>
+                        <Label>Headers (JSON, optional)</Label>
+                        <Textarea
+                            placeholder={'{"Authorization": "Bearer ..."}'}
+                            value={config.webhook?.headers ? JSON.stringify(config.webhook.headers, null, 2) : ''}
+                            onChange={(e) => {
+                                try { updateNestedConfig('webhook', 'headers', JSON.parse(e.target.value)); } catch {}
+                            }}
+                            rows={3}
+                        />
+                    </div>
+                </div>
+            );
+
+        case 'sync_platform':
+            return (
+                <div className="space-y-4">
+                    <div>
+                        <Label>Platform</Label>
+                        <Select
+                            value={config.sync_platform?.platform || ''}
+                            onValueChange={(v) => updateNestedConfig('sync_platform', 'platform', v)}
+                        >
+                            <SelectTrigger><SelectValue placeholder="Select platform..." /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="shopify">Shopify</SelectItem>
+                                <SelectItem value="woocommerce">WooCommerce</SelectItem>
+                                <SelectItem value="bigcommerce">BigCommerce</SelectItem>
+                                <SelectItem value="ebay">eBay</SelectItem>
+                                <SelectItem value="faire">Faire</SelectItem>
+                                <SelectItem value="all">All Connected Platforms</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div>
+                        <Label>Sync Type</Label>
+                        <Select
+                            value={config.sync_platform?.sync_type || 'products'}
+                            onValueChange={(v) => updateNestedConfig('sync_platform', 'sync_type', v)}
+                        >
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="products">Products</SelectItem>
+                                <SelectItem value="inventory">Inventory</SelectItem>
+                                <SelectItem value="orders">Orders</SelectItem>
+                                <SelectItem value="all">All Data</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </div>
+            );
+
         default:
             return (
                 <div className="text-sm text-slate-500">

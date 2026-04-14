@@ -8,6 +8,11 @@ import { createPageUrl } from '@/utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Calendar as CalendarIcon, Loader2, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths } from 'date-fns';
@@ -22,6 +27,9 @@ export default function Calendar() {
   const [currentUser, setCurrentUser] = useState(null);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [newEvent, setNewEvent] = useState({ title: '', event_type: 'manual_note', start_date: '', description: '' });
   const navigate = useNavigate();
 
   // Memoize beta access check
@@ -117,6 +125,30 @@ export default function Calendar() {
     setSelectedDate(date);
   }, []);
 
+  // Handle event creation
+  const handleCreateEvent = useCallback(async () => {
+    if (!newEvent.title.trim()) {
+      toast.error('Event title is required');
+      return;
+    }
+    if (!newEvent.start_date) {
+      toast.error('Event date is required');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await CalendarEvent.create(newEvent);
+      toast.success('Event created');
+      setShowCreateModal(false);
+      setNewEvent({ title: '', event_type: 'manual_note', start_date: '', description: '' });
+      loadData();
+    } catch (err) {
+      toast.error('Failed to create event');
+    } finally {
+      setIsSaving(false);
+    }
+  }, [newEvent, loadData]);
+
   // Event type colors
   const eventColors = {
     sale: 'bg-green-100 text-green-800 border-green-200',
@@ -153,7 +185,10 @@ export default function Calendar() {
             </p>
           </div>
 
-          <Button onClick={() => toast.info("Create event feature coming soon!")}>
+          <Button onClick={() => {
+            setNewEvent({ title: '', event_type: 'manual_note', start_date: selectedDate ? format(selectedDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'), description: '' });
+            setShowCreateModal(true);
+          }}>
             <Plus className="w-4 h-4 mr-2" />
             Add Event
           </Button>
@@ -278,6 +313,62 @@ export default function Calendar() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Create Event Modal */}
+      <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Event</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label>Title</Label>
+              <Input
+                placeholder="e.g., Spring Sale Launch"
+                value={newEvent.title}
+                onChange={(e) => setNewEvent(prev => ({ ...prev, title: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label>Event Type</Label>
+              <Select value={newEvent.event_type} onValueChange={(v) => setNewEvent(prev => ({ ...prev, event_type: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="manual_note">Note</SelectItem>
+                  <SelectItem value="sale">Sale</SelectItem>
+                  <SelectItem value="marketing_campaign">Marketing Campaign</SelectItem>
+                  <SelectItem value="platform_update">Platform Update</SelectItem>
+                  <SelectItem value="workflow_run">Workflow Run</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Date</Label>
+              <Input
+                type="date"
+                value={newEvent.start_date}
+                onChange={(e) => setNewEvent(prev => ({ ...prev, start_date: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label>Description (optional)</Label>
+              <Textarea
+                placeholder="Add any notes..."
+                value={newEvent.description}
+                onChange={(e) => setNewEvent(prev => ({ ...prev, description: e.target.value }))}
+                className="h-20"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateModal(false)}>Cancel</Button>
+            <Button onClick={handleCreateEvent} disabled={isSaving}>
+              {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
+              Create Event
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
