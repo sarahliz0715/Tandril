@@ -127,6 +127,8 @@ function summarizeOrionAction(action: any): string {
     case 'etsy_update_tags':          return `Updated Etsy listing "${name}" tags`;
     case 'etsy_end_listing':          return `Deactivated Etsy listing "${name}"`;
     case 'etsy_renew_listing':        return `Reactivated Etsy listing "${name}"`;
+    case 'etsy_create_listing':       return `Created Etsy listing: "${action.title || name}"`;
+    case 'etsy_bulk_create_listings': return `Bulk created ${Array.isArray(action.listings) ? action.listings.length : '?'} Etsy listing(s)`;
     default:                          return `Orion action: ${action.type} on "${name}"`;
   }
 }
@@ -2079,6 +2081,153 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       break;
     }
 
+    case 'etsy_create_listing': {
+      const { data: etsyPlatsC } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!etsyPlatsC || etsyPlatsC.length === 0) throw new Error('No connected Etsy shop found.');
+      const etsyPlatC = etsyPlatsC[0];
+      const etsyTokC = etsyPlatC.credentials?.access_token;
+      const etsyShopIdC = etsyPlatC.metadata?.shop_id;
+      const etsyClientIdC = Deno.env.get('ETSY_CLIENT_ID');
+      if (!etsyTokC || !etsyShopIdC || !etsyClientIdC) throw new Error('Etsy credentials or shop_id missing.');
+
+      const {
+        title, description, price, quantity = 1, sku, tags,
+        who_made = 'i_did', when_made = 'made_to_order', taxonomy_id = 69, state = 'draft',
+      } = action;
+      if (!title || !description || price == null) {
+        throw new Error('etsy_create_listing requires title, description, and price.');
+      }
+
+      const createBody: Record<string, any> = {
+        title,
+        description,
+        price: Number(price),
+        quantity: Number(quantity),
+        who_made,
+        when_made,
+        taxonomy_id: Number(taxonomy_id),
+        state,
+      };
+      if (sku) createBody.sku = sku;
+      if (Array.isArray(tags) && tags.length > 0) createBody.tags = tags.slice(0, 13);
+
+      const createRes = await fetch(
+        `https://openapi.etsy.com/v3/application/shops/${etsyShopIdC}/listings`,
+        {
+          method: 'POST',
+          headers: {
+            'x-api-key': etsyClientIdC,
+            'Authorization': `Bearer ${etsyTokC}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(createBody),
+        }
+      );
+      if (!createRes.ok) throw new Error(`Etsy create listing failed: ${await createRes.text()}`);
+      const newListing = await createRes.json();
+
+      await supabaseClient.from('products').upsert({
+        user_id: userId,
+        platform_type: 'etsy',
+        title,
+        sku: sku || `etsy-${newListing.listing_id}`,
+        price: Number(price),
+        inventory_quantity: Number(quantity),
+        status: state === 'active' ? 'active' : 'draft',
+        vendor: '',
+        product_type: '',
+      }, { onConflict: 'user_id,platform_type,sku', ignoreDuplicates: false });
+
+      return { message: `Created Etsy listing "${title}" (ID: ${newListing.listing_id})`, listing_id: newListing.listing_id };
+    }
+
+    case 'etsy_bulk_create_listings': {
+      const { data: etsyPlatsB } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!etsyPlatsB || etsyPlatsB.length === 0) throw new Error('No connected Etsy shop found.');
+      const etsyPlatB = etsyPlatsB[0];
+      const etsyTokB = etsyPlatB.credentials?.access_token;
+      const etsyShopIdB = etsyPlatB.metadata?.shop_id;
+      const etsyClientIdB = Deno.env.get('ETSY_CLIENT_ID');
+      if (!etsyTokB || !etsyShopIdB || !etsyClientIdB) throw new Error('Etsy credentials or shop_id missing.');
+
+      const bulkListings: any[] = Array.isArray(action.listings) ? action.listings : [];
+      if (bulkListings.length === 0) throw new Error('etsy_bulk_create_listings requires a non-empty listings array.');
+
+      const etsyHeadersB: Record<string, string> = {
+        'x-api-key': etsyClientIdB,
+        'Authorization': `Bearer ${etsyTokB}`,
+        'Content-Type': 'application/json',
+      };
+
+      const bulkResults: { title: string; listing_id?: number; error?: string }[] = [];
+      const productRows: any[] = [];
+
+      for (const listing of bulkListings) {
+        const {
+          title, description, price, quantity = 1, sku, tags,
+          who_made = 'i_did', when_made = 'made_to_order', taxonomy_id = 69, state = 'draft',
+        } = listing;
+        if (!title || !description || price == null) {
+          bulkResults.push({ title: title || 'unknown', error: 'Missing required fields (title, description, price)' });
+          continue;
+        }
+        const bulkBody: Record<string, any> = {
+          title,
+          description,
+          price: Number(price),
+          quantity: Number(quantity),
+          who_made,
+          when_made,
+          taxonomy_id: Number(taxonomy_id),
+          state,
+        };
+        if (sku) bulkBody.sku = sku;
+        if (Array.isArray(tags) && tags.length > 0) bulkBody.tags = tags.slice(0, 13);
+
+        try {
+          const res = await fetch(
+            `https://openapi.etsy.com/v3/application/shops/${etsyShopIdB}/listings`,
+            { method: 'POST', headers: etsyHeadersB, body: JSON.stringify(bulkBody) }
+          );
+          if (!res.ok) {
+            bulkResults.push({ title, error: `HTTP ${res.status}: ${await res.text()}` });
+          } else {
+            const created = await res.json();
+            bulkResults.push({ title, listing_id: created.listing_id });
+            productRows.push({
+              user_id: userId,
+              platform_type: 'etsy',
+              title,
+              sku: sku || `etsy-${created.listing_id}`,
+              price: Number(price),
+              inventory_quantity: Number(quantity),
+              status: state === 'active' ? 'active' : 'draft',
+              vendor: '',
+              product_type: '',
+            });
+          }
+        } catch (e: any) {
+          bulkResults.push({ title, error: e.message });
+        }
+      }
+
+      if (productRows.length > 0) {
+        await supabaseClient.from('products').upsert(productRows, {
+          onConflict: 'user_id,platform_type,sku',
+          ignoreDuplicates: false,
+        });
+      }
+
+      const successCount = bulkResults.filter(r => !r.error).length;
+      const failCount = bulkResults.filter(r => r.error).length;
+      return {
+        message: `Bulk created ${successCount} Etsy listing(s)${failCount > 0 ? `, ${failCount} failed` : ''}`,
+        results: bulkResults,
+      };
+    }
+
     default:
       throw new Error(`Unknown action type: ${action.type}`);
   }
@@ -2851,6 +3000,8 @@ When the user asks you to create a product, add inventory, change a price, renam
   • etsy_update_tags        — { type, product_name, listing_id?, tags: ["tag1","tag2",...] } (max 13 tags — this IS SEO on Etsy)
   • etsy_end_listing        — { type, product_name, listing_id? }  (sets state to inactive)
   • etsy_renew_listing      — { type, product_name, listing_id? }  (sets state back to active)
+  • etsy_create_listing     — { type, title, description, price, quantity?, sku?, tags?, who_made?, when_made?, taxonomy_id?, state? }
+  • etsy_bulk_create_listings — { type, listings: [{title,description,price,quantity?,sku?,tags?,who_made?,when_made?,taxonomy_id?,state?},...] }
 ❌ FORBIDDEN (will always fail): update_product, update_seo, bulk_update, add_image, set_image, woo_update_product, or any other type not in the list above.
 
 Platform action routing:
@@ -2992,6 +3143,26 @@ To update Wish inventory or price (SKU required):
 To update Walmart inventory or price (SKU required):
 [ORION_ACTION:{"type":"walmart_update_inventory","product_name":"Product Name","sku":"SKU-001","quantity":25}]
 [ORION_ACTION:{"type":"walmart_update_price","product_name":"Product Name","sku":"SKU-001","price":49.99}]
+
+— Etsy Shop Actions —
+
+To update an Etsy listing's price, inventory, title, description, or tags:
+[ORION_ACTION:{"type":"etsy_update_price","product_name":"Handmade Ceramic Mug","listing_id":123456789,"price":28.00}]
+[ORION_ACTION:{"type":"etsy_update_inventory","product_name":"Handmade Ceramic Mug","listing_id":123456789,"quantity":5}]
+[ORION_ACTION:{"type":"etsy_update_title","product_name":"Handmade Ceramic Mug","listing_id":123456789,"title":"Handmade Ceramic Coffee Mug - Speckled Glaze - 12oz"}]
+[ORION_ACTION:{"type":"etsy_update_description","product_name":"Handmade Ceramic Mug","listing_id":123456789,"description":"Beautifully handcrafted ceramic mug with speckled glaze finish..."}]
+[ORION_ACTION:{"type":"etsy_update_tags","product_name":"Handmade Ceramic Mug","listing_id":123456789,"tags":["ceramic mug","handmade","coffee mug","pottery","kitchen gift","speckled","stoneware"]}]
+
+To deactivate or reactivate an Etsy listing:
+[ORION_ACTION:{"type":"etsy_end_listing","product_name":"Handmade Ceramic Mug","listing_id":123456789}]
+[ORION_ACTION:{"type":"etsy_renew_listing","product_name":"Handmade Ceramic Mug","listing_id":123456789}]
+
+To create a single new Etsy listing:
+Note: who_made options: "i_did" | "someone_else" | "collective". when_made options: "made_to_order" | "2020_2024" | "2010_2019" | "before_2007" | etc. taxonomy_id: 69=Art, 68=Bags, 520=Home & Living, 568=Jewelry, 345=Clothing, 1=Accessories. state: "draft" (default) or "active".
+[ORION_ACTION:{"type":"etsy_create_listing","title":"Handmade Ceramic Coffee Mug","description":"Beautifully handcrafted ceramic coffee mug with speckled glaze. Holds 12oz. Microwave and dishwasher safe. Each piece is unique.","price":28.00,"quantity":3,"sku":"MUGA-001","tags":["ceramic mug","handmade pottery","coffee lover gift","kitchen gift","stoneware"],"who_made":"i_did","when_made":"made_to_order","taxonomy_id":520,"state":"draft"}]
+
+To bulk-create multiple Etsy listings at once (e.g. from a CSV upload — single confirmation for the whole batch):
+[ORION_ACTION:{"type":"etsy_bulk_create_listings","listings":[{"title":"Ceramic Mug - Blue","description":"Handmade blue ceramic mug, 12oz.","price":28.00,"quantity":5,"sku":"MUG-BLUE-001","tags":["ceramic mug","handmade","blue pottery"],"who_made":"i_did","when_made":"made_to_order","taxonomy_id":520,"state":"draft"},{"title":"Ceramic Mug - Green","description":"Handmade green ceramic mug, 12oz.","price":28.00,"quantity":5,"sku":"MUG-GREEN-001","tags":["ceramic mug","handmade","green pottery"],"who_made":"i_did","when_made":"made_to_order","taxonomy_id":520,"state":"draft"}]}]
 
 To make MULTIPLE changes to ONE product (title + metafield + alt text, etc.) — one confirmation card, all run together:
 [ORION_ACTION:{"type":"multi_action","product_name":"Tie Dye T-Shirt","sku":"TDT-001","description":"Update title, SEO alt text, and material metafield","actions":[{"type":"update_title","new_title":"Vibrant Handmade Tie Dye T-Shirt"},{"type":"update_image_alt","alt_text":"Colorful handmade tie dye t-shirt on white background"},{"type":"update_metafield","metafield_key":"material","metafield_value":"100% Cotton","metafield_type":"single_line_text_field"}]}]
