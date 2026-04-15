@@ -137,6 +137,47 @@ export default function Orders() {
     setShowDetails(true);
   };
 
+  const handleBulkAction = useCallback(async (action, orderIds) => {
+    if (action === 'export') {
+      const selectedOrders = orders.filter(o => orderIds.includes(o.id));
+      const csv = [
+        ['Order ID', 'Date', 'Customer', 'Email', 'Status', 'Total', 'Platform'].join(','),
+        ...selectedOrders.map(order => [
+          order.order_id,
+          format(new Date(order.order_date), 'yyyy-MM-dd'),
+          order.customer_name,
+          order.customer_email,
+          order.status,
+          order.total_price || 0,
+          order.platform
+        ].join(','))
+      ].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `orders-${new Date().toISOString().split('T')[0]}.csv`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+      toast.success(`Exported ${selectedOrders.length} order${selectedOrders.length !== 1 ? 's' : ''}`);
+      return;
+    }
+
+    const statusMap = { mark_as_processing: 'processing', mark_as_shipped: 'shipped' };
+    const newStatus = statusMap[action];
+    if (!newStatus) return;
+
+    try {
+      await Promise.all(orderIds.map(id => Order.update(id, { status: newStatus })));
+      toast.success(`Updated ${orderIds.length} order${orderIds.length !== 1 ? 's' : ''} to ${newStatus}`);
+      loadOrders();
+    } catch (error) {
+      console.error('Bulk update error:', error);
+      if (handleAuthError(error, navigate)) return;
+      toast.error('Failed to update orders');
+    }
+  }, [orders, navigate]);
+
   const handleExport = () => {
     const csv = [
       ['Order ID', 'Date', 'Customer', 'Email', 'Status', 'Total', 'Platform'].join(','),
@@ -294,6 +335,7 @@ export default function Orders() {
             <OrderList
               orders={filteredOrders}
               onOrderClick={handleViewOrder}
+              onBulkAction={handleBulkAction}
             />
           )}
         </CardContent>

@@ -4,8 +4,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
 import { Bot, Zap, Tag, DollarSign, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { api } from '@/lib/apiClient';
 
-export default function BulkListingActions({ selectedCount, onSuccess }) {
+export default function BulkListingActions({ selectedItems = [], onSuccess }) {
+    const selectedCount = selectedItems.length;
     const [isExecuting, setIsExecuting] = useState(false);
     const [command, setCommand] = useState('');
 
@@ -15,11 +17,22 @@ export default function BulkListingActions({ selectedCount, onSuccess }) {
             return;
         }
         setIsExecuting(true);
-        // Mock execution
-        setTimeout(() => {
+        try {
+            const response = await api.functions.invoke('enhanced-execute-command', {
+                command_text: command,
+                item_ids: selectedItems
+            });
+            if (response.data?.success === false) {
+                throw new Error(response.data?.error || 'Command failed');
+            }
+            toast.success('Command executed successfully');
+            setCommand('');
+            onSuccess?.();
+        } catch (err) {
+            toast.error('Failed to execute command', { description: err.message });
+        } finally {
             setIsExecuting(false);
-            onSuccess();
-        }, 2000);
+        }
     };
 
     const quickCommands = [

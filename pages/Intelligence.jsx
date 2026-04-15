@@ -169,10 +169,10 @@ export default function Intelligence() {
         setIsGenerating(true);
         try {
           // Generate intelligence for each selected niche
-          const promises = selectedNiches.map(niche => 
-            api.functions.invoke('generateMarketIntelligence', {
-              analysis_types: ['trending_products', 'niche_analysis', 'competitor_analysis', 'keyword_performance'],
-              category: niche
+          const promises = selectedNiches.map(niche =>
+            api.functions.invoke('ai-insights', {
+              niche,
+              analysis_types: ['trending_products', 'niche_analysis', 'competitor_analysis', 'keyword_performance']
             })
           );
 
