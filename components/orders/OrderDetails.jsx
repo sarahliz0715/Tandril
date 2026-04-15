@@ -1,5 +1,6 @@
 
 import React, { useState } from 'react';
+import { api } from '@/lib/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -34,7 +35,7 @@ export default function OrderDetails({ order, orderItems = [], onClose, onUpdate
         try {
             await Order.update(order.id, { status: newStatus });
             toast.success(`Order ${order.order_id} marked as ${newStatus}`);
-            onUpdate();
+            (onUpdate || onRefresh)?.();
         } catch (error) {
             toast.error('Failed to update order status');
         } finally {
@@ -45,12 +46,31 @@ export default function OrderDetails({ order, orderItems = [], onClose, onUpdate
     const handleSaveTracking = async () => {
         setIsUpdating(true);
         try {
-            await Order.update(order.id, { 
+            await Order.update(order.id, {
                 tracking_number: trackingNumber,
-                ai_notes: notes 
+                ai_notes: notes
             });
+
+            // Sync tracking number to Shopify if this is a Shopify order
+            if (trackingNumber && order.platform?.toLowerCase() === 'shopify') {
+                try {
+                    await api.functions.invoke('interpretCommand', {
+                        command_text: `Fulfill Shopify order ${order.order_id} with tracking number ${trackingNumber}`,
+                        context: {
+                            order_id: order.id,
+                            shopify_order_id: order.order_id,
+                            tracking_number: trackingNumber,
+                            platform: order.platform
+                        }
+                    });
+                } catch (syncError) {
+                    console.error('Failed to sync tracking to Shopify:', syncError);
+                    // Non-critical — DB save succeeded
+                }
+            }
+
             toast.success('Order details updated');
-            onUpdate();
+            (onUpdate || onRefresh)?.();
         } catch (error) {
             toast.error('Failed to update order details');
         } finally {

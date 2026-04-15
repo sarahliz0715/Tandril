@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
+import { api } from '@/lib/apiClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -231,10 +232,27 @@ export default function SmartInventoryActions({ inventory, onAction }) {
             </Card>
 
             {/* Bulk Actions Panel */}
-            <BulkActionPanel 
+            <BulkActionPanel
                 selectedCount={selectedProducts.size}
-                onAction={(action, value) => {
-                    console.log('Bulk action:', action, 'Value:', value, 'Products:', Array.from(selectedProducts));
+                onAction={async (action, value) => {
+                    const selectedIds = Array.from(selectedProducts);
+                    const commandMap = {
+                        price_increase: `Increase prices by ${value}% for ${selectedIds.length} products`,
+                        price_decrease: `Decrease prices by ${value}% for ${selectedIds.length} products`,
+                        update_category: `Update category to "${value}" for ${selectedIds.length} products`,
+                        bulk_reorder: `Create purchase orders for ${value} units of ${selectedIds.length} products`,
+                        mark_sale: `Apply ${value}% discount sale to ${selectedIds.length} products`
+                    };
+                    const commandText = commandMap[action] || `Apply "${action}" with value "${value}" to ${selectedIds.length} products`;
+                    try {
+                        await api.functions.invoke('interpretCommand', {
+                            command_text: commandText,
+                            context: { product_ids: selectedIds }
+                        });
+                    } catch (e) {
+                        console.error('Bulk inventory action error:', e);
+                    }
+                    onAction(action);
                 }}
             />
 
