@@ -160,8 +160,35 @@ serve(async (req) => {
       console.log(`[Faire] Created new platform connection ${data.id}`);
     }
 
-    // TODO: Trigger initial product sync in background
-    // You can call another Edge Function here to start syncing products
+    // Initial product sync
+    try {
+      const syncRes = await fetch('https://www.faire.com/api/v2/products?limit=100', {
+        headers: { 'X-FAIRE-ACCESS-TOKEN': cleanApiToken, 'Accept': 'application/json' },
+      });
+      if (syncRes.ok) {
+        const faireData = await syncRes.json();
+        const rows = (faireData.products || []).map((p: any) => ({
+          user_id: user.id,
+          platform_type: 'faire',
+          title: p.name || 'Unnamed',
+          sku: p.sku || p.token || `faire-${p.id}`,
+          price: (p.wholesale_price_cents || 0) / 100,
+          inventory_quantity: p.available_quantity ?? 0,
+          status: p.active ? 'active' : 'draft',
+          vendor: '',
+          product_type: p.brand_category_names?.[0] || '',
+        }));
+        if (rows.length > 0) {
+          await supabaseClient.from('products').upsert(rows, {
+            onConflict: 'user_id,platform_type,sku',
+            ignoreDuplicates: false,
+          });
+          console.log(`[Faire] Synced ${rows.length} products`);
+        }
+      }
+    } catch (syncErr: any) {
+      console.warn('[Faire] Initial product sync failed (non-critical):', syncErr.message);
+    }
 
     return new Response(
       JSON.stringify({

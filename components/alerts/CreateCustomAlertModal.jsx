@@ -384,7 +384,7 @@ export default function CreateCustomAlertModal({ alert, onClose, onSuccess }) {
                                         onCheckedChange={() => toggleNotificationChannel('sms')}
                                     />
                                     <label htmlFor="sms" className="text-sm cursor-pointer">
-                                        SMS Notification (coming soon)
+                                        SMS Notification
                                     </label>
                                 </div>
                             </div>
@@ -453,6 +453,41 @@ export default function CreateCustomAlertModal({ alert, onClose, onSuccess }) {
                                         className="h-32"
                                     />
                                 </div>
+                            </>
+                        )}
+
+                        {formData.notification_channels?.includes('sms') && (
+                            <>
+                                <div>
+                                    <Label htmlFor="sms_phone">Phone Number</Label>
+                                    <Input
+                                        id="sms_phone"
+                                        type="tel"
+                                        value={formData.notification_template?.sms_phone || ''}
+                                        onChange={(e) => handleNestedChange('notification_template', 'sms_phone', e.target.value)}
+                                        placeholder="+1 (555) 000-0000"
+                                    />
+                                </div>
+                                <div>
+                                    <Label htmlFor="sms_message">SMS Message</Label>
+                                    <Textarea
+                                        id="sms_message"
+                                        value={formData.notification_template?.sms_message || ''}
+                                        onChange={(e) => handleNestedChange('notification_template', 'sms_message', e.target.value)}
+                                        placeholder="e.g., Alert: {{alert_name}} triggered. Check Tandril for details."
+                                        className="h-20"
+                                        maxLength={160}
+                                    />
+                                    <p className="text-xs text-slate-400 mt-1">
+                                        {(formData.notification_template?.sms_message || '').length}/160 characters
+                                    </p>
+                                </div>
+                                <Alert className="bg-amber-50 border-amber-200">
+                                    <Info className="h-4 w-4 text-amber-600" />
+                                    <AlertDescription className="text-amber-800 text-sm">
+                                        SMS delivery requires Twilio to be configured. Phone number and message will be saved and ready when SMS is enabled.
+                                    </AlertDescription>
+                                </Alert>
                             </>
                         )}
 

@@ -36,6 +36,7 @@ export default function VacationDashboard() {
   const [inventory, setInventory] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isToggling, setIsToggling] = useState(false);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
   const navigate = useNavigate();
   const { isOpen, config, confirm, cancel } = useConfirmDialog();
 
@@ -126,6 +127,41 @@ export default function VacationDashboard() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Send vacation status email summary
+  const handleSendStatusEmail = useCallback(() => {
+    setIsSendingEmail(true);
+    try {
+      const subject = `Tandril Vacation Mode Status — ${new Date().toLocaleDateString()}`;
+      const lines = [
+        '=== Tandril Vacation Mode Status Report ===',
+        `Generated: ${new Date().toLocaleString()}`,
+        '',
+        'SUMMARY',
+        `Days Active: ${vacationStats.daysActive}`,
+        `Actions Today: ${vacationStats.actionsToday}`,
+        `Total Actions: ${vacationStats.totalActions}`,
+        `Alerts Handled: ${vacationStats.alertsHandled}`,
+        '',
+        'RECENT ACTIONS (last 5)',
+        ...(recentActions.length > 0
+          ? recentActions.slice(0, 5).map(a => `- ${a.command_type || a.action_type || 'Action'}: ${a.description || a.command || ''}`)
+          : ['No recent actions']),
+        '',
+        'ACTIVE ALERTS',
+        ...(alerts.length > 0
+          ? alerts.slice(0, 5).map(a => `- [${(a.severity || 'info').toUpperCase()}] ${a.title || a.alert_type || 'Alert'}`)
+          : ['No active alerts']),
+      ];
+      const mailto = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines.join('\n'))}`;
+      window.open(mailto);
+      toast.success('Status email prepared — your email client will open');
+    } catch {
+      toast.error('Failed to prepare status email');
+    } finally {
+      setIsSendingEmail(false);
+    }
+  }, [vacationStats, recentActions, alerts]);
 
   // Handle vacation mode toggle with confirmation
   const handleToggleVacationMode = useCallback(async () => {
@@ -427,9 +463,16 @@ export default function VacationDashboard() {
                   <CardTitle className="text-sm">Quick Actions</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
-                  <Button variant="outline" className="w-full justify-start text-sm" disabled>
-                    <Mail className="w-4 h-4 mr-2" />
-                    Send Status Email (Coming Soon)
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start text-sm"
+                    onClick={handleSendStatusEmail}
+                    disabled={isSendingEmail}
+                  >
+                    {isSendingEmail
+                      ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      : <Mail className="w-4 h-4 mr-2" />}
+                    Send Status Email
                   </Button>
                   <Button 
                     variant="outline" 

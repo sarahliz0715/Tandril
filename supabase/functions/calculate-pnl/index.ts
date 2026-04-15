@@ -149,6 +149,7 @@ serve(async (req) => {
         acc.ad_spend += result.ad_spend || 0;
         acc.refunds += result.refunds || 0;
         acc.total_orders += result.total_orders || 0;
+        acc.needs_cogs_data = acc.needs_cogs_data || result.needs_cogs_data || false;
       }
       return acc;
     }, {
@@ -158,7 +159,8 @@ serve(async (req) => {
       platform_fees: 0,
       ad_spend: 0,
       refunds: 0,
-      total_orders: 0
+      total_orders: 0,
+      needs_cogs_data: false,
     });
 
     // Calculate net profit

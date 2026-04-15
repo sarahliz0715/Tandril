@@ -5,8 +5,10 @@ import { User } from '@/lib/entities';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, ArrowLeft, Settings, Trash2, AlertCircle } from 'lucide-react';
+import { Loader2, ArrowLeft, Settings, Trash2, AlertCircle, RefreshCw, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { handleAuthError } from '@/utils/authHelpers';
@@ -19,6 +21,10 @@ export default function PlatformSettings() {
     const [currentUser, setCurrentUser] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+    const [syncFrequency, setSyncFrequency] = useState('daily');
+    const [isSavingSettings, setIsSavingSettings] = useState(false);
+    const [isTestingConnection, setIsTestingConnection] = useState(false);
     const { isOpen, config, confirm, cancel } = useConfirmDialog();
 
     // Memoize beta access check
@@ -69,6 +75,44 @@ export default function PlatformSettings() {
     useEffect(() => {
         loadData();
     }, [loadData]);
+
+    // Seed sync frequency from saved metadata
+    useEffect(() => {
+        if (platform?.metadata?.sync_frequency) {
+            setSyncFrequency(platform.metadata.sync_frequency);
+        }
+    }, [platform]);
+
+    // Save advanced settings
+    const handleSaveSettings = useCallback(async () => {
+        if (!platform) return;
+        setIsSavingSettings(true);
+        try {
+            await Platform.update(platform.id, {
+                metadata: { ...(platform.metadata || {}), sync_frequency: syncFrequency }
+            });
+            toast.success('Settings saved');
+            loadData();
+        } catch {
+            toast.error('Failed to save settings');
+        } finally {
+            setIsSavingSettings(false);
+        }
+    }, [platform, syncFrequency, loadData]);
+
+    // Test connection
+    const handleTestConnection = useCallback(async () => {
+        if (!platform) return;
+        setIsTestingConnection(true);
+        try {
+            await Platform.get(platform.id);
+            toast.success('Connection is active');
+        } catch {
+            toast.error('Connection test failed — check your credentials');
+        } finally {
+            setIsTestingConnection(false);
+        }
+    }, [platform]);
 
     // Handle platform disconnection with confirmation
     const handleDisconnect = useCallback(async () => {
@@ -227,11 +271,27 @@ export default function PlatformSettings() {
                     <div className="border-t pt-6">
                         <h3 className="font-semibold text-slate-800 mb-4">Actions</h3>
                         <div className="flex gap-4">
-                            <Button variant="outline" disabled>
+                            <Button
+                                variant="outline"
+                                onClick={() => setShowAdvancedSettings(prev => !prev)}
+                            >
                                 <Settings className="w-4 h-4 mr-2" />
-                                Advanced Settings (Coming Soon)
+                                Advanced Settings
+                                {showAdvancedSettings
+                                    ? <ChevronUp className="w-4 h-4 ml-2" />
+                                    : <ChevronDown className="w-4 h-4 ml-2" />}
                             </Button>
-                            <Button 
+                            <Button
+                                variant="outline"
+                                onClick={handleTestConnection}
+                                disabled={isTestingConnection}
+                            >
+                                {isTestingConnection
+                                    ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    : <RefreshCw className="w-4 h-4 mr-2" />}
+                                Test Connection
+                            </Button>
+                            <Button
                                 variant="destructive"
                                 onClick={handleDisconnect}
                                 disabled={isDeleting}
@@ -249,6 +309,36 @@ export default function PlatformSettings() {
                                 )}
                             </Button>
                         </div>
+
+                        {showAdvancedSettings && (
+                            <div className="mt-4 p-4 border rounded-lg bg-slate-50 space-y-4">
+                                <div>
+                                    <Label>Sync Frequency</Label>
+                                    <p className="text-xs text-slate-500 mb-2">How often Tandril pulls fresh data from this platform</p>
+                                    <Select value={syncFrequency} onValueChange={setSyncFrequency}>
+                                        <SelectTrigger className="w-48">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="manual">Manual only</SelectItem>
+                                            <SelectItem value="hourly">Every hour</SelectItem>
+                                            <SelectItem value="daily">Daily</SelectItem>
+                                            <SelectItem value="weekly">Weekly</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <Button
+                                    size="sm"
+                                    onClick={handleSaveSettings}
+                                    disabled={isSavingSettings}
+                                >
+                                    {isSavingSettings
+                                        ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                        : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                                    Save Settings
+                                </Button>
+                            </div>
+                        )}
                     </div>
                 </CardContent>
             </Card>

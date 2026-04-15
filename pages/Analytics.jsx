@@ -170,8 +170,36 @@ export default function Analytics() {
 
   // Handle export
   const handleExport = useCallback(() => {
-    toast.info("Export feature coming soon!");
-  }, []);
+    if (filteredOrders.length === 0) {
+      toast.warning("No orders to export for the selected date range.");
+      return;
+    }
+
+    const headers = ['Order ID', 'Date', 'Total Price', 'Status', 'Platform'];
+    const rows = filteredOrders.map(order => [
+      order.id || '',
+      order.order_date ? new Date(order.order_date).toLocaleDateString() : '',
+      order.total_price != null ? Number(order.total_price).toFixed(2) : '0.00',
+      order.status || '',
+      order.platform_id || order.platform || '',
+    ]);
+
+    const csv = [headers, ...rows]
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tandril-analytics-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    toast.success(`Exported ${filteredOrders.length} orders to CSV`);
+  }, [filteredOrders]);
 
   if (isLoading) {
     return (

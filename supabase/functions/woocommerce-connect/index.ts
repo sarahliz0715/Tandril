@@ -147,8 +147,36 @@ serve(async (req) => {
       console.log(`[WooCommerce] Created new platform connection ${data.id}`);
     }
 
-    // TODO: Trigger initial product sync in background
-    // You can call another Edge Function here to start syncing products
+    // Initial product sync
+    try {
+      const syncRes = await fetch(
+        `${normalizedUrl}/wp-json/wc/v3/products?per_page=100&status=publish`,
+        { headers: { 'Authorization': `Basic ${authString}`, 'Content-Type': 'application/json' } }
+      );
+      if (syncRes.ok) {
+        const wooProducts = await syncRes.json();
+        const rows = wooProducts.map((p: any) => ({
+          user_id: user.id,
+          platform_type: 'woocommerce',
+          title: p.name || 'Unnamed',
+          sku: p.sku || `woo-${p.id}`,
+          price: parseFloat(p.price || p.regular_price || '0'),
+          inventory_quantity: p.stock_quantity ?? 0,
+          status: p.status === 'publish' ? 'active' : p.status,
+          vendor: '',
+          product_type: p.categories?.[0]?.name || '',
+        }));
+        if (rows.length > 0) {
+          await supabaseClient.from('products').upsert(rows, {
+            onConflict: 'user_id,platform_type,sku',
+            ignoreDuplicates: false,
+          });
+          console.log(`[WooCommerce] Synced ${rows.length} products`);
+        }
+      }
+    } catch (syncErr: any) {
+      console.warn('[WooCommerce] Initial product sync failed (non-critical):', syncErr.message);
+    }
 
     return new Response(
       JSON.stringify({

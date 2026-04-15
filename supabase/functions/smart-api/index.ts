@@ -2234,6 +2234,7 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
           const totalQty = variants.reduce((sum: number, v: any) => sum + (v.inventory_quantity || 0), 0);
           const skus = variants.map((v: any) => v.sku).filter(Boolean).join(', ');
           const prices = variants.map((v: any) => parseFloat(v.price) || 0).filter((n: number) => n > 0);
+          const imageCount = (p.images || []).length;
           return {
             id: p.id,
             title: p.title,
@@ -2247,6 +2248,9 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
             handle: p.handle || '',
             body_html: p.body_html ? p.body_html.replace(/<[^>]*>/g, '').slice(0, 150) : '',
             platform_type: 'shopify',
+            image_count: imageCount,
+            has_images: imageCount > 0,
+            image_url: (p.images || [])[0]?.src || null,
           };
         });
         productCount = products.length;
@@ -2504,7 +2508,10 @@ async function chatWithClaude(
       const vendor = p.vendor || '';
       const type = p.product_type || p.category || '';
       const handle = p.handle ? ` | Handle: ${p.handle}` : '';
-      return `  - ${name} | SKU: ${sku} | Price: ${price} | Stock: ${stock}${vendor ? ` | Vendor: ${vendor}` : ''}${type ? ` | Type: ${type}` : ''}${status ? ` | Status: ${status}` : ''}${handle}`;
+      const images = p.image_count != null
+        ? ` | Images: ${p.image_count > 0 ? `${p.image_count} ✓` : '0 ❌'}`
+        : '';
+      return `  - ${name} | SKU: ${sku} | Price: ${price} | Stock: ${stock}${vendor ? ` | Vendor: ${vendor}` : ''}${type ? ` | Type: ${type}` : ''}${status ? ` | Status: ${status}` : ''}${handle}${images}`;
     }).join('\n');
   };
 
@@ -2869,7 +2876,47 @@ ${mode === 'demo/test' ?
     };
   });
 
+  // On-demand product image vision: if the user asks about a specific product's
+  // image/photo/look, fetch that product's first image server-side and inject it
+  // as a vision block so Orion can actually see and describe it.
+  const productImageBlocks: any[] = [];
+  const IMAGE_QUESTION = /\b(image|photo|picture|look like|show me|see the|thumbnail|visual)\b/i;
+  if (IMAGE_QUESTION.test(message) && storeContext?.products?.length > 0) {
+    const lowerMsg = message.toLowerCase();
+    const matched = storeContext.products.find((p: any) => {
+      const name = (p.title || p.name || '').toLowerCase().trim();
+      const sku = (p.sku || '').toLowerCase().trim();
+      return (name.length > 3 && lowerMsg.includes(name)) ||
+             (sku.length > 2 && lowerMsg.includes(sku));
+    });
+    if (matched?.image_url) {
+      try {
+        const imgRes = await fetch(matched.image_url);
+        if (imgRes.ok) {
+          const mediaType = (imgRes.headers.get('content-type') || 'image/jpeg').split(';')[0].trim();
+          const buffer = await imgRes.arrayBuffer();
+          const bytes = new Uint8Array(buffer);
+          let binary = '';
+          const chunk = 8192;
+          for (let i = 0; i < bytes.length; i += chunk) {
+            binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+          }
+          productImageBlocks.push({
+            type: 'image',
+            source: { type: 'base64', media_type: mediaType, data: btoa(binary) },
+          });
+        }
+      } catch (e) {
+        console.warn('[Orion] Could not fetch product image for vision:', e);
+      }
+    }
+  }
+
   const currentContent: any[] = [{ type: 'text', text: message }];
+
+  for (const block of productImageBlocks) {
+    currentContent.push(block);
+  }
 
   if (uploadedFiles && uploadedFiles.length > 0) {
     for (const file of uploadedFiles) {
