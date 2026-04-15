@@ -120,6 +120,13 @@ function summarizeOrionAction(action: any): string {
     case 'wish_update_price':         return `Updated Wish price for "${name}" → $${action.price}`;
     case 'walmart_update_inventory':  return `Updated Walmart inventory for "${name}" → ${action.quantity} units`;
     case 'walmart_update_price':      return `Updated Walmart price for "${name}" → $${action.price}`;
+    case 'etsy_update_price':         return `Updated Etsy listing "${name}" price → $${action.price}`;
+    case 'etsy_update_inventory':     return `Updated Etsy listing "${name}" quantity → ${action.quantity} units`;
+    case 'etsy_update_title':         return `Updated Etsy listing "${name}" title`;
+    case 'etsy_update_description':   return `Updated Etsy listing "${name}" description`;
+    case 'etsy_update_tags':          return `Updated Etsy listing "${name}" tags`;
+    case 'etsy_end_listing':          return `Deactivated Etsy listing "${name}"`;
+    case 'etsy_renew_listing':        return `Reactivated Etsy listing "${name}"`;
     default:                          return `Orion action: ${action.type} on "${name}"`;
   }
 }
@@ -1949,6 +1956,129 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       break;
     }
 
+    case 'etsy_update_price':
+    case 'etsy_update_inventory':
+    case 'etsy_update_title':
+    case 'etsy_update_description':
+    case 'etsy_update_tags':
+    case 'etsy_end_listing':
+    case 'etsy_renew_listing': {
+      const { data: etsyPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!etsyPlats || etsyPlats.length === 0) throw new Error('No connected Etsy shop found.');
+      const etsyPlat = etsyPlats[0];
+      const etsyTok = etsyPlat.credentials?.access_token;
+      const etsyShopId = etsyPlat.metadata?.shop_id;
+      const etsyClientId = Deno.env.get('ETSY_CLIENT_ID');
+      if (!etsyTok || !etsyShopId || !etsyClientId) throw new Error('Etsy credentials or shop_id missing.');
+
+      // Resolve listing_id: prefer direct listing_id, fall back to searching by title/sku
+      let listingId = action.listing_id;
+      if (!listingId && (action.product_name || action.sku)) {
+        const searchRes = await fetch(
+          `https://openapi.etsy.com/v3/application/shops/${etsyShopId}/listings?limit=100&state=active`,
+          { headers: { 'x-api-key': etsyClientId, 'Authorization': `Bearer ${etsyTok}` } }
+        );
+        if (searchRes.ok) {
+          const searchData = await searchRes.json();
+          const found = (searchData.results || []).find((l: any) =>
+            (action.product_name && l.title?.toLowerCase().includes(action.product_name.toLowerCase())) ||
+            (action.sku && l.sku?.includes(action.sku))
+          );
+          if (found) listingId = found.listing_id;
+        }
+        if (!listingId) throw new Error(`Could not find Etsy listing matching "${action.product_name || action.sku}".`);
+      }
+      if (!listingId) throw new Error('listing_id or product_name/sku required for Etsy actions.');
+
+      const etsyHeaders: Record<string, string> = {
+        'x-api-key': etsyClientId,
+        'Authorization': `Bearer ${etsyTok}`,
+        'Content-Type': 'application/json',
+      };
+
+      if (action.type === 'etsy_update_price') {
+        // Etsy price is stored in listing as a float (not subunits)
+        const updateRes = await fetch(
+          `https://openapi.etsy.com/v3/application/shops/${etsyShopId}/listings/${listingId}`,
+          { method: 'PATCH', headers: etsyHeaders, body: JSON.stringify({ price: Number(action.price) }) }
+        );
+        if (!updateRes.ok) throw new Error(`Etsy price update failed: ${await updateRes.text()}`);
+        return { message: `Updated Etsy listing #${listingId} price to $${action.price}` };
+      }
+
+      if (action.type === 'etsy_update_inventory') {
+        // Etsy uses a separate inventory endpoint for quantity
+        const invRes = await fetch(
+          `https://openapi.etsy.com/v3/application/listings/${listingId}/inventory`,
+          { headers: etsyHeaders }
+        );
+        if (!invRes.ok) throw new Error(`Could not fetch Etsy listing inventory: ${await invRes.text()}`);
+        const invData = await invRes.json();
+        // Update each product offering quantity
+        const offerings = (invData.products || []).map((prod: any) => ({
+          ...prod,
+          offerings: (prod.offerings || []).map((o: any) => ({ ...o, quantity: Number(action.quantity) })),
+        }));
+        const updateRes = await fetch(
+          `https://openapi.etsy.com/v3/application/listings/${listingId}/inventory`,
+          { method: 'PUT', headers: etsyHeaders, body: JSON.stringify({ products: offerings }) }
+        );
+        if (!updateRes.ok) throw new Error(`Etsy inventory update failed: ${await updateRes.text()}`);
+        return { message: `Updated Etsy listing #${listingId} quantity to ${action.quantity} units` };
+      }
+
+      if (action.type === 'etsy_update_title') {
+        const updateRes = await fetch(
+          `https://openapi.etsy.com/v3/application/shops/${etsyShopId}/listings/${listingId}`,
+          { method: 'PATCH', headers: etsyHeaders, body: JSON.stringify({ title: action.title }) }
+        );
+        if (!updateRes.ok) throw new Error(`Etsy title update failed: ${await updateRes.text()}`);
+        return { message: `Updated Etsy listing #${listingId} title to "${action.title}"` };
+      }
+
+      if (action.type === 'etsy_update_description') {
+        const updateRes = await fetch(
+          `https://openapi.etsy.com/v3/application/shops/${etsyShopId}/listings/${listingId}`,
+          { method: 'PATCH', headers: etsyHeaders, body: JSON.stringify({ description: action.description }) }
+        );
+        if (!updateRes.ok) throw new Error(`Etsy description update failed: ${await updateRes.text()}`);
+        return { message: `Updated Etsy listing #${listingId} description` };
+      }
+
+      if (action.type === 'etsy_update_tags') {
+        // Etsy allows up to 13 tags; tags must be lowercase, no special chars
+        const tags: string[] = Array.isArray(action.tags)
+          ? action.tags.slice(0, 13)
+          : String(action.tags).split(',').map((t: string) => t.trim().toLowerCase()).filter(Boolean).slice(0, 13);
+        const updateRes = await fetch(
+          `https://openapi.etsy.com/v3/application/shops/${etsyShopId}/listings/${listingId}`,
+          { method: 'PATCH', headers: etsyHeaders, body: JSON.stringify({ tags }) }
+        );
+        if (!updateRes.ok) throw new Error(`Etsy tags update failed: ${await updateRes.text()}`);
+        return { message: `Updated Etsy listing #${listingId} tags: ${tags.join(', ')}` };
+      }
+
+      if (action.type === 'etsy_end_listing') {
+        const updateRes = await fetch(
+          `https://openapi.etsy.com/v3/application/shops/${etsyShopId}/listings/${listingId}`,
+          { method: 'PATCH', headers: etsyHeaders, body: JSON.stringify({ state: 'inactive' }) }
+        );
+        if (!updateRes.ok) throw new Error(`Etsy end listing failed: ${await updateRes.text()}`);
+        return { message: `Deactivated Etsy listing #${listingId}` };
+      }
+
+      if (action.type === 'etsy_renew_listing') {
+        const updateRes = await fetch(
+          `https://openapi.etsy.com/v3/application/shops/${etsyShopId}/listings/${listingId}`,
+          { method: 'PATCH', headers: etsyHeaders, body: JSON.stringify({ state: 'active' }) }
+        );
+        if (!updateRes.ok) throw new Error(`Etsy renew listing failed: ${await updateRes.text()}`);
+        return { message: `Reactivated Etsy listing #${listingId}` };
+      }
+      break;
+    }
+
     default:
       throw new Error(`Unknown action type: ${action.type}`);
   }
@@ -2425,13 +2555,16 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
         const clientId = Deno.env.get('ETSY_CLIENT_ID');
         if (shopId && tok && clientId) {
           const res = await fetch(
-            `https://openapi.etsy.com/v3/application/shops/${shopId}/listings/active?limit=100`,
+            `https://openapi.etsy.com/v3/application/shops/${shopId}/listings/active?limit=100&includes=Images,MainImage`,
             { headers: { 'x-api-key': clientId, 'Authorization': `Bearer ${tok}` } }
           );
           if (res.ok) {
             const data = await res.json();
             for (const l of (data.results || [])) {
               const price = l.price?.amount != null ? l.price.amount / (l.price.divisor || 100) : 0;
+              const images = l.images || (l.main_image ? [l.main_image] : []);
+              const imageCount = images.length;
+              const imageUrl = images[0]?.url_570xN || images[0]?.url_fullxfull || null;
               products.push({
                 id: `etsy-${l.listing_id}`,
                 title: l.title || 'Unnamed',
@@ -2442,7 +2575,12 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
                 vendor: '',
                 product_type: l.taxonomy_path?.[0] || '',
                 tags: (l.tags || []).join(', '),
+                body_html: l.description ? l.description.slice(0, 150) : '',
+                image_count: imageCount,
+                has_images: imageCount > 0,
+                image_url: imageUrl,
                 platform_type: 'etsy',
+                listing_id: l.listing_id,
               });
               productCount++;
             }
@@ -2482,10 +2620,50 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     .order('created_at', { ascending: false })
     .limit(25);
 
-  // Merge eBay orders with DB orders
+  // Fetch live Etsy orders (receipts) for any connected Etsy platform
+  const etsyOrders: any[] = [];
+  for (const platform of (platforms || [])) {
+    if (platform.platform_type !== 'etsy') continue;
+    const shopId = platform.metadata?.shop_id;
+    const tok = platform.credentials?.access_token;
+    const clientId = Deno.env.get('ETSY_CLIENT_ID');
+    if (!shopId || !tok || !clientId) continue;
+    try {
+      const receiptsRes = await fetch(
+        `https://openapi.etsy.com/v3/application/shops/${shopId}/receipts?limit=50`,
+        { headers: { 'x-api-key': clientId, 'Authorization': `Bearer ${tok}` } }
+      );
+      if (receiptsRes.ok) {
+        const receiptsData = await receiptsRes.json();
+        for (const r of (receiptsData.results || [])) {
+          etsyOrders.push({
+            order_id: `etsy-${r.receipt_id}`,
+            order_number: r.receipt_id,
+            customer_name: r.name || 'Etsy Customer',
+            customer_email: r.buyer_email || '',
+            total_price: (r.grandtotal?.amount || 0) / (r.grandtotal?.divisor || 100),
+            status: r.status === 'paid' ? 'processing' : r.status === 'completed' ? 'delivered' : r.status,
+            platform: 'Etsy',
+            order_date: r.created_timestamp ? new Date(r.created_timestamp * 1000).toISOString() : null,
+            created_at: r.created_timestamp ? new Date(r.created_timestamp * 1000).toISOString() : null,
+            fulfillment_status: r.is_shipped ? 'fulfilled' : 'unfulfilled',
+            line_items: (r.transactions || []).map((t: any) => ({
+              title: t.title || 'Item',
+              quantity: t.quantity || 1,
+              price: (t.price?.amount || 0) / (t.price?.divisor || 100),
+            })),
+          });
+        }
+      }
+    } catch (e: any) {
+      console.warn('[Orion] Etsy receipts fetch failed:', e.message);
+    }
+  }
+
+  // Merge eBay orders with DB orders and Etsy orders
   const ebayOrders = (platforms || []).flatMap((p: any) => p._ebayOrders || []);
-  const orders = [...(dbOrders || []), ...ebayOrders];
-  const totalOrders = (orderCount || 0) + ebayOrders.length;
+  const orders = [...(dbOrders || []), ...ebayOrders, ...etsyOrders];
+  const totalOrders = (orderCount || 0) + ebayOrders.length + etsyOrders.length;
 
   const totalRevenue = orders.reduce((sum: number, o: any) => sum + (parseFloat(o.total_price) || 0), 0);
   const avgOrderValue = orders.length > 0 ? totalRevenue / orders.length : 0;
@@ -2665,6 +2843,14 @@ When the user asks you to create a product, add inventory, change a price, renam
   Walmart Marketplace actions:
   • walmart_update_inventory
   • walmart_update_price
+  Etsy Shop actions:
+  • etsy_update_price       — { type, product_name, listing_id?, price }
+  • etsy_update_inventory   — { type, product_name, listing_id?, quantity }
+  • etsy_update_title       — { type, product_name, listing_id?, title }
+  • etsy_update_description — { type, product_name, listing_id?, description }
+  • etsy_update_tags        — { type, product_name, listing_id?, tags: ["tag1","tag2",...] } (max 13 tags — this IS SEO on Etsy)
+  • etsy_end_listing        — { type, product_name, listing_id? }  (sets state to inactive)
+  • etsy_renew_listing      — { type, product_name, listing_id? }  (sets state back to active)
 ❌ FORBIDDEN (will always fail): update_product, update_seo, bulk_update, add_image, set_image, woo_update_product, or any other type not in the list above.
 
 Platform action routing:
@@ -2675,9 +2861,13 @@ Platform action routing:
 - Use prestashop_* actions for products with platform_type 'prestashop'
 - Use wish_* actions for products with platform_type 'wish'
 - Use walmart_* actions for products with platform_type 'walmart'
+- Use etsy_* actions for products with platform_type 'etsy'
 - For multi_action and batch_update, sub-actions should use the correct prefix for the product's platform
 - ⚠️ CRITICAL: eBay has NO "draft" or "archived" status. For eBay, the words "deactivate", "draft", "hide", "end", "mark as sold", "remove", "take down" all map to ebay_end_listing. NEVER use update_status on an eBay product.
-- ⚠️ CRITICAL: update_status is Shopify-ONLY. If the user says "draft" or "archive" and the item is from eBay, use ebay_end_listing.
+- ⚠️ CRITICAL: Etsy has NO "draft" status. For Etsy, "deactivate", "remove", "hide", "take down" map to etsy_end_listing; "reactivate" or "relist" maps to etsy_renew_listing. NEVER use update_status on an Etsy product.
+- ⚠️ CRITICAL: update_status is Shopify-ONLY.
+- ⚠️ Etsy SEO = tags. When a user asks to "optimize SEO", "add keywords", or "improve search" on an Etsy listing, use etsy_update_tags (and optionally etsy_update_title/description). Etsy does not have separate SEO fields.
+- ⚠️ Etsy tags: max 13, lowercase, no special characters except spaces. Always supply as an array.
 - ⚠️ For Wish and Walmart, always include the SKU — these platforms identify products by SKU only.
 - ⚠️ For Magento, always include the SKU — Magento's REST API uses SKU as the product identifier.
 - ⚠️ PrestaShop SEO/description updates: use prestashop_update_title for title changes; description updates require manual editing in PrestaShop admin (not yet supported via API).
