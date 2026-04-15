@@ -2272,10 +2272,10 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     productCount = count || 0;
   }
 
-  // Fetch live products from Ecwid, Magento, PrestaShop, Wish, Walmart
+  // Fetch live products from Ecwid, Magento, PrestaShop, Wish, Walmart, Etsy
   for (const platform of (platforms || [])) {
     const pt = platform.platform_type;
-    if (!['ecwid', 'magento', 'prestashop', 'wish', 'walmart'].includes(pt)) continue;
+    if (!['ecwid', 'magento', 'prestashop', 'wish', 'walmart', 'etsy'].includes(pt)) continue;
     try {
       if (pt === 'ecwid') {
         const { store_id, access_token: tok } = platform.credentials;
@@ -2414,6 +2414,35 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
                 product_type: p.productType || '',
                 tags: '',
                 platform_type: 'walmart',
+              });
+              productCount++;
+            }
+          }
+        }
+      } else if (pt === 'etsy') {
+        const shopId = platform.metadata?.shop_id;
+        const tok = platform.credentials?.access_token;
+        const clientId = Deno.env.get('ETSY_CLIENT_ID');
+        if (shopId && tok && clientId) {
+          const res = await fetch(
+            `https://openapi.etsy.com/v3/application/shops/${shopId}/listings/active?limit=100`,
+            { headers: { 'x-api-key': clientId, 'Authorization': `Bearer ${tok}` } }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            for (const l of (data.results || [])) {
+              const price = l.price?.amount != null ? l.price.amount / (l.price.divisor || 100) : 0;
+              products.push({
+                id: `etsy-${l.listing_id}`,
+                title: l.title || 'Unnamed',
+                sku: l.sku?.[0] || `etsy-${l.listing_id}`,
+                price,
+                inventory_quantity: l.quantity || 0,
+                status: l.state === 'active' ? 'active' : 'draft',
+                vendor: '',
+                product_type: l.taxonomy_path?.[0] || '',
+                tags: (l.tags || []).join(', '),
+                platform_type: 'etsy',
               });
               productCount++;
             }

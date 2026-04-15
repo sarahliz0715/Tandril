@@ -104,7 +104,7 @@ export default function PlatformCard({
       case 'shopify':
         return <ShopifyConnectButton onConnectionSuccess={onConnectionSuccess} />;
       case 'etsy':
-        return <EtsyConnectButton />;
+        return <EtsyConnectButton onConnectionSuccess={onConnectionSuccess} disabled={isAtLimit} />;
       case 'printful':
         return <PrintfulConnectButton onConnectionSuccess={onConnectionSuccess}/>;
       case 'teepublic':
