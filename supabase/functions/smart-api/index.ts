@@ -110,6 +110,10 @@ function summarizeOrionAction(action: any): string {
     case 'bulk_ai_content': return `AI content rewrite: ${(action.updates || []).length} product${(action.updates || []).length !== 1 ? 's' : ''}`;
     case 'get_messages':  return `Fetched customer messages from ${action.platform_type || 'all platforms'}`;
     case 'send_message':  return `Sent reply to ${action.platform_type || 'customer'} conversation ${action.conversation_id || ''}`;
+    case 'check_reorder_needs': return `Checked reorder needs (threshold: ${action.low_stock_threshold ?? 10} units)`;
+    case 'create_purchase_order': return `Created draft PO for ${(action.items || []).length} item(s) from ${action.supplier_name || 'supplier'}`;
+    case 'get_purchase_orders': return `Retrieved purchase orders${action.status ? ` (${action.status})` : ''}`;
+    case 'update_purchase_order_status': return `Updated PO ${action.po_number || ''} status → ${action.status}`;
     case 'update_price':        return `Updated price for "${name}" → $${action.price}`;
     case 'update_title':        return `Updated title of "${name}" → "${action.new_title}"`;
     case 'update_tags':
@@ -4371,6 +4375,293 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       throw new Error(`send_message is not supported for platform "${sendPlatform}". Supported: etsy.`);
     }
 
+    // ── Auto-Reorder / Purchase Orders ────────────────────────────────────────
+
+    case 'check_reorder_needs': {
+      // Scans inventory for products below their reorder point and cross-references
+      // product_suppliers to suggest or auto-create purchase orders.
+      //
+      // action.low_stock_threshold   — stock level to flag (default: 10)
+      // action.create_draft_pos      — boolean: if true, auto-create draft POs (default: false = suggest only)
+
+      const reorderThreshold = action.low_stock_threshold ?? 10;
+      const createDrafts = action.create_draft_pos === true;
+
+      // Fetch all product<→supplier mappings for this user
+      const { data: productSuppliers } = await supabaseClient
+        .from('product_suppliers')
+        .select('*, suppliers!inner(*)')
+        .eq('user_id', userId);
+
+      if (!productSuppliers || productSuppliers.length === 0) {
+        return {
+          message: 'No supplier relationships found. Add suppliers and link them to products in the Suppliers section first, then Orion can auto-suggest reorders.',
+          needs_reorder: [],
+        };
+      }
+
+      // Build a map: sku/product_name → product_supplier entries
+      const supplierMap: Record<string, any[]> = {};
+      for (const ps of productSuppliers) {
+        const key = ps.sku || ps.product_name;
+        if (!supplierMap[key]) supplierMap[key] = [];
+        supplierMap[key].push(ps);
+      }
+
+      // Fetch current inventory from Shopify (primary platform)
+      let lowStockItems: Array<{ product_name: string; sku: string; current_stock: number; supplier: any; reorder_qty: number; cost_estimate: number }> = [];
+
+      const { data: shopifyPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'shopify').or('is_active.eq.true,status.eq.connected').limit(1);
+
+      if (shopifyPlats && shopifyPlats.length > 0) {
+        const spPlat = shopifyPlats[0];
+        const spDomain = spPlat.shop_domain || spPlat.domain || spPlat.store_domain;
+        let spToken = spPlat.access_token;
+        try {
+          if (spToken && spToken.length > 50 && !spToken.startsWith('shpat_') && !spToken.startsWith('shpca_')) {
+            const { decrypt } = await import('../_shared/encryption.ts');
+            spToken = await decrypt(spToken);
+          }
+        } catch {}
+
+        const spHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': spToken };
+        const spRes = await fetch(`https://${spDomain}/admin/api/2024-01/products.json?limit=250`, { headers: spHeaders });
+        if (spRes.ok) {
+          const { products: spProducts } = await spRes.json();
+          for (const p of (spProducts || [])) {
+            for (const v of (p.variants || [])) {
+              const stock = v.inventory_quantity || 0;
+              const sku = v.sku || p.title;
+              if (stock <= reorderThreshold) {
+                // Find supplier for this product
+                const supplierEntries = supplierMap[sku] || supplierMap[p.title] || [];
+                const primarySupplier = supplierEntries.find((s: any) => s.is_primary) || supplierEntries[0];
+                if (primarySupplier) {
+                  const moq = primarySupplier.minimum_order_quantity || 1;
+                  const reorderQty = Math.max(moq, reorderThreshold * 3 - stock); // order enough to get ~3x threshold
+                  lowStockItems.push({
+                    product_name: p.title,
+                    sku,
+                    current_stock: stock,
+                    supplier: primarySupplier,
+                    reorder_qty: reorderQty,
+                    cost_estimate: parseFloat((reorderQty * (primarySupplier.cost_per_unit || 0)).toFixed(2)),
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (lowStockItems.length === 0) {
+        return {
+          message: `No products below the ${reorderThreshold}-unit threshold with linked suppliers found. Stock levels look good!`,
+          needs_reorder: [],
+        };
+      }
+
+      // If just suggesting, return the list
+      if (!createDrafts) {
+        const suggestions = lowStockItems.map(i =>
+          `• **${i.product_name}** (SKU: ${i.sku}): ${i.current_stock} units left → order ${i.reorder_qty} from ${i.supplier.suppliers?.name || 'supplier'} (~$${i.cost_estimate})`
+        ).join('\n');
+        return {
+          message: `${lowStockItems.length} product${lowStockItems.length !== 1 ? 's' : ''} need reordering:\n\n${suggestions}\n\nUse create_purchase_order to create draft POs, or run check_reorder_needs with create_draft_pos:true to auto-generate them all.`,
+          needs_reorder: lowStockItems,
+        };
+      }
+
+      // Auto-create draft POs grouped by supplier
+      const posBySupplier: Record<string, { supplier: any; items: typeof lowStockItems }> = {};
+      for (const item of lowStockItems) {
+        const suppId = item.supplier.supplier_id || item.supplier.id;
+        if (!posBySupplier[suppId]) {
+          posBySupplier[suppId] = { supplier: item.supplier, items: [] };
+        }
+        posBySupplier[suppId].items.push(item);
+      }
+
+      const createdPOs: string[] = [];
+      for (const [suppId, poData] of Object.entries(posBySupplier)) {
+        // Generate PO number using Supabase function
+        const { data: poNumData } = await supabaseClient.rpc('generate_po_number', { p_user_id: userId });
+        const poNumber = poNumData || `PO-${Date.now()}`;
+
+        const { data: newPO, error: poErr } = await supabaseClient
+          .from('purchase_orders')
+          .insert({
+            user_id: userId,
+            po_number: poNumber,
+            supplier_id: suppId,
+            status: 'draft',
+            notes: `Auto-generated by Orion — ${poData.items.length} low-stock product${poData.items.length !== 1 ? 's' : ''}`,
+            expected_delivery_date: new Date(Date.now() + (poData.supplier.suppliers?.lead_time_days || 7) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+          })
+          .select()
+          .single();
+
+        if (poErr || !newPO) continue;
+
+        // Insert PO items
+        const poItems = poData.items.map(i => ({
+          po_id: newPO.id,
+          product_id: i.sku,
+          product_name: i.product_name,
+          sku: i.sku,
+          quantity_ordered: i.reorder_qty,
+          cost_per_unit: i.supplier.cost_per_unit || 0,
+        }));
+        await supabaseClient.from('purchase_order_items').insert(poItems);
+
+        createdPOs.push(`${poNumber} — ${poData.supplier.suppliers?.name || 'Supplier'}: ${poData.items.length} items ($${poData.items.reduce((s, i) => s + i.cost_estimate, 0).toFixed(2)})`);
+      }
+
+      return {
+        message: `Created ${createdPOs.length} draft purchase order${createdPOs.length !== 1 ? 's' : ''}:\n\n${createdPOs.map(p => `• ${p}`).join('\n')}\n\nReview them in the Suppliers section and change status to "sent" when ready to order.`,
+        created_pos: createdPOs,
+        needs_reorder: lowStockItems,
+      };
+    }
+
+    case 'create_purchase_order': {
+      // Creates a single draft purchase order.
+      // action.supplier_name or action.supplier_id  — identifies the supplier
+      // action.items — [{ product_name, sku, quantity, cost_per_unit }]
+      // action.notes, action.expected_delivery_date, action.payment_terms
+
+      if (!action.items || action.items.length === 0) throw new Error('items array is required for create_purchase_order.');
+
+      // Resolve supplier
+      let supplierId = action.supplier_id;
+      if (!supplierId && action.supplier_name) {
+        const { data: supplierSearch } = await supabaseClient
+          .from('suppliers')
+          .select('id,name')
+          .eq('user_id', userId)
+          .ilike('name', `%${action.supplier_name}%`)
+          .limit(1);
+        if (supplierSearch && supplierSearch.length > 0) supplierId = supplierSearch[0].id;
+        if (!supplierId) throw new Error(`Supplier "${action.supplier_name}" not found. Add them in the Suppliers section first.`);
+      }
+      if (!supplierId) throw new Error('supplier_id or supplier_name is required for create_purchase_order.');
+
+      const { data: poNumData } = await supabaseClient.rpc('generate_po_number', { p_user_id: userId });
+      const poNumber = poNumData || `PO-${Date.now()}`;
+
+      const { data: newPO, error: poErr } = await supabaseClient
+        .from('purchase_orders')
+        .insert({
+          user_id: userId,
+          po_number: poNumber,
+          supplier_id: supplierId,
+          status: 'draft',
+          notes: action.notes || '',
+          payment_terms: action.payment_terms || '',
+          ...(action.expected_delivery_date ? { expected_delivery_date: action.expected_delivery_date } : {}),
+        })
+        .select()
+        .single();
+
+      if (poErr || !newPO) throw new Error(`Failed to create purchase order: ${poErr?.message || 'Unknown error'}`);
+
+      const poItems = (action.items || []).map((i: any) => ({
+        po_id: newPO.id,
+        product_id: i.sku || i.product_name,
+        product_name: i.product_name,
+        sku: i.sku || null,
+        quantity_ordered: Number(i.quantity) || 1,
+        cost_per_unit: parseFloat(i.cost_per_unit) || 0,
+      }));
+
+      await supabaseClient.from('purchase_order_items').insert(poItems);
+
+      const totalCost = poItems.reduce((s: number, i: any) => s + i.quantity_ordered * i.cost_per_unit, 0);
+      return {
+        message: `Created draft purchase order **${poNumber}** for ${poItems.length} item${poItems.length !== 1 ? 's' : ''} (est. $${totalCost.toFixed(2)}). Review it in the Suppliers section and mark as "sent" when ready to place the order.`,
+        po_number: poNumber,
+        po_id: newPO.id,
+        total_cost: totalCost,
+      };
+    }
+
+    case 'get_purchase_orders': {
+      // Retrieves purchase orders with optional status filter.
+      // action.status — 'draft'|'sent'|'confirmed'|'received'|'cancelled' (omit for all)
+      // action.limit  — max results (default: 20)
+
+      let poQuery = supabaseClient
+        .from('purchase_orders')
+        .select('*, suppliers(name,email,lead_time_days), purchase_order_items(*)')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(action.limit || 20);
+
+      if (action.status) {
+        poQuery = poQuery.eq('status', action.status);
+      }
+
+      const { data: pos, error: posErr } = await poQuery;
+      if (posErr) throw new Error(`Failed to fetch purchase orders: ${posErr.message}`);
+
+      const poList = (pos || []).map((po: any) => ({
+        po_number: po.po_number,
+        supplier: po.suppliers?.name || 'Unknown',
+        status: po.status,
+        total_cost: po.total_cost,
+        expected_delivery: po.expected_delivery_date,
+        items_count: po.purchase_order_items?.length || 0,
+        created_at: po.created_at,
+      }));
+
+      return {
+        purchase_orders: poList,
+        total: poList.length,
+        message: `Found ${poList.length} purchase order${poList.length !== 1 ? 's' : ''}${action.status ? ` with status "${action.status}"` : ''}.`,
+      };
+    }
+
+    case 'update_purchase_order_status': {
+      // Updates the status of a purchase order.
+      // action.po_number or action.po_id — identifies the PO
+      // action.status — 'sent'|'confirmed'|'received'|'cancelled'
+
+      if (!action.status) throw new Error('status is required for update_purchase_order_status.');
+
+      let poId = action.po_id;
+      if (!poId && action.po_number) {
+        const { data: poSearch } = await supabaseClient
+          .from('purchase_orders')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('po_number', action.po_number)
+          .single();
+        if (poSearch) poId = poSearch.id;
+        if (!poId) throw new Error(`Purchase order "${action.po_number}" not found.`);
+      }
+      if (!poId) throw new Error('po_id or po_number is required for update_purchase_order_status.');
+
+      const statusTimestamps: Record<string, string> = {
+        sent: 'sent_at',
+        confirmed: 'confirmed_at',
+        received: 'received_at',
+        cancelled: 'cancelled_at',
+      };
+      const tsField = statusTimestamps[action.status];
+      const updateBody: any = { status: action.status };
+      if (tsField) updateBody[tsField] = new Date().toISOString();
+
+      const { error: updateErr } = await supabaseClient
+        .from('purchase_orders')
+        .update(updateBody)
+        .eq('id', poId)
+        .eq('user_id', userId);
+
+      if (updateErr) throw new Error(`Failed to update PO status: ${updateErr.message}`);
+      return { message: `Purchase order ${action.po_number || poId} status updated to "${action.status}".` };
+    }
+
     default:
       throw new Error(`Unknown action type: ${action.type}`);
   }
@@ -5253,6 +5544,13 @@ When the user asks you to create a product, add inventory, change a price, renam
                   Returns conversations with from, subject, preview, unread, conversation_id.
   • send_message  — { type, platform_type: 'etsy', conversation_id, body }
                   Sends a reply to an Etsy conversation (only Etsy supports reply API in v3).
+  Auto-reorder / Purchase Orders:
+  • check_reorder_needs         — { type, low_stock_threshold?: 10, create_draft_pos?: false }
+                                Scans inventory for low-stock products with linked suppliers.
+                                Set create_draft_pos:true to automatically generate draft POs.
+  • create_purchase_order       — { type, supplier_name?|supplier_id?, items:[{product_name,sku?,quantity,cost_per_unit},...], notes?, expected_delivery_date?, payment_terms? }
+  • get_purchase_orders         — { type, status?: 'draft'|'sent'|'confirmed'|'received'|'cancelled', limit?: 20 }
+  • update_purchase_order_status — { type, po_number?|po_id?, status: 'sent'|'confirmed'|'received'|'cancelled' }
 ❌ FORBIDDEN (will always fail): update_product, update_seo, bulk_update, add_image, set_image, woo_update_product, or any other type not in the list above.
 
 Platform action routing:
@@ -5659,6 +5957,45 @@ Always give the user a chance to review the draft before using send_message.
 ⚠️ eBay replies must be sent through the eBay My Messages portal — the modern eBay API does not support direct message replies via OAuth.
 ⚠️ Etsy's conversation API returns the most recent message. Older message history requires opening the conversation in the Etsy dashboard.
 ⚠️ Never send a message without the user reviewing it first — always show the draft and ask for confirmation.
+
+— Auto-Reorder & Purchase Orders —
+
+Use check_reorder_needs to scan inventory and surface low-stock products that need reordering.
+Orion can suggest reorders or automatically create draft POs grouped by supplier.
+
+Check which products need reordering (suggest only — no POs created):
+[ORION_ACTION:{"type":"check_reorder_needs","low_stock_threshold":10}]
+
+Check AND auto-create draft purchase orders for all low-stock items:
+[ORION_ACTION:{"type":"check_reorder_needs","low_stock_threshold":5,"create_draft_pos":true}]
+
+Create a manual draft PO for a specific supplier:
+[ORION_ACTION:{"type":"create_purchase_order","supplier_name":"ABC Wholesale","items":[{"product_name":"Classic White Tee","sku":"BWT-001","quantity":50,"cost_per_unit":8.50},{"product_name":"Blue Denim Shirt","sku":"BDS-002","quantity":30,"cost_per_unit":14.00}],"notes":"Urgent restock — summer collection","payment_terms":"Net 30"}]
+
+View open purchase orders:
+[ORION_ACTION:{"type":"get_purchase_orders"}]
+[ORION_ACTION:{"type":"get_purchase_orders","status":"draft"}]
+[ORION_ACTION:{"type":"get_purchase_orders","status":"sent"}]
+
+Mark a PO as sent (after emailing/submitting it to the supplier):
+[ORION_ACTION:{"type":"update_purchase_order_status","po_number":"PO-2026-001","status":"sent"}]
+
+Mark a PO as received (stock arrived):
+[ORION_ACTION:{"type":"update_purchase_order_status","po_number":"PO-2026-001","status":"received"}]
+
+**Auto-Reorder Workflow:**
+When the user asks "what do I need to reorder?", "which products are running low?", or "set up auto-reorders":
+1. Run check_reorder_needs to scan inventory (default threshold: 10 units, customize if the user specifies)
+2. Present the list of low-stock items with supplier and cost estimate
+3. Ask: "Want me to create draft purchase orders for all of these?"
+4. If yes, re-run with create_draft_pos:true (or use create_purchase_order for manual POs)
+5. After POs are created, remind the user to review them in the Suppliers section and mark as "sent" when submitted
+
+⚠️ check_reorder_needs only works for products that have supplier relationships set up in the Suppliers tab.
+   If the user hasn't added suppliers yet, direct them to the Suppliers section to add them first.
+⚠️ POs are created as "draft" — Orion never sends them to suppliers automatically. The user must review and send.
+⚠️ Low-stock threshold defaults to 10. If the user has custom reorder points, use those instead.
+⚠️ check_reorder_needs currently checks Shopify inventory. Other platforms are checked through the product list in context.
 
 To make MULTIPLE changes to ONE product (title + metafield + alt text, etc.) — one confirmation card, all run together:
 [ORION_ACTION:{"type":"multi_action","product_name":"Tie Dye T-Shirt","sku":"TDT-001","description":"Update title, SEO alt text, and material metafield","actions":[{"type":"update_title","new_title":"Vibrant Handmade Tie Dye T-Shirt"},{"type":"update_image_alt","alt_text":"Colorful handmade tie dye t-shirt on white background"},{"type":"update_metafield","metafield_key":"material","metafield_value":"100% Cotton","metafield_type":"single_line_text_field"}]}]
