@@ -92,6 +92,7 @@ function summarizeOrionAction(action: any): string {
     case 'tiktok_end_listing':          return `Deactivated TikTok Shop listing "${name}"`;
     case 'tiktok_renew_listing':        return `Reactivated TikTok Shop listing "${name}"`;
     case 'tiktok_create_product':       return `Created TikTok Shop product: "${action.title || name}"`;
+    case 'query_analytics': return `Analytics: ${action.analytics_type || 'revenue_summary'} for ${action.period || '30d'}`;
     case 'sync_orders':     return `Synced orders from all connected platforms`;
     case 'get_orders':      return `Retrieved ${action.limit || 25} orders`;
     case 'fulfill_order':   return `Marked order ${action.platform_order_id} as shipped (${action.tracking_number})`;
@@ -2195,6 +2196,184 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: `Refund processed for order ${orderId} on ${orderPlatform}.` };
     }
 
+    case 'query_analytics': {
+      // On-demand analytics queries against the orders table.
+      // analytics_type: revenue_summary | top_products | platform_breakdown | order_trends | refund_rate
+      // period: today | 7d | 30d | 90d | 1y  (or use since + until for custom range)
+      const analyticsType = action.analytics_type || 'revenue_summary';
+
+      // Resolve date range
+      const now = new Date();
+      let since: Date;
+      let until: Date = now;
+
+      if (action.since) {
+        since = new Date(action.since);
+        if (action.until) until = new Date(action.until);
+      } else {
+        const periodDays: Record<string, number> = { today: 0, '7d': 7, '30d': 30, '90d': 90, '1y': 365 };
+        const days = periodDays[action.period ?? '30d'] ?? 30;
+        since = days === 0
+          ? new Date(now.getFullYear(), now.getMonth(), now.getDate()) // start of today
+          : new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+      }
+
+      const sinceISO = since.toISOString();
+      const untilISO = until.toISOString();
+      const periodLabel = action.period === 'today' ? 'today' : `${since.toLocaleDateString()} – ${until.toLocaleDateString()}`;
+
+      // Core query — excludes cancelled/refunded unless analytics_type is refund_rate
+      const coreQuery = () => supabaseClient
+        .from('orders')
+        .select('*')
+        .eq('user_id', userId)
+        .gte('order_date', sinceISO)
+        .lte('order_date', untilISO);
+
+      const paidQuery = () => coreQuery().not('status', 'in', '(cancelled,refunded)');
+
+      // ── revenue_summary ──────────────────────────────────────────────────────
+      if (analyticsType === 'revenue_summary') {
+        let q = paidQuery();
+        if (action.platform_type) q = q.eq('platform_type', action.platform_type);
+        const { data: orders } = await q;
+
+        const revenue = (orders || []).reduce((s: number, o: any) => s + parseFloat(o.total_price || 0), 0);
+        const count   = (orders || []).length;
+        const aov     = count > 0 ? revenue / count : 0;
+
+        // Compare to same-length previous period
+        const periodMs = until.getTime() - since.getTime();
+        const prevSince = new Date(since.getTime() - periodMs);
+        const { data: prevOrders } = await supabaseClient
+          .from('orders').select('total_price').eq('user_id', userId)
+          .gte('order_date', prevSince.toISOString()).lt('order_date', sinceISO)
+          .not('status', 'in', '(cancelled,refunded)');
+        const prevRevenue = (prevOrders || []).reduce((s: number, o: any) => s + parseFloat(o.total_price || 0), 0);
+        const changePct   = prevRevenue > 0 ? ((revenue - prevRevenue) / prevRevenue * 100) : null;
+        const changeStr   = changePct !== null ? ` (${changePct >= 0 ? '+' : ''}${changePct.toFixed(1)}% vs prior period)` : '';
+
+        return {
+          analytics_type: 'revenue_summary',
+          period: periodLabel,
+          revenue,
+          orders: count,
+          aov,
+          previous_period_revenue: prevRevenue,
+          change_pct: changePct,
+          message: `Revenue ${periodLabel}: $${revenue.toFixed(2)} across ${count} order(s). AOV: $${aov.toFixed(2)}${changeStr}.`,
+        };
+      }
+
+      // ── top_products ─────────────────────────────────────────────────────────
+      if (analyticsType === 'top_products') {
+        let q = paidQuery();
+        if (action.platform_type) q = q.eq('platform_type', action.platform_type);
+        const { data: orders } = await q;
+
+        const productMap: Record<string, { revenue: number; units: number; title: string }> = {};
+        for (const order of (orders || [])) {
+          for (const item of (order.line_items || [])) {
+            const key = item.sku || item.title || 'Unknown';
+            if (!productMap[key]) productMap[key] = { revenue: 0, units: 0, title: item.title || key };
+            productMap[key].revenue += (item.unit_price || 0) * (item.quantity || 1);
+            productMap[key].units   += item.quantity || 1;
+          }
+        }
+
+        const limit = action.limit || 10;
+        const sorted = Object.entries(productMap)
+          .sort((a, b) => (action.sort_by === 'units' ? b[1].units - a[1].units : b[1].revenue - a[1].revenue))
+          .slice(0, limit)
+          .map(([sku, d], i) => ({ rank: i + 1, sku, title: d.title, revenue: parseFloat(d.revenue.toFixed(2)), units: d.units }));
+
+        return {
+          analytics_type: 'top_products',
+          period: periodLabel,
+          products: sorted,
+          message: `Top ${sorted.length} products by ${action.sort_by === 'units' ? 'units sold' : 'revenue'} ${periodLabel}.`,
+        };
+      }
+
+      // ── platform_breakdown ───────────────────────────────────────────────────
+      if (analyticsType === 'platform_breakdown') {
+        const { data: orders } = await paidQuery();
+
+        const platMap: Record<string, { revenue: number; orders: number }> = {};
+        for (const o of (orders || [])) {
+          const p = o.platform_type || 'unknown';
+          if (!platMap[p]) platMap[p] = { revenue: 0, orders: 0 };
+          platMap[p].revenue += parseFloat(o.total_price || 0);
+          platMap[p].orders++;
+        }
+        const total = Object.values(platMap).reduce((s, p) => s + p.revenue, 0);
+        const rows  = Object.entries(platMap)
+          .sort((a, b) => b[1].revenue - a[1].revenue)
+          .map(([platform, d]) => ({
+            platform,
+            revenue: parseFloat(d.revenue.toFixed(2)),
+            orders: d.orders,
+            share: total > 0 ? `${(d.revenue / total * 100).toFixed(1)}%` : '0%',
+          }));
+
+        return {
+          analytics_type: 'platform_breakdown',
+          period: periodLabel,
+          total_revenue: parseFloat(total.toFixed(2)),
+          platforms: rows,
+          message: `Platform revenue breakdown ${periodLabel}. Total: $${total.toFixed(2)}.`,
+        };
+      }
+
+      // ── order_trends ─────────────────────────────────────────────────────────
+      if (analyticsType === 'order_trends') {
+        const { data: orders } = await paidQuery();
+
+        const dayMap: Record<string, { revenue: number; count: number }> = {};
+        for (const o of (orders || [])) {
+          const day = (o.order_date || o.created_at || '').slice(0, 10);
+          if (!day) continue;
+          if (!dayMap[day]) dayMap[day] = { revenue: 0, count: 0 };
+          dayMap[day].revenue += parseFloat(o.total_price || 0);
+          dayMap[day].count++;
+        }
+        const trend = Object.entries(dayMap)
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([date, d]) => ({ date, revenue: parseFloat(d.revenue.toFixed(2)), orders: d.count }));
+
+        const bestDay = trend.reduce((best, d) => (!best || d.revenue > best.revenue ? d : best), null as any);
+        return {
+          analytics_type: 'order_trends',
+          period: periodLabel,
+          trend,
+          best_day: bestDay,
+          message: `Daily trends ${periodLabel}: ${trend.length} days with sales.${bestDay ? ` Best day: ${bestDay.date} ($${bestDay.revenue.toFixed(2)})` : ''}`,
+        };
+      }
+
+      // ── refund_rate ──────────────────────────────────────────────────────────
+      if (analyticsType === 'refund_rate') {
+        const { data: allOrders } = await coreQuery().select('status,total_price,platform_type');
+        const total     = (allOrders || []).length;
+        const refunded  = (allOrders || []).filter((o: any) => o.status === 'refunded');
+        const cancelled = (allOrders || []).filter((o: any) => o.status === 'cancelled').length;
+        const refundedRevenue = refunded.reduce((s: number, o: any) => s + parseFloat(o.total_price || 0), 0);
+
+        return {
+          analytics_type: 'refund_rate',
+          period: periodLabel,
+          total_orders: total,
+          refunded_orders: refunded.length,
+          cancelled_orders: cancelled,
+          refund_rate_pct: total > 0 ? parseFloat((refunded.length / total * 100).toFixed(2)) : 0,
+          refunded_revenue: parseFloat(refundedRevenue.toFixed(2)),
+          message: `Refund rate ${periodLabel}: ${refunded.length} refunds out of ${total} total orders (${total > 0 ? (refunded.length / total * 100).toFixed(1) : 0}%). $${refundedRevenue.toFixed(2)} refunded.`,
+        };
+      }
+
+      throw new Error(`Unknown analytics_type "${analyticsType}". Valid: revenue_summary, top_products, platform_breakdown, order_trends, refund_rate`);
+    }
+
     case 'woo_create_product': {
       const { data: wooPlats } = await supabaseClient
         .from('platforms')
@@ -4007,6 +4186,33 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
   const totalRevenue = orders.reduce((sum: number, o: any) => sum + (parseFloat(o.total_price) || 0), 0);
   const avgOrderValue = orders.length > 0 ? totalRevenue / orders.length : 0;
 
+  // 30-day revenue snapshot from the orders table (gives Orion grounded recent metrics)
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const sevenDaysAgo  = new Date(Date.now() -  7 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: last30Orders } = await supabaseClient
+    .from('orders').select('total_price,status,platform_type,order_date')
+    .eq('user_id', userId).gte('order_date', thirtyDaysAgo)
+    .not('status', 'in', '(cancelled,refunded)');
+  const { data: last7Orders } = await supabaseClient
+    .from('orders').select('total_price,platform_type')
+    .eq('user_id', userId).gte('order_date', sevenDaysAgo)
+    .not('status', 'in', '(cancelled,refunded)');
+
+  const rev30 = (last30Orders || []).reduce((s: number, o: any) => s + parseFloat(o.total_price || 0), 0);
+  const rev7  = (last7Orders  || []).reduce((s: number, o: any) => s + parseFloat(o.total_price || 0), 0);
+  const cnt30 = (last30Orders || []).length;
+  const cnt7  = (last7Orders  || []).length;
+
+  // Revenue by platform (last 30 days)
+  const platformRevMap: Record<string, number> = {};
+  for (const o of (last30Orders || [])) {
+    const p = o.platform_type || 'unknown';
+    platformRevMap[p] = (platformRevMap[p] || 0) + parseFloat(o.total_price || 0);
+  }
+  const platformRevBreakdown = Object.entries(platformRevMap)
+    .sort((a, b) => b[1] - a[1])
+    .map(([platform, revenue]) => `${platform}: $${revenue.toFixed(2)}`).join(', ');
+
   const lowStockProducts = products.filter((p: any) => {
     const qty = p.inventory_quantity ?? p.stock_quantity ?? p.quantity ?? null;
     return qty !== null && qty <= 5;
@@ -4024,6 +4230,11 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
       total_revenue: totalRevenue,
       avg_order_value: avgOrderValue,
       active_platforms: (platforms || []).length,
+      revenue_last_30d: rev30,
+      revenue_last_7d: rev7,
+      orders_last_30d: cnt30,
+      orders_last_7d: cnt7,
+      revenue_by_platform_30d: platformRevBreakdown,
     },
   };
 }
@@ -4229,6 +4440,15 @@ When the user asks you to create a product, add inventory, change a price, renam
   • etsy_renew_listing      — { type, product_name, listing_id? }  (sets state back to active)
   • etsy_create_listing     — { type, title, description, price, quantity?, sku?, tags?, who_made?, when_made?, taxonomy_id?, state? }
   • etsy_bulk_create_listings — { type, listings: [{title,description,price,quantity?,sku?,tags?,who_made?,when_made?,taxonomy_id?,state?},...] }
+  Analytics actions:
+  • query_analytics — { type, analytics_type, period?, since?, until?, platform_type?, limit?, sort_by? }
+    analytics_type values:
+      revenue_summary    — revenue, order count, AOV, vs prior period
+      top_products       — top N products by revenue or units sold (sort_by: "units" | "revenue")
+      platform_breakdown — revenue/orders/share per platform
+      order_trends       — day-by-day revenue + order count (use for charts / trend questions)
+      refund_rate        — refund count, refund rate %, refunded revenue
+    period values: today | 7d | 30d | 90d | 1y  (or use since/until ISO strings for custom)
   Order management actions (cross-platform):
   • sync_orders     — { type } — pulls recent orders from ALL connected platforms into local DB
   • get_orders      — { type, status?, platform_type?, fulfillment_status?, since?, limit? } — query stored orders
@@ -4464,6 +4684,32 @@ Note: who_made options: "i_did" | "someone_else" | "collective". when_made optio
 To bulk-create multiple Etsy listings at once (e.g. from a CSV upload — single confirmation for the whole batch):
 [ORION_ACTION:{"type":"etsy_bulk_create_listings","listings":[{"title":"Ceramic Mug - Blue","description":"Handmade blue ceramic mug, 12oz.","price":28.00,"quantity":5,"sku":"MUG-BLUE-001","tags":["ceramic mug","handmade","blue pottery"],"who_made":"i_did","when_made":"made_to_order","taxonomy_id":520,"state":"draft"},{"title":"Ceramic Mug - Green","description":"Handmade green ceramic mug, 12oz.","price":28.00,"quantity":5,"sku":"MUG-GREEN-001","tags":["ceramic mug","handmade","green pottery"],"who_made":"i_did","when_made":"made_to_order","taxonomy_id":520,"state":"draft"}]}]
 
+— Analytics Actions —
+
+Use query_analytics whenever the user asks about revenue, sales performance, top products, trends, or refunds.
+IMPORTANT: Always run query_analytics to get fresh data before answering analytics questions — do NOT guess from the store overview above.
+
+Revenue summary (with period-over-period comparison):
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"revenue_summary","period":"30d"}]
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"revenue_summary","period":"7d"}]
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"revenue_summary","period":"90d"}]
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"revenue_summary","platform_type":"etsy","period":"30d"}]
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"revenue_summary","since":"2026-04-01","until":"2026-04-15"}]
+
+Top products by revenue or units sold:
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"top_products","period":"30d","limit":10}]
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"top_products","period":"30d","sort_by":"units","limit":5}]
+
+Revenue by platform:
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"platform_breakdown","period":"30d"}]
+
+Daily sales trends (for spotting patterns, slow days, best days):
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"order_trends","period":"30d"}]
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"order_trends","period":"7d"}]
+
+Refund rate:
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"refund_rate","period":"30d"}]
+
 — Order Management Actions —
 
 To sync all orders from every connected platform into Orion's local database:
@@ -4546,9 +4792,11 @@ Action grouping — choose the most efficient approach:
 **Store Overview:**
 - Active Platforms: ${storeContext.platforms.map((p: any) => p.platform_type).join(', ') || 'None connected yet'}
 - Total Products: ${storeContext.total_products} (showing ${storeContext.products.length} below)
-- Total Orders: ${storeContext.total_orders} (showing last ${storeContext.orders.length} below)
-- Total Revenue (recent): $${storeContext.metrics.total_revenue.toFixed(2)}
-- Average Order Value: $${storeContext.metrics.avg_order_value.toFixed(2)}
+- Total Orders on file: ${storeContext.total_orders}
+- Revenue last 7 days: $${(storeContext.metrics.revenue_last_7d || 0).toFixed(2)} (${storeContext.metrics.orders_last_7d || 0} orders)
+- Revenue last 30 days: $${(storeContext.metrics.revenue_last_30d || 0).toFixed(2)} (${storeContext.metrics.orders_last_30d || 0} orders)
+- Average Order Value (last 30d): $${storeContext.metrics.orders_last_30d > 0 ? (storeContext.metrics.revenue_last_30d / storeContext.metrics.orders_last_30d).toFixed(2) : '0.00'}
+${storeContext.metrics.revenue_by_platform_30d ? `- Revenue by platform (last 30d): ${storeContext.metrics.revenue_by_platform_30d}` : ''}
 ${lowStockSection}${ebayErrorSection}${memorySection}
 ${mode !== 'demo/test' ? `**Product Inventory (${storeContext.products.length} of ${storeContext.total_products} products):**
 ${formatProducts(storeContext.products)}
