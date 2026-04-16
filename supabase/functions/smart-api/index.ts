@@ -191,6 +191,41 @@ function summarizeOrionAction(action: any): string {
     case 'walmart_update_title':      return `Updated Walmart title for SKU "${action.sku || name}"`;
     case 'walmart_update_description':return `Updated Walmart description for SKU "${action.sku || name}"`;
     case 'walmart_end_listing':       return `Retired Walmart listing SKU "${action.sku || name}"`;
+    case 'square_update_price':       return `Updated Square price for "${name}" → $${action.price}`;
+    case 'square_update_inventory':   return `Updated Square inventory for "${name}" → ${action.quantity} units`;
+    case 'square_update_title':       return `Updated Square title for "${name}"`;
+    case 'square_update_description': return `Updated Square description for "${name}"`;
+    case 'square_end_listing':        return `Removed "${name}" from all Square locations`;
+    case 'square_renew_listing':      return `Restored "${name}" to Square locations`;
+    case 'square_create_product':     return `Created Square product: "${action.title || name}"`;
+    case 'wix_update_price':          return `Updated Wix price for "${name}" → $${action.price}`;
+    case 'wix_update_inventory':      return `Updated Wix inventory for "${name}" → ${action.quantity} units`;
+    case 'wix_update_title':          return `Updated Wix title for "${name}"`;
+    case 'wix_update_description':    return `Updated Wix description for "${name}"`;
+    case 'wix_end_listing':           return `Hidden Wix product "${name}"`;
+    case 'wix_renew_listing':         return `Restored Wix product "${name}"`;
+    case 'wix_create_product':        return `Created Wix product: "${action.title || name}"`;
+    case 'squarespace_update_price':       return `Updated Squarespace price for "${name}" → $${action.price}`;
+    case 'squarespace_update_inventory':   return `Updated Squarespace inventory for "${name}" → ${action.quantity} units`;
+    case 'squarespace_update_title':       return `Updated Squarespace title for "${name}"`;
+    case 'squarespace_update_description': return `Updated Squarespace description for "${name}"`;
+    case 'squarespace_end_listing':        return `Hidden Squarespace product "${name}"`;
+    case 'squarespace_renew_listing':      return `Restored Squarespace product "${name}"`;
+    case 'squarespace_create_product':     return `Created Squarespace product: "${action.title || name}"`;
+    case 'bigcommerce_update_price':       return `Updated BigCommerce price for "${name}" → $${action.price}`;
+    case 'bigcommerce_update_inventory':   return `Updated BigCommerce inventory for "${name}" → ${action.quantity} units`;
+    case 'bigcommerce_update_title':       return `Updated BigCommerce title for "${name}"`;
+    case 'bigcommerce_update_description': return `Updated BigCommerce description for "${name}"`;
+    case 'bigcommerce_end_listing':        return `Hidden BigCommerce product "${name}"`;
+    case 'bigcommerce_renew_listing':      return `Restored BigCommerce product "${name}"`;
+    case 'bigcommerce_create_product':     return `Created BigCommerce product: "${action.title || name}"`;
+    case 'faire_update_price':        return `Updated Faire price for "${name}" → $${action.price}`;
+    case 'faire_update_inventory':    return `Updated Faire inventory for "${name}" → ${action.quantity} units`;
+    case 'faire_update_title':        return `Updated Faire title for "${name}"`;
+    case 'faire_update_description':  return `Updated Faire description for "${name}"`;
+    case 'faire_end_listing':         return `Deactivated Faire product "${name}"`;
+    case 'faire_renew_listing':       return `Reactivated Faire product "${name}"`;
+    case 'faire_create_product':      return `Created Faire product: "${action.title || name}"`;
     default:                          return `Orion action: ${action.type} on "${name}"`;
   }
 }
@@ -865,6 +900,78 @@ async function findTikTokProduct(apiBase: string, headers: Record<string, string
   return products[0];
 }
 
+// ─── Square helper ───────────────────────────────────────────────────────────
+async function getSquareClientForActions(supabaseClient: any, userId: string) {
+  const { data: platforms } = await supabaseClient
+    .from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'square')
+    .or('is_active.eq.true,status.eq.connected').limit(1);
+  if (!platforms || platforms.length === 0) throw new Error('No connected Square account found. Connect one in the Platforms tab first.');
+  const platform = platforms[0];
+  const creds = platform.credentials;
+  if (!creds?.access_token) throw new Error('Square access token not found.');
+  const apiBase = 'https://connect.squareup.com/v2';
+  const headers: Record<string, string> = { 'Authorization': `Bearer ${creds.access_token}`, 'Content-Type': 'application/json', 'Square-Version': '2024-02-22' };
+  return { platform, apiBase, headers };
+}
+
+// ─── Wix helper ──────────────────────────────────────────────────────────────
+async function getWixClientForActions(supabaseClient: any, userId: string) {
+  const { data: platforms } = await supabaseClient
+    .from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'wix')
+    .or('is_active.eq.true,status.eq.connected').limit(1);
+  if (!platforms || platforms.length === 0) throw new Error('No connected Wix store found. Connect one in the Platforms tab first.');
+  const platform = platforms[0];
+  const creds = platform.credentials;
+  if (!creds?.access_token) throw new Error('Wix access token not found.');
+  const apiBase = 'https://www.wixapis.com';
+  const headers: Record<string, string> = { 'Authorization': `Bearer ${creds.access_token}`, 'Content-Type': 'application/json' };
+  return { platform, apiBase, headers };
+}
+
+// ─── Squarespace helper ───────────────────────────────────────────────────────
+async function getSquarespaceClientForActions(supabaseClient: any, userId: string) {
+  const { data: platforms } = await supabaseClient
+    .from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'squarespace')
+    .or('is_active.eq.true,status.eq.connected').limit(1);
+  if (!platforms || platforms.length === 0) throw new Error('No connected Squarespace store found. Connect one in the Platforms tab first.');
+  const platform = platforms[0];
+  const creds = platform.credentials;
+  if (!creds?.access_token) throw new Error('Squarespace access token not found.');
+  const apiBase = 'https://api.squarespace.com/1.0';
+  const headers: Record<string, string> = { 'Authorization': `Bearer ${creds.access_token}`, 'Content-Type': 'application/json' };
+  return { platform, apiBase, headers };
+}
+
+// ─── BigCommerce helper ───────────────────────────────────────────────────────
+async function getBigCommerceClientForActions(supabaseClient: any, userId: string) {
+  const { data: platforms } = await supabaseClient
+    .from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'bigcommerce')
+    .or('is_active.eq.true,status.eq.connected').limit(1);
+  if (!platforms || platforms.length === 0) throw new Error('No connected BigCommerce store found. Connect one in the Platforms tab first.');
+  const platform = platforms[0];
+  const creds = platform.credentials;
+  const storeHash = creds?.store_hash || platform.metadata?.store_hash;
+  if (!creds?.access_token) throw new Error('BigCommerce access token not found.');
+  if (!storeHash) throw new Error('BigCommerce store hash not found in credentials.');
+  const apiBase = `https://api.bigcommerce.com/stores/${storeHash}`;
+  const headers: Record<string, string> = { 'X-Auth-Token': creds.access_token, 'Content-Type': 'application/json', 'Accept': 'application/json' };
+  return { platform, apiBase, headers, storeHash };
+}
+
+// ─── Faire helper ─────────────────────────────────────────────────────────────
+async function getFaireClientForActions(supabaseClient: any, userId: string) {
+  const { data: platforms } = await supabaseClient
+    .from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'faire')
+    .or('is_active.eq.true,status.eq.connected').limit(1);
+  if (!platforms || platforms.length === 0) throw new Error('No connected Faire account found. Connect one in the Platforms tab first.');
+  const platform = platforms[0];
+  const creds = platform.credentials;
+  if (!creds?.access_token) throw new Error('Faire access token not found.');
+  const apiBase = 'https://www.faire.com/api/v2';
+  const headers: Record<string, string> = { 'X-FAIRE-ACCESS-TOKEN': creds.access_token, 'Content-Type': 'application/json' };
+  return { platform, apiBase, headers };
+}
+
 async function executeStoreAction(supabaseClient: any, userId: string, action: any) {
   const { data: platforms } = await supabaseClient
     .from('platforms')
@@ -1124,6 +1231,105 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       } catch (e: any) {
         console.warn('[smart-api] Amazon inventory fetch failed:', e.message);
       }
+
+      // Fetch Square catalog
+      try {
+        const { data: sqPlats } = await supabaseClient.from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'square').or('is_active.eq.true,status.eq.connected');
+        for (const sqPlat of (sqPlats || [])) {
+          const sqCr = sqPlat.credentials;
+          if (!sqCr?.access_token) continue;
+          const sqH = { 'Authorization': `Bearer ${sqCr.access_token}`, 'Content-Type': 'application/json', 'Square-Version': '2024-02-22' };
+          const sqRes = await fetch('https://connect.squareup.com/v2/catalog/list?types=ITEM&limit=200', { headers: sqH });
+          if (!sqRes.ok) continue;
+          for (const item of ((await sqRes.json()).objects || [])) {
+            if (item.type !== 'ITEM') continue;
+            const firstVar = item.item_data?.variations?.[0];
+            const priceCents = firstVar?.item_variation_data?.price_money?.amount ?? 0;
+            inventory.push({ id: `square-${item.id}`, product_name: item.item_data?.name || 'Square Product', sku: firstVar?.item_variation_data?.sku || 'N/A', category: '', status: item.present_at_all_locations === false ? 'inactive' : 'active', total_stock: 0, base_price: priceCents / 100, image_url: null, vendor: '', tags: '', platform_listings: [{ listing_id: item.id, platform: 'Square' }], source: 'square' });
+          }
+        }
+      } catch (e: any) { console.warn('[smart-api] Square inventory fetch failed:', e.message); }
+
+      // Fetch Wix products
+      try {
+        const { data: wixPlats } = await supabaseClient.from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'wix').or('is_active.eq.true,status.eq.connected');
+        for (const wixPlat of (wixPlats || [])) {
+          const wixCr = wixPlat.credentials;
+          if (!wixCr?.access_token) continue;
+          const wixH = { 'Authorization': `Bearer ${wixCr.access_token}`, 'Content-Type': 'application/json' };
+          const wixRes = await fetch('https://www.wixapis.com/stores/v3/products/query', { method: 'POST', headers: wixH, body: JSON.stringify({ query: { paging: { limit: 100 } } }) });
+          if (!wixRes.ok) continue;
+          for (const p of ((await wixRes.json()).products || [])) {
+            const qty = p.stock?.quantity ?? 0;
+            const basePrice = parseFloat(p.priceData?.price || '0');
+            let status = p.visible ? 'active' : 'inactive';
+            if (status === 'active' && qty === 0) status = 'out_of_stock';
+            else if (status === 'active' && qty <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+            inventory.push({ id: `wix-${p.id}`, product_name: p.name || 'Wix Product', sku: p.sku || 'N/A', category: '', status, total_stock: qty, base_price: basePrice, image_url: p.media?.mainMedia?.image?.url || null, vendor: '', tags: '', platform_listings: [{ listing_id: p.id, platform: 'Wix' }], source: 'wix' });
+          }
+        }
+      } catch (e: any) { console.warn('[smart-api] Wix inventory fetch failed:', e.message); }
+
+      // Fetch Squarespace products
+      try {
+        const { data: ssPlats } = await supabaseClient.from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'squarespace').or('is_active.eq.true,status.eq.connected');
+        for (const ssPlat of (ssPlats || [])) {
+          const ssCr = ssPlat.credentials;
+          if (!ssCr?.access_token) continue;
+          const ssH = { 'Authorization': `Bearer ${ssCr.access_token}`, 'Content-Type': 'application/json' };
+          const ssRes = await fetch('https://api.squarespace.com/1.0/commerce/products?type=PHYSICAL', { headers: ssH });
+          if (!ssRes.ok) continue;
+          for (const p of ((await ssRes.json()).products || [])) {
+            const firstVar = p.variants?.[0];
+            const qty = firstVar?.stock?.quantity ?? 0;
+            const basePrice = parseFloat(firstVar?.pricing?.basePrice?.value || '0');
+            let status = p.isVisible ? 'active' : 'inactive';
+            if (status === 'active' && qty === 0) status = 'out_of_stock';
+            else if (status === 'active' && qty <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+            inventory.push({ id: `squarespace-${p.id}`, product_name: p.name || 'Squarespace Product', sku: firstVar?.sku || 'N/A', category: '', status, total_stock: qty, base_price: basePrice, image_url: p.images?.[0]?.url || null, vendor: '', tags: '', platform_listings: [{ listing_id: p.id, platform: 'Squarespace' }], source: 'squarespace' });
+          }
+        }
+      } catch (e: any) { console.warn('[smart-api] Squarespace inventory fetch failed:', e.message); }
+
+      // Fetch BigCommerce products
+      try {
+        const { data: bcPlats } = await supabaseClient.from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'bigcommerce').or('is_active.eq.true,status.eq.connected');
+        for (const bcPlat of (bcPlats || [])) {
+          const bcCr = bcPlat.credentials;
+          const bcHash = bcCr?.store_hash || bcPlat.metadata?.store_hash;
+          if (!bcCr?.access_token || !bcHash) continue;
+          const bcH = { 'X-Auth-Token': bcCr.access_token, 'Content-Type': 'application/json', 'Accept': 'application/json' };
+          const bcRes = await fetch(`https://api.bigcommerce.com/stores/${bcHash}/v3/catalog/products?limit=250`, { headers: bcH });
+          if (!bcRes.ok) continue;
+          for (const p of ((await bcRes.json()).data || [])) {
+            let status = p.is_visible ? 'active' : 'inactive';
+            if (status === 'active' && (p.inventory_quantity || 0) === 0) status = 'out_of_stock';
+            else if (status === 'active' && (p.inventory_quantity || 0) <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+            inventory.push({ id: `bigcommerce-${p.id}`, product_name: p.name || 'BigCommerce Product', sku: p.sku || 'N/A', category: '', status, total_stock: p.inventory_quantity ?? 0, base_price: parseFloat(p.price || '0'), image_url: null, vendor: p.brand_name || '', tags: '', platform_listings: [{ listing_id: String(p.id), platform: 'BigCommerce' }], source: 'bigcommerce' });
+          }
+        }
+      } catch (e: any) { console.warn('[smart-api] BigCommerce inventory fetch failed:', e.message); }
+
+      // Fetch Faire products
+      try {
+        const { data: fairePlats } = await supabaseClient.from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'faire').or('is_active.eq.true,status.eq.connected');
+        for (const fairePlat of (fairePlats || [])) {
+          const faireCr = fairePlat.credentials;
+          if (!faireCr?.access_token) continue;
+          const faireH = { 'X-FAIRE-ACCESS-TOKEN': faireCr.access_token, 'Content-Type': 'application/json' };
+          const faireRes = await fetch('https://www.faire.com/api/v2/products?limit=50', { headers: faireH });
+          if (!faireRes.ok) continue;
+          for (const p of ((await faireRes.json()).products || [])) {
+            const firstOpt = p.options?.[0];
+            const qty = firstOpt?.quantity ?? 0;
+            const priceCents = firstOpt?.wholesale_price ?? 0;
+            let status = p.active ? 'active' : 'inactive';
+            if (status === 'active' && qty === 0) status = 'out_of_stock';
+            else if (status === 'active' && qty <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+            inventory.push({ id: `faire-${p.id}`, product_name: p.name || 'Faire Product', sku: firstOpt?.sku || 'N/A', category: '', status, total_stock: qty, base_price: priceCents / 100, image_url: p.photos?.[0]?.url || null, vendor: '', tags: '', platform_listings: [{ listing_id: p.id, platform: 'Faire' }], source: 'faire' });
+          }
+        }
+      } catch (e: any) { console.warn('[smart-api] Faire inventory fetch failed:', e.message); }
 
       return { inventory };
     }
@@ -2226,6 +2432,122 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             }
           }
 
+          // ── Square ─────────────────────────────────────────────────────────────
+          if (plat.platform_type === 'square') {
+            const sqCreds = plat.credentials;
+            if (sqCreds?.access_token) {
+              const sqH = { 'Authorization': `Bearer ${sqCreds.access_token}`, 'Content-Type': 'application/json', 'Square-Version': '2024-02-22' };
+              const locRes = await fetch('https://connect.squareup.com/v2/locations', { headers: sqH });
+              const locationId = locRes.ok ? (await locRes.json()).locations?.[0]?.id : null;
+              if (locationId) {
+                const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+                const oRes = await fetch('https://connect.squareup.com/v2/orders/search', {
+                  method: 'POST', headers: sqH,
+                  body: JSON.stringify({ location_ids: [locationId], query: { filter: { date_time_filter: { created_at: { start_at: thirtyDaysAgo } } }, sort: { sort_field: 'CREATED_AT', sort_order: 'DESC' } }, limit: 50 }),
+                });
+                if (oRes.ok) {
+                  for (const o of ((await oRes.json()).orders || [])) {
+                    rows.push({ user_id: userId, platform_type: 'square', platform_order_id: o.id, order_number: o.id.slice(0, 8).toUpperCase(),
+                      status: o.state === 'COMPLETED' ? 'shipped' : o.state === 'CANCELED' ? 'cancelled' : 'processing',
+                      fulfillment_status: o.state === 'COMPLETED' ? 'fulfilled' : 'unfulfilled',
+                      customer_name: o.fulfillments?.[0]?.shipment_details?.recipient?.display_name || 'Square Customer',
+                      customer_email: '', shipping_address: o.fulfillments?.[0]?.shipment_details?.recipient?.address || null,
+                      total_price: (o.total_money?.amount ?? 0) / 100, currency: o.total_money?.currency || 'USD',
+                      line_items: (o.line_items || []).map((i: any) => ({ title: i.name, sku: '', quantity: parseInt(i.quantity || '1'), unit_price: (i.base_price_money?.amount ?? 0) / 100 })),
+                      order_date: o.created_at });
+                  }
+                }
+              }
+            }
+          }
+
+          // ── Wix ────────────────────────────────────────────────────────────────
+          if (plat.platform_type === 'wix') {
+            const wixCreds = plat.credentials;
+            if (wixCreds?.access_token) {
+              const wixH = { 'Authorization': `Bearer ${wixCreds.access_token}`, 'Content-Type': 'application/json' };
+              const oRes = await fetch('https://www.wixapis.com/stores/v2/orders/query', {
+                method: 'POST', headers: wixH,
+                body: JSON.stringify({ query: { sort: [{ fieldName: 'number', order: 'DESC' }], paging: { limit: 50 } } }),
+              });
+              if (oRes.ok) {
+                for (const o of ((await oRes.json()).orders || [])) {
+                  rows.push({ user_id: userId, platform_type: 'wix', platform_order_id: o.id, order_number: `#${o.number}`,
+                    status: o.paymentStatus === 'REFUNDED' ? 'refunded' : o.fulfillmentStatus === 'FULFILLED' ? 'shipped' : 'processing',
+                    fulfillment_status: o.fulfillmentStatus === 'FULFILLED' ? 'fulfilled' : 'unfulfilled',
+                    customer_name: `${o.buyerInfo?.firstName || ''} ${o.buyerInfo?.lastName || ''}`.trim() || 'Wix Customer',
+                    customer_email: o.buyerInfo?.email || '', shipping_address: o.shippingInfo?.shippingDestination?.address || null,
+                    total_price: parseFloat(o.totals?.total || '0'), currency: o.currency || 'USD',
+                    line_items: (o.lineItems || []).map((i: any) => ({ title: i.name, sku: i.sku || '', quantity: i.quantity, unit_price: parseFloat(i.price || '0') })),
+                    order_date: o.dateCreated });
+                }
+              }
+            }
+          }
+
+          // ── Squarespace ────────────────────────────────────────────────────────
+          if (plat.platform_type === 'squarespace') {
+            const ssCreds = plat.credentials;
+            if (ssCreds?.access_token) {
+              const ssH = { 'Authorization': `Bearer ${ssCreds.access_token}`, 'Content-Type': 'application/json' };
+              const oRes = await fetch('https://api.squarespace.com/1.0/commerce/orders', { headers: ssH });
+              if (oRes.ok) {
+                for (const o of ((await oRes.json()).result || [])) {
+                  rows.push({ user_id: userId, platform_type: 'squarespace', platform_order_id: o.id, order_number: o.orderNumber || o.id.slice(0, 8),
+                    status: o.fulfillmentStatus === 'FULFILLED' ? 'shipped' : o.fulfillmentStatus === 'CANCELED' ? 'cancelled' : 'processing',
+                    fulfillment_status: o.fulfillmentStatus === 'FULFILLED' ? 'fulfilled' : 'unfulfilled',
+                    customer_name: `${o.billingAddress?.firstName || ''} ${o.billingAddress?.lastName || ''}`.trim() || 'Squarespace Customer',
+                    customer_email: o.customerEmail || '', shipping_address: o.shippingAddress || null,
+                    total_price: parseFloat(o.grandTotal?.value || '0'), currency: o.grandTotal?.currency || 'USD',
+                    line_items: (o.lineItems || []).map((i: any) => ({ title: i.productName, sku: i.sku || '', quantity: i.quantity, unit_price: parseFloat(i.unitPricePaid?.value || '0') })),
+                    order_date: o.createdOn });
+                }
+              }
+            }
+          }
+
+          // ── BigCommerce ────────────────────────────────────────────────────────
+          if (plat.platform_type === 'bigcommerce') {
+            const bcCreds = plat.credentials;
+            const bcHash = bcCreds?.store_hash || plat.metadata?.store_hash;
+            if (bcCreds?.access_token && bcHash) {
+              const bcH = { 'X-Auth-Token': bcCreds.access_token, 'Content-Type': 'application/json', 'Accept': 'application/json' };
+              const oRes = await fetch(`https://api.bigcommerce.com/stores/${bcHash}/v2/orders?limit=50&sort=id:desc`, { headers: bcH });
+              if (oRes.ok) {
+                for (const o of ((await oRes.json()) || [])) {
+                  rows.push({ user_id: userId, platform_type: 'bigcommerce', platform_order_id: String(o.id), order_number: `#${o.id}`,
+                    status: o.status === 'Completed' || o.status === 'Shipped' ? 'shipped' : o.status === 'Cancelled' ? 'cancelled' : o.status === 'Refunded' ? 'refunded' : 'processing',
+                    fulfillment_status: o.status === 'Completed' || o.status === 'Shipped' ? 'fulfilled' : 'unfulfilled',
+                    customer_name: `${o.billing_address?.first_name || ''} ${o.billing_address?.last_name || ''}`.trim() || 'BigCommerce Customer',
+                    customer_email: o.billing_address?.email || '', shipping_address: null,
+                    total_price: parseFloat(o.total_inc_tax || '0'), currency: o.currency_code || 'USD',
+                    line_items: [], order_date: o.date_created });
+                }
+              }
+            }
+          }
+
+          // ── Faire ──────────────────────────────────────────────────────────────
+          if (plat.platform_type === 'faire') {
+            const faireCreds = plat.credentials;
+            if (faireCreds?.access_token) {
+              const faireH = { 'X-FAIRE-ACCESS-TOKEN': faireCreds.access_token, 'Content-Type': 'application/json' };
+              const oRes = await fetch('https://www.faire.com/api/v2/orders?state=NEW&limit=50', { headers: faireH });
+              if (oRes.ok) {
+                for (const o of ((await oRes.json()).orders || [])) {
+                  rows.push({ user_id: userId, platform_type: 'faire', platform_order_id: o.id, order_number: o.display_id || o.id.slice(0, 10),
+                    status: o.state === 'SHIPPED' ? 'shipped' : o.state === 'CANCELED' ? 'cancelled' : 'processing',
+                    fulfillment_status: o.state === 'SHIPPED' ? 'fulfilled' : 'unfulfilled',
+                    customer_name: o.brand_name || 'Faire Retailer', customer_email: '',
+                    shipping_address: o.ship_to || null,
+                    total_price: (o.total_order_value?.amount_cents ?? 0) / 100, currency: o.total_order_value?.currency || 'USD',
+                    line_items: (o.items || []).map((i: any) => ({ title: i.product_name || '', sku: i.sku || '', quantity: i.quantity, unit_price: (i.wholesale_price_cents ?? 0) / 100 })),
+                    order_date: o.created_at });
+                }
+              }
+            }
+          }
+
           if (rows.length > 0) {
             const { error: upsertErr } = await supabaseClient.from('orders').upsert(rows, {
               onConflict: 'user_id,platform_type,platform_order_id',
@@ -2395,6 +2717,68 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         if (!shipOk && shipStatus !== 200 && shipStatus !== 204) {
           throw new Error(`Amazon shipment confirmation failed (HTTP ${shipStatus}): ${await shipRes.text()}`);
         }
+      }
+
+      // ── Square ──────────────────────────────────────────────────────────────
+      if (orderPlatform === 'square') {
+        const sqCr = orderPlat.credentials;
+        if (!sqCr?.access_token) throw new Error('Square credentials incomplete.');
+        const sqFH = { 'Authorization': `Bearer ${sqCr.access_token}`, 'Content-Type': 'application/json', 'Square-Version': '2024-02-22' };
+        const sqFRes = await fetch(`https://connect.squareup.com/v2/orders/${orderId}`, {
+          method: 'PUT', headers: sqFH,
+          body: JSON.stringify({ order: { id: orderId, version: 1, fulfillments: [{ uid: crypto.randomUUID(), type: 'SHIPMENT', state: 'COMPLETED', shipment_details: { tracking_number, carrier: tracking_company || '' } }] }, idempotency_key: crypto.randomUUID() }),
+        });
+        if (!sqFRes.ok) throw new Error(`Square fulfillment failed: ${await sqFRes.text()}`);
+      }
+
+      // ── Wix ─────────────────────────────────────────────────────────────────
+      if (orderPlatform === 'wix') {
+        const wixCr = orderPlat.credentials;
+        if (!wixCr?.access_token) throw new Error('Wix credentials incomplete.');
+        const wixFH = { 'Authorization': `Bearer ${wixCr.access_token}`, 'Content-Type': 'application/json' };
+        const wixFRes = await fetch(`https://www.wixapis.com/stores/v2/orders/${orderId}/fulfillments/createFulfillment`, {
+          method: 'POST', headers: wixFH,
+          body: JSON.stringify({ fulfillment: { lineItems: [{ index: 1, quantity: 1 }], trackingInfo: { trackingNumber: tracking_number, shippingProvider: tracking_company || '' } } }),
+        });
+        if (!wixFRes.ok) throw new Error(`Wix fulfillment failed: ${await wixFRes.text()}`);
+      }
+
+      // ── Squarespace ──────────────────────────────────────────────────────────
+      if (orderPlatform === 'squarespace') {
+        const ssCr = orderPlat.credentials;
+        if (!ssCr?.access_token) throw new Error('Squarespace credentials incomplete.');
+        const ssFH = { 'Authorization': `Bearer ${ssCr.access_token}`, 'Content-Type': 'application/json' };
+        const ssFRes = await fetch(`https://api.squarespace.com/1.0/commerce/orders/${orderId}/fulfillments`, {
+          method: 'POST', headers: ssFH,
+          body: JSON.stringify({ shouldSendNotification: true, shipments: [{ trackingNumber: tracking_number, carrierName: tracking_company || 'Other' }] }),
+        });
+        if (!ssFRes.ok) throw new Error(`Squarespace fulfillment failed: ${await ssFRes.text()}`);
+      }
+
+      // ── BigCommerce ──────────────────────────────────────────────────────────
+      if (orderPlatform === 'bigcommerce') {
+        const bcCr = orderPlat.credentials;
+        const bcHash = bcCr?.store_hash || orderPlat.metadata?.store_hash;
+        if (!bcCr?.access_token || !bcHash) throw new Error('BigCommerce credentials incomplete.');
+        const bcFH = { 'X-Auth-Token': bcCr.access_token, 'Content-Type': 'application/json', 'Accept': 'application/json' };
+        await fetch(`https://api.bigcommerce.com/stores/${bcHash}/v2/orders/${orderId}`, { method: 'PUT', headers: bcFH, body: JSON.stringify({ status_id: 2 }) });
+        const bcFRes = await fetch(`https://api.bigcommerce.com/stores/${bcHash}/v2/orders/${orderId}/shipments`, {
+          method: 'POST', headers: bcFH,
+          body: JSON.stringify({ tracking_number, shipping_provider: action.carrier_code || tracking_company || 'other', items: [] }),
+        });
+        if (!bcFRes.ok) throw new Error(`BigCommerce fulfillment failed: ${await bcFRes.text()}`);
+      }
+
+      // ── Faire ────────────────────────────────────────────────────────────────
+      if (orderPlatform === 'faire') {
+        const faireCr = orderPlat.credentials;
+        if (!faireCr?.access_token) throw new Error('Faire credentials incomplete.');
+        const faireFH = { 'X-FAIRE-ACCESS-TOKEN': faireCr.access_token, 'Content-Type': 'application/json' };
+        const faireFRes = await fetch(`https://www.faire.com/api/v2/orders/${orderId}/processing/ship`, {
+          method: 'POST', headers: faireFH,
+          body: JSON.stringify({ shipments: [{ tracking_code: tracking_number, carrier: tracking_company || 'OTHER', shipped_at: new Date().toISOString() }] }),
+        });
+        if (!faireFRes.ok) throw new Error(`Faire fulfillment failed: ${await faireFRes.text()}`);
       }
 
       // Update local DB regardless of platform
@@ -4412,6 +4796,16 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
               brand: amazonOverrides.brand || action.brand || '',
               quantity: action.quantity ?? 0,
             };
+          } else if (pt === 'square') {
+            subAction = { type: 'square_create_product', title: action.title, price: action.price, sku: action.sku, quantity: action.quantity ?? 0, description: action.description || '' };
+          } else if (pt === 'wix') {
+            subAction = { type: 'wix_create_product', title: action.title, price: action.price, sku: action.sku, quantity: action.quantity ?? 0, description: action.description || '' };
+          } else if (pt === 'squarespace') {
+            subAction = { type: 'squarespace_create_product', title: action.title, price: action.price, sku: action.sku, quantity: action.quantity ?? 0, description: action.description || '' };
+          } else if (pt === 'bigcommerce') {
+            subAction = { type: 'bigcommerce_create_product', title: action.title, price: action.price, sku: action.sku, quantity: action.quantity ?? 0, description: action.description || '' };
+          } else if (pt === 'faire') {
+            subAction = { type: 'faire_create_product', title: action.title, price: action.price, sku: action.sku, quantity: action.quantity ?? 0, description: action.description || '' };
           } else {
             // Unsupported platform for cross_platform_create — skip gracefully
             results.push({ platform: pt, success: false, message: `Platform "${pt}" does not support cross_platform_create yet.` });
@@ -4476,7 +4870,12 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             else if (pt === 'magento') subActions.push({ type: 'magento_update_title', new_title: u.title, product_name: u.product_name, sku: u.sku });
             else if (pt === 'prestashop') subActions.push({ type: 'prestashop_update_title', title: u.title, product_name: u.product_name, sku: u.sku });
             else if (pt === 'tiktok_shop') subActions.push({ type: 'tiktok_update_title', new_title: u.title, product_name: u.product_name, sku: u.sku });
-            else if (pt === 'amazon') subActions.push({ type: 'amazon_update_title', new_title: u.title, sku: u.sku });
+            else if (pt === 'amazon') subActions.push({ type: 'amazon_update_title', new_title: u.title, sku: u.sku })
+            else if (pt === 'square') subActions.push({ type: 'square_update_title', new_title: u.title, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'wix') subActions.push({ type: 'wix_update_title', new_title: u.title, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'squarespace') subActions.push({ type: 'squarespace_update_title', new_title: u.title, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'bigcommerce') subActions.push({ type: 'bigcommerce_update_title', new_title: u.title, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'faire') subActions.push({ type: 'faire_update_title', new_title: u.title, product_name: u.product_name, sku: u.sku });
           }
 
           if (u.description) {
@@ -4489,6 +4888,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             else if (pt === 'prestashop') subActions.push({ type: 'prestashop_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
             else if (pt === 'tiktok_shop') subActions.push({ type: 'tiktok_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
             else if (pt === 'amazon') subActions.push({ type: 'amazon_update_description', description: u.description, sku: u.sku });
+            else if (pt === 'square') subActions.push({ type: 'square_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'wix') subActions.push({ type: 'wix_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'squarespace') subActions.push({ type: 'squarespace_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'bigcommerce') subActions.push({ type: 'bigcommerce_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'faire') subActions.push({ type: 'faire_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
           }
 
           if (u.tags) {
@@ -4977,6 +5381,371 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
 
       if (updateErr) throw new Error(`Failed to update PO status: ${updateErr.message}`);
       return { message: `Purchase order ${action.po_number || poId} status updated to "${action.status}".` };
+    }
+
+    // ── Square Actions ────────────────────────────────────────────────────────
+
+    case 'square_update_price':
+    case 'square_update_inventory':
+    case 'square_update_title':
+    case 'square_update_description':
+    case 'square_end_listing':
+    case 'square_renew_listing': {
+      const { apiBase: sqBase, headers: sqH } = await getSquareClientForActions(supabaseClient, userId);
+      const keyword = action.product_name || action.sku || '';
+      if (!keyword) throw new Error('product_name or sku is required for Square actions.');
+
+      const searchRes = await fetch(`${sqBase}/catalog/search`, {
+        method: 'POST', headers: sqH,
+        body: JSON.stringify({ query: { text_query: { keywords: [keyword] } }, object_types: ['ITEM'], limit: 5 }),
+      });
+      if (!searchRes.ok) throw new Error(`Square catalog search failed: ${await searchRes.text()}`);
+      const searchData = await searchRes.json();
+      const sqItem = searchData.objects?.[0];
+      if (!sqItem) throw new Error(`Product "${keyword}" not found in Square catalog.`);
+
+      if (action.type === 'square_update_price') {
+        const varId = sqItem.item_data?.variations?.[0]?.id;
+        if (!varId) throw new Error('Square item has no variation to update price on.');
+        const varRes = await fetch(`${sqBase}/catalog/object/${varId}`, { headers: sqH });
+        if (!varRes.ok) throw new Error(`Square variation fetch failed: ${await varRes.text()}`);
+        const varObj = (await varRes.json()).object;
+        const bRes = await fetch(`${sqBase}/catalog/batch-upsert`, {
+          method: 'POST', headers: sqH,
+          body: JSON.stringify({
+            idempotency_key: crypto.randomUUID(),
+            batches: [{ objects: [{ type: 'ITEM_VARIATION', id: varObj.id, version: varObj.version,
+              item_variation_data: { ...varObj.item_variation_data, pricing_type: 'FIXED_PRICING', price_money: { amount: Math.round(action.price * 100), currency: 'USD' } } }] }],
+          }),
+        });
+        if (!bRes.ok) throw new Error(`Square price update failed: ${await bRes.text()}`);
+        return { message: `Updated Square price for "${keyword}" to $${action.price}.` };
+      }
+
+      if (action.type === 'square_update_inventory') {
+        const varId = sqItem.item_data?.variations?.[0]?.id;
+        if (!varId) throw new Error('Square item has no variation for inventory update.');
+        const locRes = await fetch(`${sqBase}/locations`, { headers: sqH });
+        if (!locRes.ok) throw new Error(`Square locations fetch failed: ${await locRes.text()}`);
+        const locationId = (await locRes.json()).locations?.[0]?.id;
+        if (!locationId) throw new Error('No Square location found.');
+        const invRes = await fetch(`${sqBase}/inventory/changes/batch-create`, {
+          method: 'POST', headers: sqH,
+          body: JSON.stringify({
+            idempotency_key: crypto.randomUUID(),
+            changes: [{ type: 'PHYSICAL_COUNT', physical_count: { catalog_object_id: varId, location_id: locationId, state: 'IN_STOCK', quantity: String(action.quantity), occurred_at: new Date().toISOString() } }],
+          }),
+        });
+        if (!invRes.ok) throw new Error(`Square inventory update failed: ${await invRes.text()}`);
+        return { message: `Updated Square inventory for "${keyword}" to ${action.quantity} units.` };
+      }
+
+      if (action.type === 'square_update_title' || action.type === 'square_update_description') {
+        const updatedItemData = action.type === 'square_update_title'
+          ? { ...sqItem.item_data, name: action.new_title }
+          : { ...sqItem.item_data, description: action.description };
+        const bRes = await fetch(`${sqBase}/catalog/batch-upsert`, {
+          method: 'POST', headers: sqH,
+          body: JSON.stringify({ idempotency_key: crypto.randomUUID(), batches: [{ objects: [{ type: 'ITEM', id: sqItem.id, version: sqItem.version, item_data: updatedItemData }] }] }),
+        });
+        if (!bRes.ok) throw new Error(`Square update failed: ${await bRes.text()}`);
+        return { message: action.type === 'square_update_title' ? `Updated Square title for "${keyword}" to "${action.new_title}".` : `Updated Square description for "${keyword}".` };
+      }
+
+      // end_listing / renew_listing
+      const presentAtAll = action.type === 'square_renew_listing';
+      const bRes = await fetch(`${sqBase}/catalog/batch-upsert`, {
+        method: 'POST', headers: sqH,
+        body: JSON.stringify({
+          idempotency_key: crypto.randomUUID(),
+          batches: [{ objects: [{ type: 'ITEM', id: sqItem.id, version: sqItem.version, present_at_all_locations: presentAtAll, ...(presentAtAll ? {} : { present_at_location_ids: [] }), item_data: sqItem.item_data }] }],
+        }),
+      });
+      if (!bRes.ok) throw new Error(`Square listing update failed: ${await bRes.text()}`);
+      return { message: presentAtAll ? `Restored "${keyword}" to all Square locations.` : `Removed "${keyword}" from all Square locations.` };
+    }
+
+    case 'square_create_product': {
+      const { apiBase: sqBase, headers: sqH } = await getSquareClientForActions(supabaseClient, userId);
+      const itemId = `#ITEM_${Date.now()}`;
+      const varId = `#VAR_${Date.now()}`;
+      const bRes = await fetch(`${sqBase}/catalog/batch-upsert`, {
+        method: 'POST', headers: sqH,
+        body: JSON.stringify({
+          idempotency_key: crypto.randomUUID(),
+          batches: [{ objects: [{ type: 'ITEM', id: itemId, present_at_all_locations: true,
+            item_data: { name: action.title, description: action.description || '',
+              variations: [{ type: 'ITEM_VARIATION', id: varId,
+                item_variation_data: { item_id: itemId, name: 'Regular', sku: action.sku || '', pricing_type: 'FIXED_PRICING', price_money: { amount: Math.round((action.price || 0) * 100), currency: 'USD' } } }] } }] }],
+        }),
+      });
+      if (!bRes.ok) throw new Error(`Square product creation failed: ${await bRes.text()}`);
+      const bData = await bRes.json();
+      const newId = bData.id_mappings?.find((m: any) => m.client_object_id === itemId)?.object_id || 'created';
+      return { message: `Created Square product "${action.title}" (ID: ${newId}).` };
+    }
+
+    // ── Wix Actions ───────────────────────────────────────────────────────────
+
+    case 'wix_update_price':
+    case 'wix_update_inventory':
+    case 'wix_update_title':
+    case 'wix_update_description':
+    case 'wix_end_listing':
+    case 'wix_renew_listing': {
+      const { apiBase: wixBase, headers: wixH } = await getWixClientForActions(supabaseClient, userId);
+      const keyword = action.product_name || action.sku || '';
+      const wixSearchRes = await fetch(`${wixBase}/stores/v3/products/query`, {
+        method: 'POST', headers: wixH,
+        body: JSON.stringify({ query: { filter: { name: { $contains: keyword } }, paging: { limit: 5 } } }),
+      });
+      if (!wixSearchRes.ok) throw new Error(`Wix product search failed: ${await wixSearchRes.text()}`);
+      const wixSearchData = await wixSearchRes.json();
+      const wixProduct = wixSearchData.products?.[0];
+      if (!wixProduct) throw new Error(`Product "${keyword}" not found in Wix.`);
+
+      if (action.type === 'wix_update_inventory') {
+        const variantId = wixProduct.variants?.[0]?.id;
+        if (!variantId) throw new Error(`No variants found for Wix product "${keyword}".`);
+        const invSearchRes = await fetch(`${wixBase}/stores/v3/inventory-items/query`, {
+          method: 'POST', headers: wixH,
+          body: JSON.stringify({ query: { filter: { externalId: { $eq: variantId } } } }),
+        });
+        if (!invSearchRes.ok) throw new Error(`Wix inventory search failed: ${await invSearchRes.text()}`);
+        const invItem = (await invSearchRes.json()).inventoryItems?.[0];
+        if (!invItem) throw new Error(`Inventory item not found for Wix product "${keyword}".`);
+        const invUpd = await fetch(`${wixBase}/stores/v3/inventory-items/${invItem.id}`, {
+          method: 'PATCH', headers: wixH,
+          body: JSON.stringify({ inventoryItem: { quantity: action.quantity, revision: invItem.revision } }),
+        });
+        if (!invUpd.ok) throw new Error(`Wix inventory update failed: ${await invUpd.text()}`);
+        return { message: `Updated Wix inventory for "${keyword}" to ${action.quantity} units.` };
+      }
+
+      const wixPatchBody: Record<string, any> = {};
+      let wixFieldPaths: string[] = [];
+      if (action.type === 'wix_update_price') { wixPatchBody.priceData = { price: action.price }; wixFieldPaths = ['price_data']; }
+      else if (action.type === 'wix_update_title') { wixPatchBody.name = action.new_title; wixFieldPaths = ['name']; }
+      else if (action.type === 'wix_update_description') { wixPatchBody.description = action.description; wixFieldPaths = ['description']; }
+      else if (action.type === 'wix_end_listing') { wixPatchBody.visible = false; wixFieldPaths = ['visible']; }
+      else if (action.type === 'wix_renew_listing') { wixPatchBody.visible = true; wixFieldPaths = ['visible']; }
+
+      const wixUpdRes = await fetch(`${wixBase}/stores/v3/products/${wixProduct.id}`, {
+        method: 'PATCH', headers: wixH,
+        body: JSON.stringify({ product: wixPatchBody, fieldMask: { paths: wixFieldPaths } }),
+      });
+      if (!wixUpdRes.ok) throw new Error(`Wix update failed: ${await wixUpdRes.text()}`);
+      const msgs: Record<string, string> = {
+        wix_update_price: `Updated Wix price for "${keyword}" to $${action.price}.`,
+        wix_update_title: `Updated Wix title for "${keyword}" to "${action.new_title}".`,
+        wix_update_description: `Updated Wix description for "${keyword}".`,
+        wix_end_listing: `Hidden Wix product "${keyword}" from storefront.`,
+        wix_renew_listing: `Restored Wix product "${keyword}" to storefront.`,
+      };
+      return { message: msgs[action.type] };
+    }
+
+    case 'wix_create_product': {
+      const { apiBase: wixBase, headers: wixH } = await getWixClientForActions(supabaseClient, userId);
+      const wixCrRes = await fetch(`${wixBase}/stores/v3/products`, {
+        method: 'POST', headers: wixH,
+        body: JSON.stringify({ product: { name: action.title, description: action.description || '', priceData: { price: action.price }, stock: { trackQuantity: true, quantity: action.quantity ?? 0 }, visible: true } }),
+      });
+      if (!wixCrRes.ok) throw new Error(`Wix product creation failed: ${await wixCrRes.text()}`);
+      const wixCrData = await wixCrRes.json();
+      return { message: `Created Wix product "${action.title}" (ID: ${wixCrData.product?.id || 'created'}).` };
+    }
+
+    // ── Squarespace Actions ───────────────────────────────────────────────────
+
+    case 'squarespace_update_price':
+    case 'squarespace_update_inventory':
+    case 'squarespace_update_title':
+    case 'squarespace_update_description':
+    case 'squarespace_end_listing':
+    case 'squarespace_renew_listing': {
+      const { apiBase: ssBase, headers: ssH } = await getSquarespaceClientForActions(supabaseClient, userId);
+      const ssListRes = await fetch(`${ssBase}/commerce/products?type=PHYSICAL`, { headers: ssH });
+      if (!ssListRes.ok) throw new Error(`Squarespace products fetch failed: ${await ssListRes.text()}`);
+      const ssProducts = (await ssListRes.json()).products || [];
+      const ssKw = (action.product_name || action.sku || '').toLowerCase();
+      const ssProd = ssProducts.find((p: any) => (p.name || '').toLowerCase().includes(ssKw));
+      if (!ssProd) throw new Error(`Product "${action.product_name || action.sku}" not found in Squarespace. Use the exact product name.`);
+
+      if (action.type === 'squarespace_update_inventory') {
+        const varId = ssProd.variants?.[0]?.id;
+        if (!varId) throw new Error('Squarespace product has no variant for inventory update.');
+        const ssInvRes = await fetch(`${ssBase}/commerce/inventory/adjust`, {
+          method: 'POST', headers: ssH,
+          body: JSON.stringify({ variants: [{ variantId: varId, quantity: action.quantity }] }),
+        });
+        if (!ssInvRes.ok) throw new Error(`Squarespace inventory update failed: ${await ssInvRes.text()}`);
+        return { message: `Updated Squarespace inventory for "${action.product_name}" to ${action.quantity} units.` };
+      }
+
+      if (action.type === 'squarespace_update_price') {
+        const varId = ssProd.variants?.[0]?.id;
+        if (!varId) throw new Error('Squarespace product has no variant for price update.');
+        const ssVarRes = await fetch(`${ssBase}/commerce/products/${ssProd.id}/variants/${varId}`, {
+          method: 'PUT', headers: ssH,
+          body: JSON.stringify({ pricing: { basePrice: { currency: 'USD', value: String(action.price) } } }),
+        });
+        if (!ssVarRes.ok) throw new Error(`Squarespace price update failed: ${await ssVarRes.text()}`);
+        return { message: `Updated Squarespace price for "${action.product_name}" to $${action.price}.` };
+      }
+
+      let ssUpdBody: any = { ...ssProd };
+      if (action.type === 'squarespace_update_title') ssUpdBody.name = action.new_title;
+      else if (action.type === 'squarespace_update_description') ssUpdBody.description = action.description;
+      else if (action.type === 'squarespace_end_listing') ssUpdBody.isVisible = false;
+      else if (action.type === 'squarespace_renew_listing') ssUpdBody.isVisible = true;
+
+      const ssUpdRes = await fetch(`${ssBase}/commerce/products/${ssProd.id}`, {
+        method: 'PUT', headers: ssH, body: JSON.stringify(ssUpdBody),
+      });
+      if (!ssUpdRes.ok) throw new Error(`Squarespace update failed: ${await ssUpdRes.text()}`);
+      const ssMsgs: Record<string, string> = {
+        squarespace_update_title: `Updated Squarespace title for "${action.product_name}" to "${action.new_title}".`,
+        squarespace_update_description: `Updated Squarespace description for "${action.product_name}".`,
+        squarespace_end_listing: `Hidden Squarespace product "${action.product_name}".`,
+        squarespace_renew_listing: `Restored Squarespace product "${action.product_name}".`,
+      };
+      return { message: ssMsgs[action.type] };
+    }
+
+    case 'squarespace_create_product': {
+      const { apiBase: ssBase, headers: ssH } = await getSquarespaceClientForActions(supabaseClient, userId);
+      const ssCrRes = await fetch(`${ssBase}/commerce/products`, {
+        method: 'POST', headers: ssH,
+        body: JSON.stringify({
+          type: 'PHYSICAL', name: action.title, description: action.description || '', isVisible: true,
+          variants: [{ sku: action.sku || `${action.title.toLowerCase().replace(/\s+/g, '-').slice(0, 30)}-${Date.now()}`, pricing: { basePrice: { currency: 'USD', value: String(action.price || 0) } }, stock: { quantity: action.quantity ?? 0, unlimited: false } }],
+        }),
+      });
+      if (!ssCrRes.ok) throw new Error(`Squarespace product creation failed: ${await ssCrRes.text()}`);
+      const ssCrData = await ssCrRes.json();
+      return { message: `Created Squarespace product "${action.title}" (ID: ${ssCrData.id || 'created'}).` };
+    }
+
+    // ── BigCommerce Actions ───────────────────────────────────────────────────
+
+    case 'bigcommerce_update_price':
+    case 'bigcommerce_update_inventory':
+    case 'bigcommerce_update_title':
+    case 'bigcommerce_update_description':
+    case 'bigcommerce_end_listing':
+    case 'bigcommerce_renew_listing': {
+      const { apiBase: bcBase, headers: bcH } = await getBigCommerceClientForActions(supabaseClient, userId);
+      const bcName = action.product_name || action.sku || '';
+      const bcSrchRes = await fetch(`${bcBase}/v3/catalog/products?name=${encodeURIComponent(bcName)}`, { headers: bcH });
+      if (!bcSrchRes.ok) throw new Error(`BigCommerce product search failed: ${await bcSrchRes.text()}`);
+      const bcProd = (await bcSrchRes.json()).data?.[0];
+      if (!bcProd) throw new Error(`Product "${bcName}" not found in BigCommerce.`);
+
+      const bcPatch: Record<string, any> = {};
+      if (action.type === 'bigcommerce_update_price') bcPatch.price = action.price;
+      else if (action.type === 'bigcommerce_update_inventory') { bcPatch.inventory_quantity = action.quantity; bcPatch.inventory_tracking = 'product'; }
+      else if (action.type === 'bigcommerce_update_title') bcPatch.name = action.new_title;
+      else if (action.type === 'bigcommerce_update_description') bcPatch.description = action.description;
+      else if (action.type === 'bigcommerce_end_listing') bcPatch.is_visible = false;
+      else if (action.type === 'bigcommerce_renew_listing') bcPatch.is_visible = true;
+
+      const bcUpdRes = await fetch(`${bcBase}/v3/catalog/products/${bcProd.id}`, {
+        method: 'PUT', headers: bcH, body: JSON.stringify(bcPatch),
+      });
+      if (!bcUpdRes.ok) throw new Error(`BigCommerce update failed: ${await bcUpdRes.text()}`);
+      const bcMsgs: Record<string, string> = {
+        bigcommerce_update_price: `Updated BigCommerce price for "${bcName}" to $${action.price}.`,
+        bigcommerce_update_inventory: `Updated BigCommerce inventory for "${bcName}" to ${action.quantity} units.`,
+        bigcommerce_update_title: `Updated BigCommerce title for "${bcName}" to "${action.new_title}".`,
+        bigcommerce_update_description: `Updated BigCommerce description for "${bcName}".`,
+        bigcommerce_end_listing: `Hidden BigCommerce product "${bcName}".`,
+        bigcommerce_renew_listing: `Restored BigCommerce product "${bcName}".`,
+      };
+      return { message: bcMsgs[action.type] };
+    }
+
+    case 'bigcommerce_create_product': {
+      const { apiBase: bcBase, headers: bcH } = await getBigCommerceClientForActions(supabaseClient, userId);
+      const bcCrRes = await fetch(`${bcBase}/v3/catalog/products`, {
+        method: 'POST', headers: bcH,
+        body: JSON.stringify({ name: action.title, type: 'physical', price: action.price || 0, weight: 0, description: action.description || '', sku: action.sku || '', inventory_quantity: action.quantity ?? 0, inventory_tracking: 'product', is_visible: true }),
+      });
+      if (!bcCrRes.ok) throw new Error(`BigCommerce product creation failed: ${await bcCrRes.text()}`);
+      const bcCrData = await bcCrRes.json();
+      return { message: `Created BigCommerce product "${action.title}" (ID: ${bcCrData.data?.id || 'created'}).` };
+    }
+
+    // ── Faire Actions ─────────────────────────────────────────────────────────
+
+    case 'faire_update_price':
+    case 'faire_update_inventory':
+    case 'faire_update_title':
+    case 'faire_update_description':
+    case 'faire_end_listing':
+    case 'faire_renew_listing': {
+      const { apiBase: faireBase, headers: faireH } = await getFaireClientForActions(supabaseClient, userId);
+      const faireKw = (action.product_name || action.sku || '').toLowerCase();
+      const faireListRes = await fetch(`${faireBase}/products?limit=50`, { headers: faireH });
+      if (!faireListRes.ok) throw new Error(`Faire products fetch failed: ${await faireListRes.text()}`);
+      const faireProds = (await faireListRes.json()).products || [];
+      const faireProd = faireProds.find((p: any) =>
+        (p.name || '').toLowerCase().includes(faireKw) ||
+        (p.options?.[0]?.sku || '').toLowerCase().includes((action.sku || '').toLowerCase())
+      );
+      if (!faireProd) throw new Error(`Product "${action.product_name || action.sku}" not found in Faire.`);
+
+      if (action.type === 'faire_update_inventory') {
+        const optionId = faireProd.options?.[0]?.id;
+        if (!optionId) throw new Error('Faire product has no options for inventory update.');
+        const faireInvRes = await fetch(`${faireBase}/product_inventory/set`, {
+          method: 'POST', headers: faireH,
+          body: JSON.stringify({ items: [{ product_option_id: optionId, quantity: action.quantity }] }),
+        });
+        if (!faireInvRes.ok) throw new Error(`Faire inventory update failed: ${await faireInvRes.text()}`);
+        return { message: `Updated Faire inventory for "${action.product_name}" to ${action.quantity} units.` };
+      }
+
+      if (action.type === 'faire_update_price') {
+        const fairePriceRes = await fetch(`${faireBase}/products/${faireProd.id}`, {
+          method: 'PATCH', headers: faireH,
+          body: JSON.stringify({ options: (faireProd.options || []).map((opt: any) => ({ ...opt, wholesale_price: Math.round(action.price * 100) })) }),
+        });
+        if (!fairePriceRes.ok) throw new Error(`Faire price update failed: ${await fairePriceRes.text()}`);
+        return { message: `Updated Faire price for "${action.product_name}" to $${action.price}.` };
+      }
+
+      const fairePatch: Record<string, any> = {};
+      if (action.type === 'faire_update_title') fairePatch.name = action.new_title;
+      else if (action.type === 'faire_update_description') fairePatch.description = action.description;
+      else if (action.type === 'faire_end_listing') fairePatch.active = false;
+      else if (action.type === 'faire_renew_listing') fairePatch.active = true;
+
+      const faireUpdRes = await fetch(`${faireBase}/products/${faireProd.id}`, {
+        method: 'PATCH', headers: faireH, body: JSON.stringify(fairePatch),
+      });
+      if (!faireUpdRes.ok) throw new Error(`Faire update failed: ${await faireUpdRes.text()}`);
+      const faireMsgs: Record<string, string> = {
+        faire_update_title: `Updated Faire title for "${action.product_name}" to "${action.new_title}".`,
+        faire_update_description: `Updated Faire description for "${action.product_name}".`,
+        faire_end_listing: `Deactivated Faire product "${action.product_name}".`,
+        faire_renew_listing: `Reactivated Faire product "${action.product_name}".`,
+      };
+      return { message: faireMsgs[action.type] };
+    }
+
+    case 'faire_create_product': {
+      const { apiBase: faireBase, headers: faireH } = await getFaireClientForActions(supabaseClient, userId);
+      const faireCrRes = await fetch(`${faireBase}/products`, {
+        method: 'POST', headers: faireH,
+        body: JSON.stringify({
+          name: action.title, description: action.description || '', active: true,
+          options: [{ name: 'Default', sku: action.sku || `${action.title.toLowerCase().replace(/\s+/g, '-').slice(0, 30)}-${Date.now()}`, wholesale_price: Math.round((action.price || 0) * 100), quantity: action.quantity ?? 0 }],
+        }),
+      });
+      if (!faireCrRes.ok) throw new Error(`Faire product creation failed: ${await faireCrRes.text()}`);
+      const faireCrData = await faireCrRes.json();
+      return { message: `Created Faire product "${action.title}" (ID: ${faireCrData.id || 'created'}).` };
     }
 
     default:
@@ -5717,6 +6486,7 @@ async function chatWithClaude(
 - You CAN: Execute store actions on eBay — create listings, update inventory quantities, update prices, update listing titles, update listing descriptions, update listing images, end listings (remove from eBay), relist ended listings, update item specifics
 - You CAN: Execute store actions on TikTok Shop — create products, update price/inventory/title/description, deactivate/reactivate listings
 - You CAN: Execute store actions on WooCommerce, Ecwid, Magento, PrestaShop, Wish, Walmart, Etsy — full product management on all connected platforms
+- You CAN: Execute store actions on Square, Wix, Squarespace, BigCommerce, Faire — full product management on all connected platforms
 - You CAN: Manage orders across all platforms — sync orders, mark as fulfilled with tracking, cancel orders, process refunds
 - You CANNOT: Log into any platform or request credentials — NEVER ask for passwords, API keys, or admin access. You already have the integration through Tandril.
 - You CANNOT: Process credit card payments or initiate charges outside of the platform's own payment system
@@ -5771,6 +6541,46 @@ When the user asks you to create a product, add inventory, change a price, renam
   • tiktok_update_description— { type, product_name, sku, description }
   • tiktok_end_listing       — { type, product_name, sku }  (deactivates — removes from storefront)
   • tiktok_renew_listing     — { type, product_name, sku }  (reactivates)
+  Square actions:
+  • square_create_product    — { type, title, description?, price, sku?, quantity? }
+  • square_update_price      — { type, product_name, price }
+  • square_update_inventory  — { type, product_name, quantity }
+  • square_update_title      — { type, product_name, new_title }
+  • square_update_description— { type, product_name, description }
+  • square_end_listing       — { type, product_name }  (removes from all locations)
+  • square_renew_listing     — { type, product_name }  (restores to all locations)
+  Wix Stores actions:
+  • wix_create_product       — { type, title, description?, price, sku?, quantity? }
+  • wix_update_price         — { type, product_name, price }
+  • wix_update_inventory     — { type, product_name, quantity }
+  • wix_update_title         — { type, product_name, new_title }
+  • wix_update_description   — { type, product_name, description }
+  • wix_end_listing          — { type, product_name }  (hides from storefront)
+  • wix_renew_listing        — { type, product_name }  (shows on storefront)
+  Squarespace Commerce actions:
+  • squarespace_create_product    — { type, title, description?, price, sku?, quantity? }
+  • squarespace_update_price      — { type, product_name, price }
+  • squarespace_update_inventory  — { type, product_name, quantity }
+  • squarespace_update_title      — { type, product_name, new_title }
+  • squarespace_update_description— { type, product_name, description }
+  • squarespace_end_listing       — { type, product_name }  (hides product)
+  • squarespace_renew_listing     — { type, product_name }  (shows product)
+  BigCommerce actions:
+  • bigcommerce_create_product    — { type, title, description?, price, sku?, quantity? }
+  • bigcommerce_update_price      — { type, product_name, price }
+  • bigcommerce_update_inventory  — { type, product_name, quantity }
+  • bigcommerce_update_title      — { type, product_name, new_title }
+  • bigcommerce_update_description— { type, product_name, description }
+  • bigcommerce_end_listing       — { type, product_name }  (hides product)
+  • bigcommerce_renew_listing     — { type, product_name }  (shows product)
+  Faire (Wholesale Marketplace) actions:
+  • faire_create_product     — { type, title, description?, price, sku?, quantity? }  ⚠️ price = wholesale price
+  • faire_update_price       — { type, product_name, price }
+  • faire_update_inventory   — { type, product_name, quantity }
+  • faire_update_title       — { type, product_name, new_title }
+  • faire_update_description — { type, product_name, description }
+  • faire_end_listing        — { type, product_name }  (deactivates)
+  • faire_renew_listing      — { type, product_name }  (reactivates)
   WooCommerce actions:
   • woo_create_product
   • woo_bulk_create_products
@@ -5860,7 +6670,7 @@ When the user asks you to create a product, add inventory, change a price, renam
                                platforms?: ["shopify","etsy","ebay",...],   ← omit to target ALL connected platforms
                                etsy_overrides?: { who_made?, when_made?, taxonomy_id?, state? },
                                ebay_overrides?: { condition_id?, category_id?, marketplace_id? } }
-                             Supported platforms: shopify, etsy, ebay, woocommerce, ecwid, magento, prestashop, tiktok_shop, amazon
+                             Supported platforms: shopify, etsy, ebay, woocommerce, ecwid, magento, prestashop, tiktok_shop, amazon, square, wix, squarespace, bigcommerce, faire
   Bulk AI content generation:
   • bulk_ai_content — { type, updates: [{product_name, sku, platform_type?, title?, description?, tags?, seo_title?, seo_description?, url_handle?, image_alt?}, ...] }
                     Max 50 products per batch. Each product update only needs the fields being changed.
@@ -5890,6 +6700,11 @@ Platform action routing:
 - Use etsy_* actions for products with platform_type 'etsy'
 - Use tiktok_* actions for products with platform_type 'tiktok_shop'
 - Use amazon_* actions for products with platform_type 'amazon'
+- Use square_* actions for products with platform_type 'square'
+- Use wix_* actions for products with platform_type 'wix'
+- Use squarespace_* actions for products with platform_type 'squarespace'
+- Use bigcommerce_* actions for products with platform_type 'bigcommerce'
+- Use faire_* actions for products with platform_type 'faire'
 - For multi_action and batch_update, sub-actions should use the correct prefix for the product's platform
 - ⚠️ CRITICAL: eBay has NO "draft" or "archived" status. For eBay, the words "deactivate", "draft", "hide", "end", "mark as sold", "remove", "take down" all map to ebay_end_listing. NEVER use update_status on an eBay product.
 - ⚠️ CRITICAL: Etsy has NO "draft" status. For Etsy, "deactivate", "remove", "hide", "take down" map to etsy_end_listing; "reactivate" or "relist" maps to etsy_renew_listing. NEVER use update_status on an Etsy product.
@@ -5901,6 +6716,9 @@ Platform action routing:
 - ⚠️ For Wish and Walmart title/description updates, SKU is required — both platforms identify products by SKU only.
 - ⚠️ Walmart title/description changes are submitted as feeds and may take a few minutes to reflect on the storefront. Mention this to the user.
 - ⚠️ WooCommerce update actions require either a SKU or product name to resolve the product ID. Prefer SKU when available.
+- ⚠️ Square, Wix, Squarespace, BigCommerce, and Faire all use product_name to find products — always include it.
+- ⚠️ Faire prices are wholesale (B2B), not retail. Always clarify this to the user when working with Faire products.
+- ⚠️ Square inventory (square_update_inventory) sets an absolute count, not a delta. Get current stock first if adjusting by a relative amount.
 
 Context continuity rules (prevents executing wrong actions from short replies):
 - When the user gives a short follow-up reply ("yes", "do it", "draft", "archived", "go ahead", "that one", "sounds good"), ALWAYS apply it to the EXACT item and action from the immediately preceding exchange — not anything else.
@@ -6166,6 +6984,71 @@ Create a new Amazon listing (FBM):
 ⚠️ amazon_update_inventory only works for FBM sellers. FBA inventory is managed by Amazon's fulfillment centers.
 ⚠️ amazon_create_listing: product_type must match Amazon's product type taxonomy (e.g. "SHIRT", "WALLET", "EARRING"). If unknown, ask the user or suggest the most likely type.
 ⚠️ New Amazon listings go through a review process before they appear in search — tell the user to check Seller Central for approval status.
+
+— Square (POS & Online) Actions —
+
+⚠️ Square prices are converted to cents automatically — always provide price in dollars (e.g., price: 18.99).
+⚠️ square_end_listing removes the product from all Square locations. square_renew_listing restores it.
+
+[ORION_ACTION:{"type":"square_update_price","product_name":"Handmade Candle","price":18.99}]
+[ORION_ACTION:{"type":"square_update_inventory","product_name":"Handmade Candle","quantity":25}]
+[ORION_ACTION:{"type":"square_update_title","product_name":"Handmade Candle","new_title":"Soy Wax Hand-Poured Candle – Lavender & Vanilla"}]
+[ORION_ACTION:{"type":"square_update_description","product_name":"Handmade Candle","description":"Hand-poured soy wax candle with lavender and vanilla fragrance. Burns 40+ hours."}]
+[ORION_ACTION:{"type":"square_end_listing","product_name":"Handmade Candle"}]
+[ORION_ACTION:{"type":"square_renew_listing","product_name":"Handmade Candle"}]
+[ORION_ACTION:{"type":"square_create_product","title":"Soy Wax Candle","description":"Hand-poured 8oz soy candle, 40+ hour burn.","price":18.99,"sku":"CANDLE-001","quantity":20}]
+
+— Wix Stores Actions —
+
+⚠️ Wix product search uses partial name match — include a unique portion of the product name.
+
+[ORION_ACTION:{"type":"wix_update_price","product_name":"Ceramic Mug","price":24.99}]
+[ORION_ACTION:{"type":"wix_update_inventory","product_name":"Ceramic Mug","quantity":15}]
+[ORION_ACTION:{"type":"wix_update_title","product_name":"Ceramic Mug","new_title":"Handmade Stoneware Coffee Mug – 12oz Speckled Glaze"}]
+[ORION_ACTION:{"type":"wix_update_description","product_name":"Ceramic Mug","description":"Beautifully handcrafted stoneware mug. Microwave and dishwasher safe. Each piece is unique."}]
+[ORION_ACTION:{"type":"wix_end_listing","product_name":"Ceramic Mug"}]
+[ORION_ACTION:{"type":"wix_renew_listing","product_name":"Ceramic Mug"}]
+[ORION_ACTION:{"type":"wix_create_product","title":"Handmade Ceramic Mug","description":"Stoneware coffee mug, 12oz, microwave safe.","price":24.99,"sku":"MUG-001","quantity":10}]
+
+— Squarespace Commerce Actions —
+
+⚠️ Squarespace searches products by name — use the exact product name or a unique substring.
+⚠️ squarespace_update_inventory sets absolute quantity (not a delta/adjustment).
+
+[ORION_ACTION:{"type":"squarespace_update_price","product_name":"Linen Tote Bag","price":32.00}]
+[ORION_ACTION:{"type":"squarespace_update_inventory","product_name":"Linen Tote Bag","quantity":30}]
+[ORION_ACTION:{"type":"squarespace_update_title","product_name":"Linen Tote Bag","new_title":"Natural Linen Market Tote Bag – Oversized Everyday Carry"}]
+[ORION_ACTION:{"type":"squarespace_update_description","product_name":"Linen Tote Bag","description":"Spacious natural linen tote for daily use. Holds groceries, a laptop, or a full day out. Machine washable."}]
+[ORION_ACTION:{"type":"squarespace_end_listing","product_name":"Linen Tote Bag"}]
+[ORION_ACTION:{"type":"squarespace_renew_listing","product_name":"Linen Tote Bag"}]
+[ORION_ACTION:{"type":"squarespace_create_product","title":"Natural Linen Tote Bag","description":"Spacious natural linen tote. Machine washable.","price":32.00,"sku":"TOTE-LIN-001","quantity":15}]
+
+— BigCommerce Actions —
+
+⚠️ BigCommerce uses X-Auth-Token authentication — handled automatically via OAuth credentials.
+⚠️ Product search uses the exact name — use the full product name for best results.
+
+[ORION_ACTION:{"type":"bigcommerce_update_price","product_name":"Leather Belt","price":45.00}]
+[ORION_ACTION:{"type":"bigcommerce_update_inventory","product_name":"Leather Belt","quantity":40}]
+[ORION_ACTION:{"type":"bigcommerce_update_title","product_name":"Leather Belt","new_title":"Full-Grain Leather Belt – Men's Classic Brown 1.5\""}]
+[ORION_ACTION:{"type":"bigcommerce_update_description","product_name":"Leather Belt","description":"Sturdy full-grain leather belt with brushed silver buckle. 1.5 inch wide. Sizes 32–44."}]
+[ORION_ACTION:{"type":"bigcommerce_end_listing","product_name":"Leather Belt"}]
+[ORION_ACTION:{"type":"bigcommerce_renew_listing","product_name":"Leather Belt"}]
+[ORION_ACTION:{"type":"bigcommerce_create_product","title":"Full-Grain Leather Belt","description":"Sturdy full-grain leather belt with brushed silver buckle.","price":45.00,"sku":"BELT-BRN-001","quantity":20}]
+
+— Faire (Wholesale Marketplace) Actions —
+
+⚠️ Faire is a B2B wholesale marketplace — prices are wholesale prices, not retail.
+⚠️ Faire prices are converted to cents automatically — provide price in dollars.
+⚠️ Faire products list is paginated (50 per page). Include a unique portion of the product name.
+
+[ORION_ACTION:{"type":"faire_update_price","product_name":"Scented Soy Candle","price":9.50}]
+[ORION_ACTION:{"type":"faire_update_inventory","product_name":"Scented Soy Candle","quantity":100}]
+[ORION_ACTION:{"type":"faire_update_title","product_name":"Scented Soy Candle","new_title":"Hand-Poured Soy Candle – Lavender & Eucalyptus 8oz"}]
+[ORION_ACTION:{"type":"faire_update_description","product_name":"Scented Soy Candle","description":"Hand-poured soy wax candle with calming lavender and eucalyptus essential oils. Burns 40+ hours."}]
+[ORION_ACTION:{"type":"faire_end_listing","product_name":"Scented Soy Candle"}]
+[ORION_ACTION:{"type":"faire_renew_listing","product_name":"Scented Soy Candle"}]
+[ORION_ACTION:{"type":"faire_create_product","title":"Soy Candle – Lavender & Eucalyptus 8oz","description":"Hand-poured soy wax candle, 40+ hour burn. Wholesale minimum applies.","price":9.50,"sku":"CANDLE-LAV-001","quantity":200}]
 
 — Order Management Actions —
 
