@@ -129,6 +129,29 @@ function summarizeOrionAction(action: any): string {
     case 'etsy_renew_listing':        return `Reactivated Etsy listing "${name}"`;
     case 'etsy_create_listing':       return `Created Etsy listing: "${action.title || name}"`;
     case 'etsy_bulk_create_listings': return `Bulk created ${Array.isArray(action.listings) ? action.listings.length : '?'} Etsy listing(s)`;
+    case 'woo_update_price':          return `Updated WooCommerce price for "${name}" → $${action.price}`;
+    case 'woo_update_inventory':      return `Updated WooCommerce inventory for "${name}" → ${action.quantity} units`;
+    case 'woo_update_title':          return `Updated WooCommerce title for "${name}"`;
+    case 'woo_update_description':    return `Updated WooCommerce description for "${name}"`;
+    case 'woo_update_tags':           return `Updated WooCommerce tags for "${name}"`;
+    case 'woo_end_listing':           return `Deactivated WooCommerce product "${name}"`;
+    case 'woo_renew_listing':         return `Reactivated WooCommerce product "${name}"`;
+    case 'ecwid_update_tags':         return `Updated Ecwid keywords for "${name}"`;
+    case 'ecwid_end_listing':         return `Disabled Ecwid product "${name}"`;
+    case 'ecwid_renew_listing':       return `Enabled Ecwid product "${name}"`;
+    case 'magento_end_listing':       return `Disabled Magento product "${name}"`;
+    case 'magento_renew_listing':     return `Enabled Magento product "${name}"`;
+    case 'prestashop_update_description': return `Updated PrestaShop description for "${name}"`;
+    case 'prestashop_end_listing':    return `Disabled PrestaShop product "${name}"`;
+    case 'prestashop_renew_listing':  return `Enabled PrestaShop product "${name}"`;
+    case 'wish_update_title':         return `Updated Wish title for SKU "${action.sku || name}"`;
+    case 'wish_update_description':   return `Updated Wish description for SKU "${action.sku || name}"`;
+    case 'wish_update_tags':          return `Updated Wish tags for SKU "${action.sku || name}"`;
+    case 'wish_end_listing':          return `Disabled Wish product SKU "${action.sku || name}"`;
+    case 'wish_renew_listing':        return `Enabled Wish product SKU "${action.sku || name}"`;
+    case 'walmart_update_title':      return `Updated Walmart title for SKU "${action.sku || name}"`;
+    case 'walmart_update_description':return `Updated Walmart description for SKU "${action.sku || name}"`;
+    case 'walmart_end_listing':       return `Retired Walmart listing SKU "${action.sku || name}"`;
     default:                          return `Orion action: ${action.type} on "${name}"`;
   }
 }
@@ -1475,6 +1498,83 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: summary, success_count: successCount, fail_count: failCount };
     }
 
+    // ── WooCommerce update actions ────────────────────────────────────────────
+
+    case 'woo_update_price':
+    case 'woo_update_inventory':
+    case 'woo_update_title':
+    case 'woo_update_description':
+    case 'woo_update_tags':
+    case 'woo_end_listing':
+    case 'woo_renew_listing': {
+      const { data: wooUPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'woocommerce').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!wooUPlats || wooUPlats.length === 0) throw new Error('No connected WooCommerce store found.');
+      const wooU = wooUPlats[0];
+      const { consumer_key, consumer_secret } = wooU.credentials;
+      const wooUBase = `${wooU.store_url}/wp-json/wc/v3`;
+      const wooUHeaders = {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${btoa(`${consumer_key}:${consumer_secret}`)}`,
+      };
+
+      // Resolve product ID by SKU first, then name search
+      let wooProductId: number | null = null;
+      let wooProductName = action.product_name || action.title || '';
+      if (action.sku && action.sku !== 'N/A') {
+        const skuRes = await fetch(`${wooUBase}/products?sku=${encodeURIComponent(action.sku)}&per_page=1`, { headers: wooUHeaders });
+        if (skuRes.ok) {
+          const skuData = await skuRes.json();
+          if (Array.isArray(skuData) && skuData.length > 0) { wooProductId = skuData[0].id; wooProductName = skuData[0].name; }
+        }
+      }
+      if (!wooProductId && action.product_name) {
+        const nameRes = await fetch(`${wooUBase}/products?search=${encodeURIComponent(action.product_name)}&per_page=5`, { headers: wooUHeaders });
+        if (nameRes.ok) {
+          const nameData: any[] = await nameRes.json();
+          const match = nameData.find((p: any) => p.name.toLowerCase().includes(action.product_name.toLowerCase()));
+          if (match) { wooProductId = match.id; wooProductName = match.name; }
+        }
+      }
+      if (!wooProductId) throw new Error(`Product "${action.product_name || action.sku}" not found in WooCommerce.`);
+
+      let wooBody: Record<string, any> = {};
+      if (action.type === 'woo_update_price') {
+        wooBody = { regular_price: String(Number(action.price).toFixed(2)) };
+      } else if (action.type === 'woo_update_inventory') {
+        wooBody = { manage_stock: true, stock_quantity: Number(action.quantity) };
+      } else if (action.type === 'woo_update_title') {
+        wooBody = { name: action.new_title };
+      } else if (action.type === 'woo_update_description') {
+        wooBody = { description: action.description };
+      } else if (action.type === 'woo_update_tags') {
+        const tagList: string[] = Array.isArray(action.tags)
+          ? action.tags
+          : String(action.tags || '').split(',').map((t: string) => t.trim()).filter(Boolean);
+        wooBody = { tags: tagList.map((t: string) => ({ name: t })) };
+      } else if (action.type === 'woo_end_listing') {
+        wooBody = { status: 'draft' };
+      } else if (action.type === 'woo_renew_listing') {
+        wooBody = { status: 'publish' };
+      }
+
+      const wooUpdateRes = await fetch(`${wooUBase}/products/${wooProductId}`, {
+        method: 'PUT', headers: wooUHeaders, body: JSON.stringify(wooBody),
+      });
+      if (!wooUpdateRes.ok) throw new Error(`WooCommerce update failed: ${await wooUpdateRes.text()}`);
+
+      const wooMsgs: Record<string, string> = {
+        woo_update_price:       `Updated WooCommerce price for "${wooProductName}" → $${action.price}`,
+        woo_update_inventory:   `Updated WooCommerce inventory for "${wooProductName}" → ${action.quantity} units`,
+        woo_update_title:       `Updated WooCommerce title for "${wooProductName}" → "${action.new_title}"`,
+        woo_update_description: `Updated WooCommerce description for "${wooProductName}"`,
+        woo_update_tags:        `Updated WooCommerce tags for "${wooProductName}"`,
+        woo_end_listing:        `Deactivated WooCommerce product "${wooProductName}" (set to draft)`,
+        woo_renew_listing:      `Reactivated WooCommerce product "${wooProductName}" (published)`,
+      };
+      return { message: wooMsgs[action.type] || 'WooCommerce update complete' };
+    }
+
     // ── multi_action: multiple changes on ONE product in one confirmation ──────
     case 'multi_action': {
       const subActions: any[] = action.actions || [];
@@ -1659,6 +1759,50 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: `Created Ecwid product: "${action.title}"` };
     }
 
+    case 'ecwid_update_tags':
+    case 'ecwid_end_listing':
+    case 'ecwid_renew_listing': {
+      const { data: ecwidXPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'ecwid').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!ecwidXPlats || ecwidXPlats.length === 0) throw new Error('No connected Ecwid store found.');
+      const ecwidX = ecwidXPlats[0];
+      const { store_id: ecwidXStoreId, access_token: ecwidXTok } = ecwidX.credentials;
+      const ecwidXBase = `https://app.ecwid.com/api/v3/${ecwidXStoreId}`;
+      const ecwidXHeaders = { 'Authorization': `Bearer ${ecwidXTok}`, 'Content-Type': 'application/json' };
+
+      const ecwidXQuery = action.sku && action.sku !== 'N/A'
+        ? `sku=${encodeURIComponent(action.sku)}`
+        : `keyword=${encodeURIComponent(action.product_name || '')}`;
+      const ecwidXSearch = await fetch(`${ecwidXBase}/products?${ecwidXQuery}&limit=5`, { headers: ecwidXHeaders });
+      if (!ecwidXSearch.ok) throw new Error(`Ecwid product search failed: ${await ecwidXSearch.text()}`);
+      const ecwidXFound = ((await ecwidXSearch.json()).items || [])[0];
+      if (!ecwidXFound) throw new Error(`Product "${action.product_name || action.sku}" not found in Ecwid.`);
+
+      let ecwidXBody: Record<string, any> = {};
+      if (action.type === 'ecwid_update_tags') {
+        // Ecwid uses a space-separated `keywords` field for search tags
+        const kw = Array.isArray(action.tags)
+          ? action.tags.join(' ')
+          : String(action.tags || '').split(',').map((t: string) => t.trim()).join(' ');
+        ecwidXBody = { keywords: kw };
+      } else if (action.type === 'ecwid_end_listing') {
+        ecwidXBody = { enabled: false };
+      } else if (action.type === 'ecwid_renew_listing') {
+        ecwidXBody = { enabled: true };
+      }
+
+      const ecwidXUpdate = await fetch(`${ecwidXBase}/products/${ecwidXFound.id}`, {
+        method: 'PUT', headers: ecwidXHeaders, body: JSON.stringify(ecwidXBody),
+      });
+      if (!ecwidXUpdate.ok) throw new Error(`Ecwid update failed: ${await ecwidXUpdate.text()}`);
+      const ecwidXMsgs: Record<string, string> = {
+        ecwid_update_tags:  `Updated Ecwid search keywords for "${ecwidXFound.name}"`,
+        ecwid_end_listing:  `Disabled Ecwid product "${ecwidXFound.name}"`,
+        ecwid_renew_listing:`Enabled Ecwid product "${ecwidXFound.name}"`,
+      };
+      return { message: ecwidXMsgs[action.type] || 'Ecwid update complete' };
+    }
+
     // ── Magento write actions ─────────────────────────────────────────────────
 
     case 'magento_update_inventory':
@@ -1750,11 +1894,35 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: `Created Magento product: "${action.title}"` };
     }
 
+    case 'magento_end_listing':
+    case 'magento_renew_listing': {
+      const { data: magentoXPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'magento').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!magentoXPlats || magentoXPlats.length === 0) throw new Error('No connected Magento store found.');
+      const magentoX = magentoXPlats[0];
+      const magentoXBase = magentoX.store_url.replace(/\/$/, '');
+      const magentoXHeaders = { 'Authorization': `Bearer ${magentoX.credentials.access_token}`, 'Content-Type': 'application/json' };
+      const magentoXSku = action.sku && action.sku !== 'N/A' ? action.sku : null;
+      if (!magentoXSku) throw new Error('SKU is required for Magento actions.');
+      const newStatus = action.type === 'magento_end_listing' ? 2 : 1; // 1=enabled, 2=disabled
+      const magentoXRes = await fetch(`${magentoXBase}/rest/V1/products/${encodeURIComponent(magentoXSku)}`, {
+        method: 'PUT', headers: magentoXHeaders,
+        body: JSON.stringify({ product: { sku: magentoXSku, status: newStatus } }),
+      });
+      if (!magentoXRes.ok) throw new Error(`Magento status update failed: ${await magentoXRes.text()}`);
+      return { message: action.type === 'magento_end_listing'
+        ? `Disabled Magento product "${action.product_name || magentoXSku}"`
+        : `Enabled Magento product "${action.product_name || magentoXSku}"` };
+    }
+
     // ── PrestaShop write actions ──────────────────────────────────────────────
 
     case 'prestashop_update_inventory':
     case 'prestashop_update_price':
-    case 'prestashop_update_title': {
+    case 'prestashop_update_title':
+    case 'prestashop_update_description':
+    case 'prestashop_end_listing':
+    case 'prestashop_renew_listing': {
       const { data: psPlats } = await supabaseClient.from('platforms').select('*')
         .eq('user_id', userId).eq('platform_type', 'prestashop').or('is_active.eq.true,status.eq.connected').limit(1);
       if (!psPlats || psPlats.length === 0) throw new Error('No connected PrestaShop store found.');
@@ -1796,8 +1964,18 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         productXml = productXml.replace(/<price>[^<]*<\/price>/, `<price>${Number(action.price).toFixed(6)}</price>`);
       }
       if (action.type === 'prestashop_update_title') {
-        // Update the name in the default language
         productXml = productXml.replace(/(<name>[\s\S]*?<language[^>]*>)[\s\S]*?(<\/language>)/, `$1<![CDATA[${action.new_title}]]>$2`);
+      }
+      if (action.type === 'prestashop_update_description') {
+        productXml = productXml.replace(/(<description>[\s\S]*?<language[^>]*>)[\s\S]*?(<\/language>)/, `$1<![CDATA[${action.description}]]>$2`);
+      }
+      if (action.type === 'prestashop_end_listing') {
+        productXml = productXml.replace(/<active><!\[CDATA\[.*?\]\]><\/active>/, '<active><![CDATA[0]]></active>');
+        productXml = productXml.replace(/<active>[^<]*<\/active>/, '<active>0</active>');
+      }
+      if (action.type === 'prestashop_renew_listing') {
+        productXml = productXml.replace(/<active><!\[CDATA\[.*?\]\]><\/active>/, '<active><![CDATA[1]]></active>');
+        productXml = productXml.replace(/<active>[^<]*<\/active>/, '<active>1</active>');
       }
 
       const putRes = await fetch(`${psBase}/api/products/${psProductId}`, {
@@ -1831,8 +2009,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       }
 
       const labels: Record<string, string> = {
-        prestashop_update_price: `Updated PrestaShop price for "${action.product_name || action.sku}" to $${action.price}`,
-        prestashop_update_title: `Updated PrestaShop title for "${action.product_name || action.sku}" → "${action.new_title}"`,
+        prestashop_update_price:       `Updated PrestaShop price for "${action.product_name || action.sku}" to $${action.price}`,
+        prestashop_update_title:       `Updated PrestaShop title for "${action.product_name || action.sku}" → "${action.new_title}"`,
+        prestashop_update_description: `Updated PrestaShop description for "${action.product_name || action.sku}"`,
+        prestashop_end_listing:        `Disabled PrestaShop product "${action.product_name || action.sku}"`,
+        prestashop_renew_listing:      `Enabled PrestaShop product "${action.product_name || action.sku}"`,
       };
       return { message: labels[action.type] || 'PrestaShop update complete' };
     }
@@ -1900,6 +2081,46 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       break;
     }
 
+    case 'wish_update_title':
+    case 'wish_update_description':
+    case 'wish_update_tags':
+    case 'wish_end_listing':
+    case 'wish_renew_listing': {
+      const { data: wishXPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'wish').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!wishXPlats || wishXPlats.length === 0) throw new Error('No connected Wish store found.');
+      const wishXToken = wishXPlats[0].credentials.access_token;
+      if (!action.sku || action.sku === 'N/A') throw new Error('SKU (parent_sku) is required for Wish actions.');
+
+      const wishXParams = new URLSearchParams({ access_token: wishXToken, parent_sku: action.sku });
+      if (action.type === 'wish_update_title') {
+        wishXParams.set('name', action.new_title);
+      } else if (action.type === 'wish_update_description') {
+        wishXParams.set('description', action.description);
+      } else if (action.type === 'wish_update_tags') {
+        const tagStr = Array.isArray(action.tags) ? action.tags.join(',') : String(action.tags || '');
+        wishXParams.set('tags', tagStr);
+      } else if (action.type === 'wish_end_listing') {
+        wishXParams.set('enabled', 'false');
+      } else if (action.type === 'wish_renew_listing') {
+        wishXParams.set('enabled', 'true');
+      }
+
+      const wishXRes = await fetch(`https://merchant.wish.com/api/v3/product/update?${wishXParams}`, { method: 'POST' });
+      if (!wishXRes.ok) throw new Error(`Wish update failed: ${await wishXRes.text()}`);
+      const wishXData = await wishXRes.json();
+      if (wishXData.code !== 0) throw new Error(wishXData.message || 'Wish API error');
+
+      const wishXMsgs: Record<string, string> = {
+        wish_update_title:       `Updated Wish title for SKU "${action.sku}"`,
+        wish_update_description: `Updated Wish description for SKU "${action.sku}"`,
+        wish_update_tags:        `Updated Wish tags for SKU "${action.sku}"`,
+        wish_end_listing:        `Disabled Wish product SKU "${action.sku}"`,
+        wish_renew_listing:      `Enabled Wish product SKU "${action.sku}"`,
+      };
+      return { message: wishXMsgs[action.type] || 'Wish update complete' };
+    }
+
     // ── Walmart write actions ─────────────────────────────────────────────────
 
     case 'walmart_update_inventory':
@@ -1956,6 +2177,62 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         return { message: `Updated Walmart price for SKU "${sku}" to $${action.price}` };
       }
       break;
+    }
+
+    case 'walmart_update_title':
+    case 'walmart_update_description':
+    case 'walmart_end_listing': {
+      const { data: walmartXPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'walmart').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!walmartXPlats || walmartXPlats.length === 0) throw new Error('No connected Walmart store found.');
+      const walmartX = walmartXPlats[0];
+      const { client_id: wXClientId, client_secret: wXClientSecret } = walmartX.credentials;
+      const wXTokenRes = await fetch('https://marketplace.walmartapis.com/v3/token', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${btoa(`${wXClientId}:${wXClientSecret}`)}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'WM_SVC.NAME': 'Walmart Marketplace',
+          'WM_QOS.CORRELATION_ID': crypto.randomUUID(),
+          'Accept': 'application/json',
+        },
+        body: 'grant_type=client_credentials',
+      });
+      if (!wXTokenRes.ok) throw new Error(`Could not authenticate with Walmart: ${await wXTokenRes.text()}`);
+      const wXToken = (await wXTokenRes.json()).access_token;
+      const wXSku = action.sku && action.sku !== 'N/A' ? action.sku : null;
+      if (!wXSku) throw new Error('SKU is required for Walmart actions.');
+
+      const wXHeaders: Record<string, string> = {
+        'Authorization': `Bearer ${wXToken}`,
+        'WM_SVC.NAME': 'Walmart Marketplace',
+        'WM_QOS.CORRELATION_ID': crypto.randomUUID(),
+        'Accept': 'application/json',
+        'Content-Type': 'application/xml',
+      };
+
+      if (action.type === 'walmart_end_listing') {
+        // Retire the item — removes it from Walmart storefront
+        const retireRes = await fetch(`https://marketplace.walmartapis.com/v3/items/retirement`, {
+          method: 'PUT',
+          headers: { ...wXHeaders, 'Content-Type': 'application/xml' },
+          body: `<?xml version="1.0" encoding="UTF-8"?><ItemRetirement xmlns="http://walmart.com/"><sku>${wXSku}</sku></ItemRetirement>`,
+        });
+        if (!retireRes.ok) throw new Error(`Walmart retire failed: ${await retireRes.text()}`);
+        return { message: `Retired Walmart listing SKU "${wXSku}"` };
+      }
+
+      // Title and description updates use the MP Items maintenance feed
+      const productName = action.type === 'walmart_update_title' ? action.new_title : action.product_name || wXSku;
+      const shortDesc = action.type === 'walmart_update_description' ? action.description : '';
+      const itemXml = `<?xml version="1.0" encoding="UTF-8"?><MPItemFeed xmlns="http://walmart.com/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><MPItem><sku>${wXSku}</sku><productIdentifiers><productIdentifier><productIdType>SKU</productIdType><productId>${wXSku}</productId></productIdentifier></productIdentifiers>${action.type === 'walmart_update_title' ? `<productName>${productName}</productName>` : ''}${action.type === 'walmart_update_description' ? `<shortDescription>${shortDesc}</shortDescription>` : ''}</MPItem></MPItemFeed>`;
+      const wXUpdateRes = await fetch('https://marketplace.walmartapis.com/v3/feeds?feedType=MP_ITEM', {
+        method: 'POST', headers: { ...wXHeaders, 'Content-Type': 'application/xml' }, body: itemXml,
+      });
+      if (!wXUpdateRes.ok) throw new Error(`Walmart item update failed: ${await wXUpdateRes.text()}`);
+      return { message: action.type === 'walmart_update_title'
+        ? `Submitted Walmart title update for SKU "${wXSku}" (feed processing may take a few minutes)`
+        : `Submitted Walmart description update for SKU "${wXSku}" (feed processing may take a few minutes)` };
     }
 
     case 'etsy_update_price':
@@ -2969,29 +3246,52 @@ When the user asks you to create a product, add inventory, change a price, renam
   WooCommerce actions:
   • woo_create_product
   • woo_bulk_create_products
+  • woo_update_price
+  • woo_update_inventory
+  • woo_update_title
+  • woo_update_description
+  • woo_update_tags
+  • woo_end_listing    (sets status=draft)
+  • woo_renew_listing  (sets status=publish)
   Ecwid actions:
   • ecwid_create_product
   • ecwid_update_inventory
   • ecwid_update_price
   • ecwid_update_title
   • ecwid_update_description
+  • ecwid_update_tags    (stored as keywords in Ecwid)
+  • ecwid_end_listing    (sets enabled=false)
+  • ecwid_renew_listing  (sets enabled=true)
   Magento / Adobe Commerce actions:
   • magento_create_product
   • magento_update_inventory
   • magento_update_price
   • magento_update_title
   • magento_update_description
+  • magento_end_listing    (sets status=disabled)
+  • magento_renew_listing  (sets status=enabled)
   PrestaShop actions:
   • prestashop_create_product
   • prestashop_update_inventory
   • prestashop_update_price
   • prestashop_update_title
+  • prestashop_update_description
+  • prestashop_end_listing   (sets active=0)
+  • prestashop_renew_listing (sets active=1)
   Wish Marketplace actions:
   • wish_update_inventory
   • wish_update_price
+  • wish_update_title        — { type, sku, new_title }
+  • wish_update_description  — { type, sku, description }
+  • wish_update_tags         — { type, sku, tags: ["tag1","tag2"] }
+  • wish_end_listing         — { type, sku }
+  • wish_renew_listing       — { type, sku }
   Walmart Marketplace actions:
   • walmart_update_inventory
   • walmart_update_price
+  • walmart_update_title       — { type, sku, new_title } (submitted as feed, ~minutes to process)
+  • walmart_update_description — { type, sku, description } (submitted as feed, ~minutes to process)
+  • walmart_end_listing        — { type, sku } (retires item from Walmart storefront)
   Etsy Shop actions:
   • etsy_update_price       — { type, product_name, listing_id?, price }
   • etsy_update_inventory   — { type, product_name, listing_id?, quantity }
@@ -3021,7 +3321,9 @@ Platform action routing:
 - ⚠️ Etsy tags: max 13, lowercase, no special characters except spaces. Always supply as an array.
 - ⚠️ For Wish and Walmart, always include the SKU — these platforms identify products by SKU only.
 - ⚠️ For Magento, always include the SKU — Magento's REST API uses SKU as the product identifier.
-- ⚠️ PrestaShop SEO/description updates: use prestashop_update_title for title changes; description updates require manual editing in PrestaShop admin (not yet supported via API).
+- ⚠️ For Wish and Walmart title/description updates, SKU is required — both platforms identify products by SKU only.
+- ⚠️ Walmart title/description changes are submitted as feeds and may take a few minutes to reflect on the storefront. Mention this to the user.
+- ⚠️ WooCommerce update actions require either a SKU or product name to resolve the product ID. Prefer SKU when available.
 
 Context continuity rules (prevents executing wrong actions from short replies):
 - When the user gives a short follow-up reply ("yes", "do it", "draft", "archived", "go ahead", "that one", "sounds good"), ALWAYS apply it to the EXACT item and action from the immediately preceding exchange — not anything else.
@@ -3100,16 +3402,32 @@ To create a single product on WooCommerce:
 To bulk-create multiple products on WooCommerce (e.g. from an Etsy CSV migration — single confirmation for the whole batch):
 [ORION_ACTION:{"type":"woo_bulk_create_products","products":[{"name":"Product 1","sku":"SKU-001","price":"19.99","quantity":5,"description":"...","images":["https://..."],"tags":["spring","cotton"]},{"name":"Product 2","sku":"SKU-002","price":"24.99","quantity":10,"description":"...","images":["https://..."],"tags":["summer"]}]}]
 
+To update a WooCommerce product's price, inventory, title, description, or tags:
+[ORION_ACTION:{"type":"woo_update_price","product_name":"Product Title","sku":"SKU-001","price":34.99}]
+[ORION_ACTION:{"type":"woo_update_inventory","product_name":"Product Title","sku":"SKU-001","quantity":25}]
+[ORION_ACTION:{"type":"woo_update_title","product_name":"Product Title","sku":"SKU-001","new_title":"New Product Title"}]
+[ORION_ACTION:{"type":"woo_update_description","product_name":"Product Title","sku":"SKU-001","description":"Updated product description here"}]
+[ORION_ACTION:{"type":"woo_update_tags","product_name":"Product Title","sku":"SKU-001","tags":["spring","cotton","women"]}]
+
+To deactivate or reactivate a WooCommerce product:
+[ORION_ACTION:{"type":"woo_end_listing","product_name":"Product Title","sku":"SKU-001"}]
+[ORION_ACTION:{"type":"woo_renew_listing","product_name":"Product Title","sku":"SKU-001"}]
+
 — Ecwid Actions —
 
 To create a product on Ecwid:
 [ORION_ACTION:{"type":"ecwid_create_product","title":"Product Name","sku":"SKU-001","price":29.99,"quantity":10,"description":"Full description here"}]
 
-To update Ecwid inventory, price, title, or description:
+To update Ecwid inventory, price, title, description, or keywords (tags):
 [ORION_ACTION:{"type":"ecwid_update_inventory","product_name":"Product Name","sku":"SKU-001","quantity":15}]
 [ORION_ACTION:{"type":"ecwid_update_price","product_name":"Product Name","sku":"SKU-001","price":24.99}]
 [ORION_ACTION:{"type":"ecwid_update_title","product_name":"Product Name","sku":"SKU-001","new_title":"New Product Name"}]
 [ORION_ACTION:{"type":"ecwid_update_description","product_name":"Product Name","sku":"SKU-001","description":"Updated description text here"}]
+[ORION_ACTION:{"type":"ecwid_update_tags","product_name":"Product Name","sku":"SKU-001","tags":["spring","cotton","women"]}]
+
+To disable or enable an Ecwid product:
+[ORION_ACTION:{"type":"ecwid_end_listing","product_name":"Product Name","sku":"SKU-001"}]
+[ORION_ACTION:{"type":"ecwid_renew_listing","product_name":"Product Name","sku":"SKU-001"}]
 
 — Magento / Adobe Commerce Actions —
 
@@ -3122,27 +3440,50 @@ To update Magento inventory, price, title, or description (SKU required):
 [ORION_ACTION:{"type":"magento_update_title","product_name":"Product Name","sku":"SKU-001","new_title":"New Product Name"}]
 [ORION_ACTION:{"type":"magento_update_description","product_name":"Product Name","sku":"SKU-001","description":"Updated description here"}]
 
+To disable or enable a Magento product (SKU required):
+[ORION_ACTION:{"type":"magento_end_listing","product_name":"Product Name","sku":"SKU-001"}]
+[ORION_ACTION:{"type":"magento_renew_listing","product_name":"Product Name","sku":"SKU-001"}]
+
 — PrestaShop Actions —
 
 To create a product on PrestaShop:
 [ORION_ACTION:{"type":"prestashop_create_product","title":"Product Name","sku":"SKU-001","price":29.99,"quantity":10}]
 
-To update PrestaShop inventory, price, or title:
+To update PrestaShop inventory, price, title, or description:
 [ORION_ACTION:{"type":"prestashop_update_inventory","product_name":"Product Name","sku":"SKU-001","quantity":15}]
 [ORION_ACTION:{"type":"prestashop_update_price","product_name":"Product Name","sku":"SKU-001","price":19.99}]
 [ORION_ACTION:{"type":"prestashop_update_title","product_name":"Product Name","sku":"SKU-001","new_title":"New Product Name"}]
+[ORION_ACTION:{"type":"prestashop_update_description","product_name":"Product Name","sku":"SKU-001","description":"Updated full product description here"}]
+
+To disable or enable a PrestaShop product:
+[ORION_ACTION:{"type":"prestashop_end_listing","product_name":"Product Name","sku":"SKU-001"}]
+[ORION_ACTION:{"type":"prestashop_renew_listing","product_name":"Product Name","sku":"SKU-001"}]
 
 — Wish Marketplace Actions —
 
-To update Wish inventory or price (SKU required):
+To update Wish inventory, price, title, description, or tags (SKU required):
 [ORION_ACTION:{"type":"wish_update_inventory","product_name":"Product Name","sku":"SKU-001","quantity":5}]
 [ORION_ACTION:{"type":"wish_update_price","product_name":"Product Name","sku":"SKU-001","price":12.99}]
+[ORION_ACTION:{"type":"wish_update_title","product_name":"Product Name","sku":"SKU-001","new_title":"New Product Title"}]
+[ORION_ACTION:{"type":"wish_update_description","product_name":"Product Name","sku":"SKU-001","description":"Updated product description here"}]
+[ORION_ACTION:{"type":"wish_update_tags","product_name":"Product Name","sku":"SKU-001","tags":["fashion","women","summer"]}]
+
+To disable or enable a Wish product (SKU required):
+[ORION_ACTION:{"type":"wish_end_listing","product_name":"Product Name","sku":"SKU-001"}]
+[ORION_ACTION:{"type":"wish_renew_listing","product_name":"Product Name","sku":"SKU-001"}]
 
 — Walmart Marketplace Actions —
 
 To update Walmart inventory or price (SKU required):
 [ORION_ACTION:{"type":"walmart_update_inventory","product_name":"Product Name","sku":"SKU-001","quantity":25}]
 [ORION_ACTION:{"type":"walmart_update_price","product_name":"Product Name","sku":"SKU-001","price":49.99}]
+
+To update Walmart title or description (SKU required — submitted as a feed, visible in a few minutes):
+[ORION_ACTION:{"type":"walmart_update_title","product_name":"Product Name","sku":"SKU-001","new_title":"New Product Title"}]
+[ORION_ACTION:{"type":"walmart_update_description","product_name":"Product Name","sku":"SKU-001","description":"Updated short description here"}]
+
+To retire (remove) a Walmart listing (SKU required):
+[ORION_ACTION:{"type":"walmart_end_listing","product_name":"Product Name","sku":"SKU-001"}]
 
 — Etsy Shop Actions —
 
