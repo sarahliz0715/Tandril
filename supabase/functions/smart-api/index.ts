@@ -107,6 +107,7 @@ function summarizeOrionAction(action: any): string {
     case 'woo_create_coupon':       return `Created WooCommerce coupon ${action.code || ''}`;
     case 'woo_delete_coupon':       return `Deleted WooCommerce coupon ${action.code || action.coupon_id || ''}`;
     case 'cross_platform_create':   return `Listed "${action.title || name}" on ${action.platforms?.join(', ') || 'all connected platforms'}`;
+    case 'bulk_ai_content': return `AI content rewrite: ${(action.updates || []).length} product${(action.updates || []).length !== 1 ? 's' : ''}`;
     case 'update_price':        return `Updated price for "${name}" → $${action.price}`;
     case 'update_title':        return `Updated title of "${name}" → "${action.new_title}"`;
     case 'update_tags':
@@ -4114,6 +4115,120 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     }
 
     default:
+    case 'bulk_ai_content': {
+      // Applies AI-generated content to multiple products in one confirmed batch.
+      // Orion generates the content (titles/descriptions/tags/etc.), then packages it
+      // into this single action so the user confirms once instead of per-product.
+      //
+      // action.updates — array of product content objects:
+      //   { product_name, sku, platform_type?, title?, description?, tags?, seo_title?, seo_description?, url_handle?, image_alt? }
+      //
+      // Each product update runs the minimum necessary action(s):
+      //   - title → update_title / etsy_update_title / ebay_update_title / woo_update_title / etc.
+      //   - description → update_description / etsy_update_description / etc.
+      //   - tags → update_tags / etsy_update_tags / woo_update_tags / etc.
+      //   - seo_title + seo_description → update_seo_listing (Shopify only)
+      //   - url_handle → update_url_handle (Shopify only)
+      //   - image_alt → update_image_alt
+      // Multiple fields for the same product are bundled as a multi_action.
+
+      const updates: any[] = action.updates || [];
+      if (updates.length === 0) throw new Error('updates array is required and must be non-empty for bulk_ai_content.');
+      if (updates.length > 50) throw new Error('bulk_ai_content supports up to 50 products per batch. Split into multiple batches.');
+
+      const bulkResults: Array<{ product: string; success: boolean; message: string }> = [];
+
+      for (const u of updates) {
+        const productLabel = u.product_name || u.sku || 'Unknown';
+        const pt = (u.platform_type || 'shopify').toLowerCase();
+
+        try {
+          // Build the list of sub-actions for this product
+          const subActions: any[] = [];
+
+          if (u.title) {
+            if (pt === 'shopify') subActions.push({ type: 'update_title', new_title: u.title });
+            else if (pt === 'etsy') subActions.push({ type: 'etsy_update_title', title: u.title, product_name: u.product_name, sku: u.sku, listing_id: u.listing_id });
+            else if (pt === 'ebay') subActions.push({ type: 'ebay_update_title', new_title: u.title, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'woocommerce') subActions.push({ type: 'woo_update_title', new_title: u.title, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'ecwid') subActions.push({ type: 'ecwid_update_title', title: u.title, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'magento') subActions.push({ type: 'magento_update_title', new_title: u.title, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'prestashop') subActions.push({ type: 'prestashop_update_title', title: u.title, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'tiktok_shop') subActions.push({ type: 'tiktok_update_title', new_title: u.title, product_name: u.product_name, sku: u.sku });
+          }
+
+          if (u.description) {
+            if (pt === 'shopify') subActions.push({ type: 'update_description', description: u.description });
+            else if (pt === 'etsy') subActions.push({ type: 'etsy_update_description', description: u.description, product_name: u.product_name, sku: u.sku, listing_id: u.listing_id });
+            else if (pt === 'ebay') subActions.push({ type: 'ebay_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'woocommerce') subActions.push({ type: 'woo_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'ecwid') subActions.push({ type: 'ecwid_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'magento') subActions.push({ type: 'magento_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'prestashop') subActions.push({ type: 'prestashop_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'tiktok_shop') subActions.push({ type: 'tiktok_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
+          }
+
+          if (u.tags) {
+            if (pt === 'shopify') subActions.push({ type: 'update_tags', tags: u.tags });
+            else if (pt === 'etsy') subActions.push({ type: 'etsy_update_tags', tags: u.tags, product_name: u.product_name, sku: u.sku, listing_id: u.listing_id });
+            else if (pt === 'woocommerce') subActions.push({ type: 'woo_update_tags', tags: u.tags, product_name: u.product_name, sku: u.sku });
+          }
+
+          if ((u.seo_title || u.seo_description) && pt === 'shopify') {
+            subActions.push({ type: 'update_seo_listing', seo_title: u.seo_title, seo_description: u.seo_description });
+          }
+
+          if (u.url_handle && pt === 'shopify') {
+            subActions.push({ type: 'update_url_handle', new_handle: u.url_handle });
+          }
+
+          if (u.image_alt) {
+            subActions.push({ type: 'update_image_alt', alt_text: u.image_alt });
+          }
+
+          if (subActions.length === 0) {
+            bulkResults.push({ product: productLabel, success: false, message: 'No content fields specified (title/description/tags/seo_title/seo_description/url_handle/image_alt).' });
+            continue;
+          }
+
+          // Attach the product identifier to each sub-action that needs it
+          const enrichedSubActions = subActions.map((sa: any) => ({
+            ...sa,
+            product_name: sa.product_name || u.product_name,
+            sku: sa.sku || u.sku,
+          }));
+
+          let result: any;
+          if (enrichedSubActions.length === 1) {
+            result = await executeStoreAction(supabaseClient, userId, enrichedSubActions[0]);
+          } else {
+            // Bundle multiple field updates as a multi_action
+            result = await executeStoreAction(supabaseClient, userId, {
+              type: 'multi_action',
+              product_name: u.product_name,
+              sku: u.sku,
+              description: `AI content update: ${Object.keys(u).filter(k => ['title','description','tags','seo_title','seo_description','url_handle','image_alt'].includes(k)).join(', ')}`,
+              actions: enrichedSubActions,
+            });
+          }
+
+          bulkResults.push({ product: productLabel, success: true, message: result?.message || 'Updated' });
+        } catch (err: any) {
+          bulkResults.push({ product: productLabel, success: false, message: `Error: ${err.message}` });
+        }
+      }
+
+      const successCount = bulkResults.filter(r => r.success).length;
+      const failCount = bulkResults.filter(r => !r.success).length;
+      const summaryLines = bulkResults.map(r => `• **${r.product}**: ${r.success ? '✓' : '✗'} ${r.message}`).join('\n');
+
+      return {
+        message: `Bulk AI content update complete: ${successCount}/${updates.length} products updated${failCount > 0 ? `, ${failCount} failed` : ''}.\n\n${summaryLines}`,
+        results: bulkResults,
+      };
+    }
+
+    default:
       throw new Error(`Unknown action type: ${action.type}`);
   }
 }
@@ -4986,6 +5101,10 @@ When the user asks you to create a product, add inventory, change a price, renam
                                etsy_overrides?: { who_made?, when_made?, taxonomy_id?, state? },
                                ebay_overrides?: { condition_id?, category_id?, marketplace_id? } }
                              Supported platforms: shopify, etsy, ebay, woocommerce, ecwid, magento, prestashop, tiktok_shop
+  Bulk AI content generation:
+  • bulk_ai_content — { type, updates: [{product_name, sku, platform_type?, title?, description?, tags?, seo_title?, seo_description?, url_handle?, image_alt?}, ...] }
+                    Max 50 products per batch. Each product update only needs the fields being changed.
+                    Applies AI-generated content to many products in one confirmed action (title/description/tags/SEO).
 ❌ FORBIDDEN (will always fail): update_product, update_seo, bulk_update, add_image, set_image, woo_update_product, or any other type not in the list above.
 
 Platform action routing:
@@ -5336,6 +5455,33 @@ List with eBay-specific overrides:
 ⚠️ If the user doesn't specify platforms, include ALL connected platforms. Orion will gracefully skip any platform it can't create on.
 ⚠️ Etsy listings created via cross_platform_create default to draft state unless etsy_overrides.state is set to "active".
 ⚠️ eBay cross-platform listings require condition_id and ideally category_id in ebay_overrides — ask the user if unknown.
+
+— Bulk AI Content Generation —
+
+Use bulk_ai_content to rewrite titles, descriptions, tags, and SEO fields across many products in one confirmed batch.
+YOU generate the AI-optimized content; this action applies it all at once so the user confirms once instead of product-by-product.
+
+Rewrite titles + descriptions for a batch of Shopify products (up to 50):
+[ORION_ACTION:{"type":"bulk_ai_content","updates":[{"product_name":"Basic White Tee","sku":"BWT-001","platform_type":"shopify","title":"Classic Everyday White T-Shirt — 100% Cotton Crew Neck","description":"The perfect everyday essential. Our Classic White T-Shirt is made from 100% ring-spun cotton for ultra-soft comfort that only gets better with every wash. Relaxed crew neck, reinforced stitching, and a timeless fit that works for any occasion — from beach days to brunches.","tags":["white tee","cotton t-shirt","crew neck","everyday basics","casual shirt"],"seo_title":"Classic White Cotton T-Shirt | Everyday Essential","seo_description":"Ultra-soft 100% cotton white tee — relaxed fit, crew neck, built to last. Free shipping on orders over $35."},{"product_name":"Blue Denim Shirt","sku":"BDS-002","platform_type":"shopify","title":"Casual Chambray Denim Shirt — Lightweight Button-Down","description":"A wardrobe staple reinvented in lightweight chambray denim. This button-down shirt breathes easy in warm weather yet layers perfectly when temperatures drop. Classic chest pockets, a relaxed fit, and a washed finish that looks broken in from day one.","tags":["denim shirt","chambray","button-down","casual","layering shirt"],"seo_title":"Lightweight Chambray Denim Shirt | Casual Button-Down","seo_description":"Breathable chambray denim button-down — relaxed fit, classic style, perfect year-round. Shop now."}]}]
+
+Rewrite Etsy tags + titles only (no description):
+[ORION_ACTION:{"type":"bulk_ai_content","updates":[{"product_name":"Handmade Ceramic Mug","listing_id":"1234567890","platform_type":"etsy","title":"Handmade Stoneware Coffee Mug — Speckled Glaze 12oz","tags":["ceramic mug","handmade pottery","coffee lover gift","stoneware mug","kitchen gift","pottery mug","artisan mug","unique mug","housewarming gift","coffee mug"]},{"product_name":"Macrame Wall Hanging","listing_id":"9876543210","platform_type":"etsy","title":"Bohemian Macrame Wall Hanging — Handwoven Natural Cotton","tags":["macrame wall hanging","boho decor","wall art","woven tapestry","natural cotton","handmade decor","bohemian home","fiber art","neutral wall art","minimalist decor"]}]}]
+
+Update only image alt text for SEO (works on Shopify):
+[ORION_ACTION:{"type":"bulk_ai_content","updates":[{"product_name":"Leather Wallet","sku":"LW-BRN-001","platform_type":"shopify","image_alt":"Brown full-grain leather bifold wallet open showing card slots"},{"product_name":"Silver Ring Size 7","sku":"RING-SS-7","platform_type":"shopify","image_alt":"Sterling silver band ring size 7 on white background"}]}]
+
+**Bulk Content Generation Workflow:**
+When the user asks to "rewrite my catalog", "SEO optimize everything", or "improve all my product listings", follow this workflow:
+1. Review the product list in the store context above to understand titles, SKUs, and platforms
+2. Generate AI-optimized content for each product (title, description, tags/SEO as relevant for the platform)
+3. Package ALL content into a SINGLE bulk_ai_content action block — one confirmation, all applied
+4. Process up to 25 products per batch. If the catalog has more, tell the user "I'll do the first 25 now, then continue in the next batch."
+5. After the user confirms, proceed with the next batch if needed
+
+⚠️ bulk_ai_content platform_type must match the product's actual platform. Default to 'shopify' if platform_type is unknown.
+⚠️ Etsy: tags only (no seo_title/seo_description). Max 13 tags, lowercase, no special chars.
+⚠️ For non-Shopify platforms, seo_title, seo_description, and url_handle are ignored (Shopify-only fields).
+⚠️ Max 50 products per bulk_ai_content action. For catalogs over 50 products, split into multiple batches.
 
 To make MULTIPLE changes to ONE product (title + metafield + alt text, etc.) — one confirmation card, all run together:
 [ORION_ACTION:{"type":"multi_action","product_name":"Tie Dye T-Shirt","sku":"TDT-001","description":"Update title, SEO alt text, and material metafield","actions":[{"type":"update_title","new_title":"Vibrant Handmade Tie Dye T-Shirt"},{"type":"update_image_alt","alt_text":"Colorful handmade tie dye t-shirt on white background"},{"type":"update_metafield","metafield_key":"material","metafield_value":"100% Cotton","metafield_type":"single_line_text_field"}]}]
