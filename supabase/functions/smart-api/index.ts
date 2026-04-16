@@ -3,6 +3,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { signSpApiRequest, refreshLwaToken } from '../_shared/awsSigV4.ts';
 
 // Bracket-aware extraction of [ORION_ACTION:{...}] blocks.
 // The naive regex /\[ORION_ACTION:([\s\S]*?)\]/ stops at the first ] it finds,
@@ -106,6 +107,13 @@ function summarizeOrionAction(action: any): string {
     case 'ebay_end_promotion':      return `Ended eBay promotion ${action.promotion_id}`;
     case 'woo_create_coupon':       return `Created WooCommerce coupon ${action.code || ''}`;
     case 'woo_delete_coupon':       return `Deleted WooCommerce coupon ${action.code || action.coupon_id || ''}`;
+    case 'amazon_update_price':       return `Updated Amazon price for SKU "${action.sku}" → $${action.price}`;
+    case 'amazon_update_inventory':   return `Updated Amazon FBM inventory for SKU "${action.sku}" → ${action.quantity} units`;
+    case 'amazon_update_title':       return `Updated Amazon title for SKU "${action.sku}"`;
+    case 'amazon_update_description': return `Updated Amazon description for SKU "${action.sku}"`;
+    case 'amazon_end_listing':        return `Ended Amazon listing for SKU "${action.sku}"`;
+    case 'amazon_renew_listing':      return `Renewed Amazon listing for SKU "${action.sku}"`;
+    case 'amazon_create_listing':     return `Created Amazon listing: "${action.title || action.sku}"`;
     case 'cross_platform_create':   return `Listed "${action.title || name}" on ${action.platforms?.join(', ') || 'all connected platforms'}`;
     case 'bulk_ai_content': return `AI content rewrite: ${(action.updates || []).length} product${(action.updates || []).length !== 1 ? 's' : ''}`;
     case 'get_messages':  return `Fetched customer messages from ${action.platform_type || 'all platforms'}`;
@@ -682,6 +690,72 @@ async function getEbayClientForActions(supabaseClient: any, userId: string) {
 }
 
 // ─── TikTok Shop Client Helper ────────────────────────────────────────────────
+// Amazon SP-API helper — refreshes LWA token if near expiry, returns signed-request context.
+// All SP-API calls need both the LWA access token (x-amz-access-token) AND AWS SigV4
+// using app-level IAM credentials (AMAZON_AWS_ACCESS_KEY_ID / AMAZON_AWS_SECRET_ACCESS_KEY).
+async function getAmazonClientForActions(supabaseClient: any, userId: string) {
+  const { data: amzPlatforms } = await supabaseClient
+    .from('platforms').select('*')
+    .eq('user_id', userId).eq('platform_type', 'amazon')
+    .or('is_active.eq.true,status.eq.connected').limit(1);
+
+  if (!amzPlatforms || amzPlatforms.length === 0) {
+    throw new Error('No connected Amazon Seller account found. Connect one in the Platforms tab first.');
+  }
+
+  const platform = amzPlatforms[0];
+  const creds = platform.credentials;
+  const meta = platform.metadata || {};
+
+  const awsKeyId = Deno.env.get('AMAZON_AWS_ACCESS_KEY_ID');
+  const awsSecret = Deno.env.get('AMAZON_AWS_SECRET_ACCESS_KEY');
+  const clientId = Deno.env.get('AMAZON_CLIENT_ID');
+  const clientSecret = Deno.env.get('AMAZON_CLIENT_SECRET');
+  if (!awsKeyId || !awsSecret) throw new Error('Amazon AWS credentials not configured (AMAZON_AWS_ACCESS_KEY_ID / AMAZON_AWS_SECRET_ACCESS_KEY).');
+  if (!clientId || !clientSecret) throw new Error('Amazon LWA credentials not configured (AMAZON_CLIENT_ID / AMAZON_CLIENT_SECRET).');
+
+  // Refresh LWA token if expired or within 5 min of expiry
+  const expiresAt = meta.token_expires_at ? new Date(meta.token_expires_at).getTime() : 0;
+  let accessToken = creds.access_token;
+  if (!meta.token_expires_at || Date.now() > expiresAt - 5 * 60 * 1000) {
+    if (creds.refresh_token) {
+      try {
+        const { accessToken: newToken, expiresAt: newExpiry } = await refreshLwaToken(creds.refresh_token, clientId, clientSecret);
+        accessToken = newToken;
+        await supabaseClient.from('platforms').update({
+          credentials: { ...creds, access_token: newToken },
+          metadata: { ...meta, token_expires_at: newExpiry },
+        }).eq('id', platform.id);
+      } catch (e: any) {
+        console.warn('[Amazon] Token refresh failed, using cached token:', e.message);
+      }
+    }
+  }
+
+  const apiBase = meta.api_base || 'https://sellingpartnerapi-na.amazon.com';
+  const region = meta.region || 'us-east-1';
+  const sellerId = meta.seller_id || '';
+  const marketplaceId = meta.marketplace_id || 'ATVPDKIKX0DER';
+
+  // Helper that signs and executes an SP-API request
+  async function amazonFetch(method: string, path: string, queryParams: Record<string, string>, body: any): Promise<any> {
+    const url = new URL(`${apiBase}${path}`);
+    Object.entries(queryParams).forEach(([k, v]) => url.searchParams.set(k, v));
+    const bodyStr = body ? JSON.stringify(body) : '';
+    const extraHdrs: Record<string, string> = { 'x-amz-access-token': accessToken };
+    if (bodyStr) extraHdrs['Content-Type'] = 'application/json';
+    const signedHdrs = await signSpApiRequest(method, url, bodyStr, region, awsKeyId, awsSecret, extraHdrs);
+    const res = await fetch(url.toString(), {
+      method,
+      headers: signedHdrs,
+      ...(bodyStr ? { body: bodyStr } : {}),
+    });
+    return { res, ok: res.ok, status: res.status };
+  }
+
+  return { apiBase, region, sellerId, marketplaceId, accessToken, awsKeyId, awsSecret, amazonFetch };
+}
+
 // Fetches the connected TikTok Shop platform, refreshes the token if needed,
 // resolves the shop_id (cached in metadata after first lookup), and returns
 // ready-to-use headers + apiBase + shopId.
@@ -1002,6 +1076,53 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         }
       } catch (e: any) {
         console.warn('[smart-api] TikTok Shop inventory fetch failed:', e.message);
+      }
+
+      // Fetch Amazon FBA inventory
+      try {
+        const { data: amzPlats } = await supabaseClient
+          .from('platforms').select('*')
+          .eq('user_id', userId).eq('platform_type', 'amazon')
+          .or('is_active.eq.true,status.eq.connected');
+
+        for (const amzPlat of (amzPlats || [])) {
+          const { amazonFetch, marketplaceId } = await getAmazonClientForActions(supabaseClient, userId).catch(() => ({ amazonFetch: null, marketplaceId: null }));
+          if (!amazonFetch) continue;
+
+          const { res, ok } = await amazonFetch('GET', '/fba/inventory/v1/summaries', {
+            details: 'true',
+            granularityType: 'Marketplace',
+            granularityId: marketplaceId,
+            marketplaceIds: marketplaceId,
+          }, null);
+          if (!ok) continue;
+          const invData = await res.json();
+
+          for (const s of (invData.payload?.inventorySummaries || [])) {
+            const qty = s.inventoryDetails?.fulfillableQuantity ?? s.totalQuantity ?? 0;
+            let status = 'active';
+            if (qty === 0) status = 'out_of_stock';
+            else if (qty <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+
+            inventory.push({
+              id: `amazon-${s.asin}-${s.sellerSku}`,
+              product_name: s.productName || s.asin || 'Amazon Product',
+              sku: s.sellerSku || s.asin || 'N/A',
+              category: s.productType || '',
+              status,
+              total_stock: qty,
+              base_price: 0, // FBA inventory summary doesn't include price
+              image_url: null,
+              vendor: 'Amazon FBA',
+              tags: '',
+              platform_listings: [{ listing_id: s.asin, platform: 'Amazon' }],
+              source: 'amazon',
+              asin: s.asin,
+            });
+          }
+        }
+      } catch (e: any) {
+        console.warn('[smart-api] Amazon inventory fetch failed:', e.message);
       }
 
       return { inventory };
@@ -1756,6 +1877,131 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: `Created TikTok Shop product: "${action.title}" (ID: ${data.data?.product_id || 'unknown'})` };
     }
 
+    // ── Amazon SP-API write actions ───────────────────────────────────────────
+
+    case 'amazon_update_price':
+    case 'amazon_update_inventory':
+    case 'amazon_update_title':
+    case 'amazon_update_description':
+    case 'amazon_end_listing':
+    case 'amazon_renew_listing': {
+      const { amazonFetch, sellerId: amzSellerId, marketplaceId: amzMarketplaceId } = await getAmazonClientForActions(supabaseClient, userId);
+      const amzSku = action.sku;
+      if (!amzSku) throw new Error('sku is required for all Amazon write actions.');
+
+      const encodedSku = encodeURIComponent(amzSku);
+      const amzQS = { marketplaceIds: amzMarketplaceId, issueLocale: 'en_US' };
+
+      let patches: any[];
+
+      if (action.type === 'amazon_update_price') {
+        if (action.price == null) throw new Error('price is required for amazon_update_price.');
+        patches = [{
+          op: 'replace',
+          path: '/attributes/purchasableOffer',
+          value: [{
+            currency: 'USD',
+            our_price: [{ schedule: [{ value_with_tax: Number(action.price) }] }],
+            marketplace_id: amzMarketplaceId,
+          }],
+        }];
+      } else if (action.type === 'amazon_update_inventory') {
+        // FBM only — FBA inventory is managed by Amazon fulfillment centers
+        if (action.quantity == null) throw new Error('quantity is required for amazon_update_inventory.');
+        patches = [{
+          op: 'replace',
+          path: '/attributes/fulfillmentAvailability',
+          value: [{ fulfillment_channel_code: 'DEFAULT', quantity: Number(action.quantity) }],
+        }];
+      } else if (action.type === 'amazon_update_title') {
+        if (!action.new_title) throw new Error('new_title is required for amazon_update_title.');
+        patches = [{
+          op: 'replace',
+          path: '/attributes/item_name',
+          value: [{ value: action.new_title, marketplace_id: amzMarketplaceId, language_tag: 'en_US' }],
+        }];
+      } else if (action.type === 'amazon_update_description') {
+        if (!action.description) throw new Error('description is required for amazon_update_description.');
+        patches = [{
+          op: 'replace',
+          path: '/attributes/product_description',
+          value: [{ value: action.description, marketplace_id: amzMarketplaceId, language_tag: 'en_US' }],
+        }];
+      } else if (action.type === 'amazon_end_listing') {
+        // Set FBM quantity to 0 — the safest "end" without deleting the ASIN
+        patches = [{
+          op: 'replace',
+          path: '/attributes/fulfillmentAvailability',
+          value: [{ fulfillment_channel_code: 'DEFAULT', quantity: 0 }],
+        }];
+      } else { // amazon_renew_listing
+        const renewQty = action.quantity ?? 1;
+        patches = [{
+          op: 'replace',
+          path: '/attributes/fulfillmentAvailability',
+          value: [{ fulfillment_channel_code: 'DEFAULT', quantity: Number(renewQty) }],
+        }];
+      }
+
+      const patchBody = { productType: action.product_type || 'PRODUCT', patches };
+      const { res, ok, status } = await amazonFetch(
+        'PATCH',
+        `/listings/2021-08-01/items/${amzSellerId}/${encodedSku}`,
+        amzQS,
+        patchBody
+      );
+      if (!ok && status !== 200 && status !== 202) {
+        throw new Error(`Amazon ${action.type} failed (HTTP ${status}): ${await res.text()}`);
+      }
+
+      const successMsg: Record<string, string> = {
+        amazon_update_price:       `Updated Amazon price for SKU "${amzSku}" to $${action.price}`,
+        amazon_update_inventory:   `Updated Amazon FBM inventory for SKU "${amzSku}" to ${action.quantity} units`,
+        amazon_update_title:       `Updated Amazon title for SKU "${amzSku}" to "${action.new_title}"`,
+        amazon_update_description: `Updated Amazon description for SKU "${amzSku}"`,
+        amazon_end_listing:        `Amazon listing for SKU "${amzSku}" set to 0 quantity (effectively unlisted)`,
+        amazon_renew_listing:      `Amazon listing for SKU "${amzSku}" restored to ${action.quantity ?? 1} units`,
+      };
+      return { message: successMsg[action.type] };
+    }
+
+    case 'amazon_create_listing': {
+      // Creates a new Amazon listing via the Listings API.
+      // Required: title, sku, price, product_type (Amazon product type, e.g. "SHIRT")
+      // Optional: description, bullet_points (array, max 5), brand, quantity, images (array of {url})
+      const { amazonFetch: amzCreateFetch, sellerId: amzCreateSellerId, marketplaceId: amzCreateMktId } = await getAmazonClientForActions(supabaseClient, userId);
+      if (!action.sku) throw new Error('sku is required for amazon_create_listing.');
+      if (!action.title) throw new Error('title is required for amazon_create_listing.');
+      if (action.price == null) throw new Error('price is required for amazon_create_listing.');
+      if (!action.product_type) throw new Error('product_type is required for amazon_create_listing (e.g. "SHIRT", "HOME", "SHOES"). Amazon requires a product type for category mapping.');
+
+      const listingBody: any = {
+        productType: action.product_type,
+        requirements: 'LISTING',
+        attributes: {
+          item_name: [{ value: action.title, marketplace_id: amzCreateMktId, language_tag: 'en_US' }],
+          purchasableOffer: [{ currency: 'USD', our_price: [{ schedule: [{ value_with_tax: Number(action.price) }] }], marketplace_id: amzCreateMktId }],
+          ...(action.description ? { product_description: [{ value: action.description, marketplace_id: amzCreateMktId, language_tag: 'en_US' }] } : {}),
+          ...(action.brand ? { brand: [{ value: action.brand, marketplace_id: amzCreateMktId, language_tag: 'en_US' }] } : {}),
+          ...(action.bullet_points?.length ? {
+            bullet_point: action.bullet_points.slice(0, 5).map((bp: string) => ({ value: bp, marketplace_id: amzCreateMktId, language_tag: 'en_US' })),
+          } : {}),
+          fulfillmentAvailability: [{ fulfillment_channel_code: 'DEFAULT', quantity: Number(action.quantity ?? 0) }],
+        },
+      };
+
+      const { res: createRes, ok: createOk, status: createStatus } = await amzCreateFetch(
+        'PUT',
+        `/listings/2021-08-01/items/${amzCreateSellerId}/${encodeURIComponent(action.sku)}`,
+        { marketplaceIds: amzCreateMktId, issueLocale: 'en_US' },
+        listingBody
+      );
+      if (!createOk && createStatus !== 200 && createStatus !== 202) {
+        throw new Error(`Amazon listing create failed (HTTP ${createStatus}): ${await createRes.text()}`);
+      }
+      return { message: `Created Amazon listing "${action.title}" (SKU: ${action.sku}). Amazon reviews new listings before they go live — check Seller Central for status.` };
+    }
+
     // ── Order management actions ──────────────────────────────────────────────
     // Cross-platform: each action looks up the right platform via platform_type.
 
@@ -1912,6 +2158,42 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
                   });
                 }
               }
+            }
+          }
+
+          // ── Amazon ───────────────────────────────────────────────────────────
+          if (plat.platform_type === 'amazon') {
+            try {
+              const { amazonFetch: amzOrderFetch, marketplaceId: amzMktId } = await getAmazonClientForActions(supabaseClient, userId);
+              const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+              const { res: ordersRes, ok: ordersOk } = await amzOrderFetch('GET', '/orders/v0/orders', {
+                MarketplaceIds: amzMktId,
+                CreatedAfter: thirtyDaysAgo,
+                MaxResultsPerPage: '100',
+              }, null);
+              if (ordersOk) {
+                const ordersData = await ordersRes.json();
+                for (const o of (ordersData.payload?.Orders || [])) {
+                  rows.push({
+                    user_id: userId,
+                    platform_type: 'amazon',
+                    platform_order_id: o.AmazonOrderId,
+                    order_number: o.AmazonOrderId,
+                    status: o.OrderStatus === 'Shipped' ? 'shipped' : o.OrderStatus === 'Canceled' ? 'cancelled' : o.OrderStatus === 'Refunded' ? 'refunded' : 'processing',
+                    fulfillment_status: o.OrderStatus === 'Shipped' ? 'fulfilled' : o.FulfillmentChannel === 'AFN' ? 'fulfilled' : 'unfulfilled',
+                    customer_name: o.BuyerInfo?.BuyerName || 'Amazon Buyer',
+                    customer_email: o.BuyerInfo?.BuyerEmail || '',
+                    shipping_address: o.ShippingAddress || null,
+                    subtotal: parseFloat(o.OrderTotal?.Amount || '0'),
+                    total_price: parseFloat(o.OrderTotal?.Amount || '0'),
+                    currency: o.OrderTotal?.CurrencyCode || 'USD',
+                    line_items: [], // full line items need a separate order items API call
+                    order_date: o.PurchaseDate || null,
+                  });
+                }
+              }
+            } catch (amzErr: any) {
+              errors.push(`amazon: ${amzErr.message}`);
             }
           }
 
@@ -2093,6 +2375,26 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         if (!pkgRes.ok) throw new Error(`TikTok fulfillment failed: ${await pkgRes.text()}`);
         const pkgData = await pkgRes.json();
         if (pkgData.code !== 0) throw new Error(`TikTok API error: ${pkgData.message}`);
+      }
+
+      // ── Amazon ────────────────────────────────────────────────────────────────
+      // Amazon FBA orders are fulfilled by Amazon automatically.
+      // For FBM (Merchant-Fulfilled) orders, confirm shipment via SP-API.
+      if (orderPlatform === 'amazon') {
+        const { amazonFetch: amzFulfillFetch, marketplaceId: amzFulfillMktId } = await getAmazonClientForActions(supabaseClient, userId);
+        const shipBody = {
+          marketplaceId: amzFulfillMktId,
+          shippingDate: new Date().toISOString(),
+          shippingMethod: tracking_company || 'Standard',
+          shippingCarrierCode: action.carrier_code || tracking_company || 'Other',
+          shippingTrackingNumber: tracking_number,
+        };
+        const { res: shipRes, ok: shipOk, status: shipStatus } = await amzFulfillFetch(
+          'POST', `/orders/v0/orders/${encodeURIComponent(orderId)}/shipment`, {}, shipBody
+        );
+        if (!shipOk && shipStatus !== 200 && shipStatus !== 204) {
+          throw new Error(`Amazon shipment confirmation failed (HTTP ${shipStatus}): ${await shipRes.text()}`);
+        }
       }
 
       // Update local DB regardless of platform
@@ -4097,6 +4399,19 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
               description: action.description || '',
               images: action.images || [],
             };
+          } else if (pt === 'amazon') {
+            const amazonOverrides = action.amazon_overrides || {};
+            subAction = {
+              type: 'amazon_create_listing',
+              sku: action.sku || `${action.title.toLowerCase().replace(/\s+/g, '-').slice(0, 30)}-${Date.now()}`,
+              title: action.title,
+              price: action.price,
+              product_type: amazonOverrides.product_type || 'PRODUCT',
+              description: action.description || '',
+              bullet_points: action.bullet_points || [],
+              brand: amazonOverrides.brand || action.brand || '',
+              quantity: action.quantity ?? 0,
+            };
           } else {
             // Unsupported platform for cross_platform_create — skip gracefully
             results.push({ platform: pt, success: false, message: `Platform "${pt}" does not support cross_platform_create yet.` });
@@ -4161,6 +4476,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             else if (pt === 'magento') subActions.push({ type: 'magento_update_title', new_title: u.title, product_name: u.product_name, sku: u.sku });
             else if (pt === 'prestashop') subActions.push({ type: 'prestashop_update_title', title: u.title, product_name: u.product_name, sku: u.sku });
             else if (pt === 'tiktok_shop') subActions.push({ type: 'tiktok_update_title', new_title: u.title, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'amazon') subActions.push({ type: 'amazon_update_title', new_title: u.title, sku: u.sku });
           }
 
           if (u.description) {
@@ -4172,6 +4488,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             else if (pt === 'magento') subActions.push({ type: 'magento_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
             else if (pt === 'prestashop') subActions.push({ type: 'prestashop_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
             else if (pt === 'tiktok_shop') subActions.push({ type: 'tiktok_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'amazon') subActions.push({ type: 'amazon_update_description', description: u.description, sku: u.sku });
           }
 
           if (u.tags) {
@@ -5437,6 +5754,15 @@ When the user asks you to create a product, add inventory, change a price, renam
   • ebay_end_listing             ← remove a listing from eBay (keeps inventory, can relist)
   • ebay_relist                  ← re-publish a previously ended eBay listing
   • ebay_update_item_specifics   ← update item specifics/attributes (Brand, Size, Material, etc.) for eBay SEO and buyer filtering
+  Amazon Seller Central (SP-API) actions:
+  • amazon_update_price       — { type, sku, price }
+  • amazon_update_inventory   — { type, sku, quantity }  ⚠️ FBM only — FBA inventory is managed by Amazon
+  • amazon_update_title       — { type, sku, new_title }
+  • amazon_update_description — { type, sku, description }
+  • amazon_end_listing        — { type, sku }  (sets FBM quantity to 0; effectively removes from search)
+  • amazon_renew_listing      — { type, sku, quantity? }  (restores FBM inventory)
+  • amazon_create_listing     — { type, sku, title, price, product_type, description?, bullet_points?: ["...",], brand?, quantity? }
+                               product_type is Amazon's category type (e.g. "SHIRT", "HOME", "SHOES") — required
   TikTok Shop actions:
   • tiktok_create_product    — { type, title, description, price, quantity?, sku?, category_id, images: ["url",...] }
   • tiktok_update_price      — { type, product_name, sku, price }
@@ -5534,7 +5860,7 @@ When the user asks you to create a product, add inventory, change a price, renam
                                platforms?: ["shopify","etsy","ebay",...],   ← omit to target ALL connected platforms
                                etsy_overrides?: { who_made?, when_made?, taxonomy_id?, state? },
                                ebay_overrides?: { condition_id?, category_id?, marketplace_id? } }
-                             Supported platforms: shopify, etsy, ebay, woocommerce, ecwid, magento, prestashop, tiktok_shop
+                             Supported platforms: shopify, etsy, ebay, woocommerce, ecwid, magento, prestashop, tiktok_shop, amazon
   Bulk AI content generation:
   • bulk_ai_content — { type, updates: [{product_name, sku, platform_type?, title?, description?, tags?, seo_title?, seo_description?, url_handle?, image_alt?}, ...] }
                     Max 50 products per batch. Each product update only needs the fields being changed.
@@ -5563,6 +5889,7 @@ Platform action routing:
 - Use walmart_* actions for products with platform_type 'walmart'
 - Use etsy_* actions for products with platform_type 'etsy'
 - Use tiktok_* actions for products with platform_type 'tiktok_shop'
+- Use amazon_* actions for products with platform_type 'amazon'
 - For multi_action and batch_update, sub-actions should use the correct prefix for the product's platform
 - ⚠️ CRITICAL: eBay has NO "draft" or "archived" status. For eBay, the words "deactivate", "draft", "hide", "end", "mark as sold", "remove", "take down" all map to ebay_end_listing. NEVER use update_status on an eBay product.
 - ⚠️ CRITICAL: Etsy has NO "draft" status. For Etsy, "deactivate", "remove", "hide", "take down" map to etsy_end_listing; "reactivate" or "relist" maps to etsy_renew_listing. NEVER use update_status on an Etsy product.
@@ -5806,6 +6133,40 @@ Daily sales trends (for spotting patterns, slow days, best days):
 Refund rate:
 [ORION_ACTION:{"type":"query_analytics","analytics_type":"refund_rate","period":"30d"}]
 
+— Amazon (SP-API) Actions —
+
+Amazon uses the Selling Partner API (SP-API). All actions require:
+- SKU (Amazon Seller SKU, not ASIN) for existing listing updates
+- product_type (Amazon's category type) for creating new listings
+- FBA inventory is managed by Amazon — only FBM inventory can be updated via Orion
+
+Update price for an Amazon listing:
+[ORION_ACTION:{"type":"amazon_update_price","sku":"SHIRT-WHT-M","price":24.99}]
+
+Update FBM inventory (Fulfilled by Merchant only — NOT for FBA listings):
+[ORION_ACTION:{"type":"amazon_update_inventory","sku":"SHIRT-WHT-M","quantity":50}]
+
+Update title:
+[ORION_ACTION:{"type":"amazon_update_title","sku":"SHIRT-WHT-M","new_title":"Classic White Cotton T-Shirt — Soft Everyday Crew Neck"}]
+
+Update description:
+[ORION_ACTION:{"type":"amazon_update_description","sku":"SHIRT-WHT-M","description":"Premium 100% ring-spun cotton tee for all-day comfort..."}]
+
+End a listing (sets FBM quantity to 0 — suppresses from search without deleting):
+[ORION_ACTION:{"type":"amazon_end_listing","sku":"SHIRT-WHT-M"}]
+
+Restore/relist (set FBM quantity back):
+[ORION_ACTION:{"type":"amazon_renew_listing","sku":"SHIRT-WHT-M","quantity":25}]
+
+Create a new Amazon listing (FBM):
+[ORION_ACTION:{"type":"amazon_create_listing","sku":"WALLET-BRN-001","title":"Handmade Full-Grain Leather Bifold Wallet","price":45.00,"product_type":"WALLET","description":"Premium full-grain leather wallet. 6 card slots, ID window, slim profile.","bullet_points":["FULL-GRAIN LEATHER: Premium cowhide that develops a rich patina over time","SLIM PROFILE: Only 8mm thick when empty","6 CARD SLOTS + ID WINDOW: Holds everything you need","HANDSTITCHED: Each wallet individually hand-stitched for durability","PERFECT GIFT: Arrives in a gift-ready box"],"brand":"Your Brand","quantity":10}]
+
+⚠️ Amazon FBA orders are fulfilled automatically by Amazon — only FBM orders need fulfill_order actions.
+⚠️ For fulfill_order on Amazon (FBM), include carrier_code (e.g. "UPS", "USPS", "FedEx").
+⚠️ amazon_update_inventory only works for FBM sellers. FBA inventory is managed by Amazon's fulfillment centers.
+⚠️ amazon_create_listing: product_type must match Amazon's product type taxonomy (e.g. "SHIRT", "WALLET", "EARRING"). If unknown, ask the user or suggest the most likely type.
+⚠️ New Amazon listings go through a review process before they appear in search — tell the user to check Seller Central for approval status.
+
 — Order Management Actions —
 
 To sync all orders from every connected platform into Orion's local database:
@@ -5817,7 +6178,7 @@ To query orders (optionally filtered):
 [ORION_ACTION:{"type":"get_orders","fulfillment_status":"unfulfilled","limit":25}]
 [ORION_ACTION:{"type":"get_orders","platform_type":"shopify","since":"2026-04-01T00:00:00Z","limit":100}]
 
-To mark an order as shipped (fulfilled) with tracking — works on Shopify, Etsy, eBay, TikTok Shop, WooCommerce:
+To mark an order as shipped (fulfilled) with tracking — works on Shopify, Etsy, eBay, TikTok Shop, WooCommerce, Amazon FBM:
 [ORION_ACTION:{"type":"fulfill_order","platform_type":"shopify","platform_order_id":"5678901234","tracking_number":"1Z999AA10123456784","tracking_company":"UPS"}]
 [ORION_ACTION:{"type":"fulfill_order","platform_type":"etsy","platform_order_id":"3456789012","tracking_number":"9400111899223397913337","tracking_company":"USPS"}]
 [ORION_ACTION:{"type":"fulfill_order","platform_type":"ebay","platform_order_id":"12-34567-89012","tracking_number":"794644792798","tracking_company":"FedEx","carrier_code":"FedEx"}]

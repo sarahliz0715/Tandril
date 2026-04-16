@@ -74,9 +74,11 @@ const PLATFORM_CONFIG: Record<string, PlatformConfig> = {
     scopeSeparator: ',',
   },
   amazon: {
+    // SP-API consent URL uses 'application_id' (= LWA client_id) not 'client_id'
     authUrl: 'https://sellercentral.amazon.com/apps/authorize/consent',
     scopes: '',
     clientIdEnv: 'AMAZON_CLIENT_ID',
+    clientIdParam: 'application_id',
     extraParams: { version: 'beta' },
   },
   square: {
