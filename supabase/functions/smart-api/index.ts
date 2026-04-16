@@ -106,6 +106,7 @@ function summarizeOrionAction(action: any): string {
     case 'ebay_end_promotion':      return `Ended eBay promotion ${action.promotion_id}`;
     case 'woo_create_coupon':       return `Created WooCommerce coupon ${action.code || ''}`;
     case 'woo_delete_coupon':       return `Deleted WooCommerce coupon ${action.code || action.coupon_id || ''}`;
+    case 'cross_platform_create':   return `Listed "${action.title || name}" on ${action.platforms?.join(', ') || 'all connected platforms'}`;
     case 'update_price':        return `Updated price for "${name}" → $${action.price}`;
     case 'update_title':        return `Updated title of "${name}" → "${action.new_title}"`;
     case 'update_tags':
@@ -3952,6 +3953,166 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: `Deleted WooCommerce coupon ${action.code || `#${couponId}`}.` };
     }
 
+    case 'cross_platform_create': {
+      // Lists a product on ALL connected platforms in one shot.
+      // Orion dispatches a platform-native create action for each connected platform
+      // and aggregates the results. The user confirms once, Orion does the rest.
+      //
+      // Required: title, price
+      // Optional: description, sku, quantity, tags, images, product_type
+      //           platforms — array of platform_type strings to target (omit = all connected)
+      //
+      // Platform-specific overrides (optional):
+      //   etsy_overrides: { who_made, when_made, taxonomy_id, state }
+      //   ebay_overrides: { condition_id, category_id, marketplace_id }
+
+      if (!action.title) throw new Error('title is required for cross_platform_create.');
+      if (action.price == null) throw new Error('price is required for cross_platform_create.');
+
+      // Fetch all connected platforms
+      const { data: connectedPlatforms } = await supabaseClient
+        .from('platforms')
+        .select('platform_type,metadata,credentials,shop_domain,store_url')
+        .eq('user_id', userId)
+        .or('is_active.eq.true,status.eq.connected');
+
+      if (!connectedPlatforms || connectedPlatforms.length === 0) {
+        throw new Error('No connected platforms found. Connect at least one platform in the Platforms tab first.');
+      }
+
+      // Filter to requested platforms if specified
+      const targetTypes: string[] = action.platforms?.length
+        ? action.platforms
+        : connectedPlatforms.map((p: any) => p.platform_type);
+
+      const filteredPlatforms = connectedPlatforms.filter((p: any) => targetTypes.includes(p.platform_type));
+      if (filteredPlatforms.length === 0) {
+        throw new Error(`None of the requested platforms (${targetTypes.join(', ')}) are connected.`);
+      }
+
+      const results: Array<{ platform: string; success: boolean; message: string }> = [];
+
+      for (const plat of filteredPlatforms) {
+        const pt = plat.platform_type;
+        try {
+          let subAction: Record<string, any> | null = null;
+
+          if (pt === 'shopify') {
+            subAction = {
+              type: 'create_product',
+              title: action.title,
+              price: action.price,
+              sku: action.sku,
+              quantity: action.quantity ?? 0,
+              description: action.description || '',
+              product_type: action.product_type || '',
+              tags: action.tags || [],
+              images: action.images || [],
+            };
+          } else if (pt === 'etsy') {
+            const etsyOverrides = action.etsy_overrides || {};
+            subAction = {
+              type: 'etsy_create_listing',
+              title: action.title,
+              description: action.description || action.title,
+              price: action.price,
+              quantity: action.quantity ?? 1,
+              sku: action.sku,
+              tags: action.tags || [],
+              who_made: etsyOverrides.who_made || 'i_did',
+              when_made: etsyOverrides.when_made || 'made_to_order',
+              taxonomy_id: etsyOverrides.taxonomy_id,
+              state: etsyOverrides.state || 'draft',
+            };
+          } else if (pt === 'ebay') {
+            const ebayOverrides = action.ebay_overrides || {};
+            subAction = {
+              type: 'ebay_create_listing',
+              title: action.title,
+              description: action.description || action.title,
+              price: action.price,
+              quantity: action.quantity ?? 1,
+              sku: action.sku,
+              condition_id: ebayOverrides.condition_id || '1000',
+              category_id: ebayOverrides.category_id,
+              marketplace_id: ebayOverrides.marketplace_id,
+              images: action.images || [],
+            };
+          } else if (pt === 'woocommerce') {
+            subAction = {
+              type: 'woo_create_product',
+              title: action.title,
+              name: action.title,
+              price: action.price,
+              sku: action.sku,
+              quantity: action.quantity ?? 0,
+              description: action.description || '',
+              tags: action.tags || [],
+              images: action.images || [],
+              product_type: action.product_type || 'simple',
+            };
+          } else if (pt === 'ecwid') {
+            subAction = {
+              type: 'ecwid_create_product',
+              title: action.title,
+              price: action.price,
+              sku: action.sku,
+              quantity: action.quantity ?? 0,
+              description: action.description || '',
+              keywords: (action.tags || []).join(' '),
+              images: action.images || [],
+            };
+          } else if (pt === 'magento') {
+            subAction = {
+              type: 'magento_create_product',
+              title: action.title,
+              price: action.price,
+              sku: action.sku || `${action.title.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
+              quantity: action.quantity ?? 0,
+              description: action.description || '',
+            };
+          } else if (pt === 'prestashop') {
+            subAction = {
+              type: 'prestashop_create_product',
+              title: action.title,
+              price: action.price,
+              sku: action.sku,
+              quantity: action.quantity ?? 0,
+              description: action.description || '',
+            };
+          } else if (pt === 'tiktok_shop') {
+            subAction = {
+              type: 'tiktok_create_product',
+              title: action.title,
+              price: action.price,
+              sku: action.sku,
+              quantity: action.quantity ?? 0,
+              description: action.description || '',
+              images: action.images || [],
+            };
+          } else {
+            // Unsupported platform for cross_platform_create — skip gracefully
+            results.push({ platform: pt, success: false, message: `Platform "${pt}" does not support cross_platform_create yet.` });
+            continue;
+          }
+
+          const res = await executeStoreAction(supabaseClient, userId, subAction);
+          results.push({ platform: pt, success: true, message: res?.message || `Created on ${pt}` });
+        } catch (err: any) {
+          results.push({ platform: pt, success: false, message: `Error: ${err.message}` });
+        }
+      }
+
+      const successCount = results.filter(r => r.success).length;
+      const failCount = results.filter(r => !r.success).length;
+      const summary = results.map(r => `• **${r.platform}**: ${r.success ? '✓' : '✗'} ${r.message}`).join('\n');
+
+      return {
+        message: `Cross-platform listing "${action.title}" complete: ${successCount} succeeded, ${failCount} failed.\n\n${summary}`,
+        results,
+      };
+    }
+
     default:
       throw new Error(`Unknown action type: ${action.type}`);
   }
@@ -4819,6 +4980,12 @@ When the user asks you to create a product, add inventory, change a price, renam
   • ebay_end_promotion      — { type, promotion_id }
   • woo_create_coupon       — { type, code, discount_type: 'percent'|'fixed_cart'|'fixed_product', amount, min_amount?, usage_limit?, expires_at?, description? }
   • woo_delete_coupon       — { type, coupon_id? | code? }
+  Cross-platform listing:
+  • cross_platform_create   — { type, title, price, description?, sku?, quantity?, tags?, images?, product_type?,
+                               platforms?: ["shopify","etsy","ebay",...],   ← omit to target ALL connected platforms
+                               etsy_overrides?: { who_made?, when_made?, taxonomy_id?, state? },
+                               ebay_overrides?: { condition_id?, category_id?, marketplace_id? } }
+                             Supported platforms: shopify, etsy, ebay, woocommerce, ecwid, magento, prestashop, tiktok_shop
 ❌ FORBIDDEN (will always fail): update_product, update_seo, bulk_update, add_image, set_image, woo_update_product, or any other type not in the list above.
 
 Platform action routing:
@@ -5150,6 +5317,25 @@ WooCommerce — delete a coupon:
 ⚠️ Etsy does NOT have a native sale/promotion API in v3 — etsy_create_sale works by patching the listing price directly. Always get the current price first if the user doesn't provide it, so you can restore it with etsy_end_sale.
 ⚠️ eBay promotions require the Promotions Manager (available to eBay Store subscribers). If creation fails, suggest the user check their eBay Store subscription.
 ⚠️ For Shopify discount codes, discount_type must be exactly "percentage", "fixed_amount", or "free_shipping". value is always positive.
+
+— Cross-Platform Listing —
+
+Use cross_platform_create to list a product on ALL connected platforms with a single confirmed action.
+Orion will dispatch the correct native create action for each platform automatically.
+
+List on ALL connected platforms (Shopify, Etsy, eBay, WooCommerce, etc.):
+[ORION_ACTION:{"type":"cross_platform_create","title":"Handmade Leather Wallet","description":"Premium full-grain leather bifold wallet. Slim profile, 6 card slots, ID window. Hand-stitched and built to last a lifetime. Available in brown and black.","price":45.00,"sku":"LW-BRN-001","quantity":25,"tags":["leather wallet","handmade","bifold","gift for him","minimalist wallet"]}]
+
+List on specific platforms only (e.g. Shopify + Etsy):
+[ORION_ACTION:{"type":"cross_platform_create","title":"Vintage Brass Compass","description":"Fully functional solid brass nautical compass with engraved rose. Perfect for outdoor adventure or as a gift. Comes in a gift box.","price":32.00,"sku":"COMP-BRASS-001","quantity":15,"platforms":["shopify","etsy"],"etsy_overrides":{"who_made":"i_did","when_made":"2020_2024","taxonomy_id":568,"state":"active"}}]
+
+List with eBay-specific overrides:
+[ORION_ACTION:{"type":"cross_platform_create","title":"Sterling Silver Ring Size 7","price":65.00,"sku":"RING-SS-7","quantity":3,"platforms":["shopify","etsy","ebay"],"ebay_overrides":{"condition_id":"1000","category_id":"67726"},"etsy_overrides":{"who_made":"i_did","when_made":"made_to_order","taxonomy_id":568}}]
+
+⚠️ Always collect title, price, and a description before generating cross_platform_create — these 3 fields are required.
+⚠️ If the user doesn't specify platforms, include ALL connected platforms. Orion will gracefully skip any platform it can't create on.
+⚠️ Etsy listings created via cross_platform_create default to draft state unless etsy_overrides.state is set to "active".
+⚠️ eBay cross-platform listings require condition_id and ideally category_id in ebay_overrides — ask the user if unknown.
 
 To make MULTIPLE changes to ONE product (title + metafield + alt text, etc.) — one confirmation card, all run together:
 [ORION_ACTION:{"type":"multi_action","product_name":"Tie Dye T-Shirt","sku":"TDT-001","description":"Update title, SEO alt text, and material metafield","actions":[{"type":"update_title","new_title":"Vibrant Handmade Tie Dye T-Shirt"},{"type":"update_image_alt","alt_text":"Colorful handmade tie dye t-shirt on white background"},{"type":"update_metafield","metafield_key":"material","metafield_value":"100% Cotton","metafield_type":"single_line_text_field"}]}]
