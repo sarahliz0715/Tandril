@@ -47,6 +47,7 @@ interface PlatformConfig {
   requiresPKCE?: boolean;
   clientIdEnv: string;
   scopeSeparator?: string; // default ' '
+  clientIdParam?: string;  // query param name for client id, defaults to 'client_id'
 }
 
 const APP_URL = Deno.env.get('APP_URL') || 'http://localhost:5173';
@@ -106,6 +107,14 @@ const PLATFORM_CONFIG: Record<string, PlatformConfig> = {
     scopes: 'read:products write:products read:orders write:orders',
     clientIdEnv: 'FAIRE_CLIENT_ID',
     scopeSeparator: ' ',
+  },
+  tiktok_ads: {
+    // TikTok Ads (Marketing API) — separate app from TikTok Shop
+    // Requires TIKTOK_ADS_APP_ID + TIKTOK_ADS_APP_SECRET in Supabase secrets
+    authUrl: 'https://business-api.tiktok.com/portal/auth',
+    scopes: '',
+    clientIdEnv: 'TIKTOK_ADS_APP_ID',
+    clientIdParam: 'app_id',
   },
 };
 
@@ -169,8 +178,9 @@ serve(async (req) => {
     const separator = config.scopeSeparator ?? ' ';
 
     // Build auth URL
+    const clientIdParamName = config.clientIdParam ?? 'client_id';
     const params: Record<string, string> = {
-      client_id: clientId,
+      [clientIdParamName]: clientId,
       response_type: 'code',
       redirect_uri: CALLBACK_URL,
       state,

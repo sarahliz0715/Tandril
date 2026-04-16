@@ -102,7 +102,40 @@ async function exchangeTikTok(code: string): Promise<any> {
   return {
     credentials: { access_token: tokens.access_token, refresh_token: tokens.refresh_token, open_id: tokens.open_id, seller_name: tokens.seller_name },
     name: `TikTok Shop - ${displayName}`,
-    metadata: { seller_name: tokens.seller_name, open_id: tokens.open_id },
+    metadata: {
+      seller_name: tokens.seller_name,
+      open_id: tokens.open_id,
+      token_expires_at: new Date(Date.now() + (tokens.access_token_expire_in || 172800) * 1000).toISOString(),
+    },
+  };
+}
+
+async function exchangeTikTokAds(code: string): Promise<any> {
+  const appId = Deno.env.get('TIKTOK_ADS_APP_ID');
+  const appSecret = Deno.env.get('TIKTOK_ADS_APP_SECRET');
+  if (!appId || !appSecret) throw new Error('TikTok Ads credentials not configured');
+
+  const res = await fetch('https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ app_id: appId, secret: appSecret, auth_code: code }),
+  });
+  if (!res.ok) throw new Error(`TikTok Ads token exchange failed: ${await res.text()}`);
+  const data = await res.json();
+  if (data.code !== 0) throw new Error(`TikTok Ads error: ${data.message}`);
+
+  const tokens = data.data;
+  const advertiserIds: string[] = tokens.advertiser_ids || [];
+  const displayName = advertiserIds[0] || tokens.open_id || 'TikTok Ads';
+
+  return {
+    credentials: { access_token: tokens.access_token, open_id: tokens.open_id },
+    name: `TikTok Ads - ${displayName}`,
+    metadata: {
+      advertiser_ids: advertiserIds,
+      open_id: tokens.open_id,
+      scope: tokens.scope || [],
+    },
   };
 }
 
@@ -360,6 +393,9 @@ serve(async (req) => {
       case 'tiktok_shop':
         result = await exchangeTikTok(code);
         break;
+      case 'tiktok_ads':
+        result = await exchangeTikTokAds(code);
+        break;
       case 'meta_ads':
         result = await exchangeMeta(code);
         break;
@@ -448,6 +484,66 @@ serve(async (req) => {
           }
         } catch (syncErr: any) {
           console.warn('[oauth-callback] Etsy listing sync failed (non-critical):', syncErr.message);
+        }
+      }
+    }
+
+    // Post-connect: resolve TikTok shop_id and sync product listings
+    if (platform === 'tiktok_shop') {
+      const accessToken = result.credentials?.access_token;
+      if (accessToken) {
+        try {
+          const ttHeaders = { 'x-tts-access-token': accessToken, 'Content-Type': 'application/json' };
+          const ttBase = 'https://open-api.tiktok-shops.com';
+
+          // Resolve shop_id
+          const shopsRes = await fetch(`${ttBase}/authorization/202309/shops`, { headers: ttHeaders });
+          if (shopsRes.ok) {
+            const shopsData = await shopsRes.json();
+            const shopId = shopsData?.data?.shops?.[0]?.id;
+            if (shopId) {
+              // Cache shop_id into metadata
+              await supabase.from('platforms')
+                .update({ metadata: { ...result.metadata, shop_id: shopId } })
+                .eq('user_id', userId)
+                .eq('platform_type', 'tiktok_shop');
+
+              // Sync active product listings into the products table
+              const searchRes = await fetch(`${ttBase}/product/202309/products/search?shop_id=${encodeURIComponent(shopId)}`, {
+                method: 'POST',
+                headers: ttHeaders,
+                body: JSON.stringify({ page_size: 100 }),
+              });
+              if (searchRes.ok) {
+                const searchData = await searchRes.json();
+                if (searchData.code === 0) {
+                  const rows = (searchData.data?.products || []).map((p: any) => {
+                    const firstSku = p.skus?.[0];
+                    return {
+                      user_id: userId,
+                      platform_type: 'tiktok_shop',
+                      title: p.title || 'Unnamed',
+                      sku: firstSku?.seller_sku || `tiktok-${p.id}`,
+                      price: parseFloat(firstSku?.price?.original_price || '0'),
+                      inventory_quantity: (firstSku?.inventory || []).reduce((s: number, i: any) => s + (i.quantity || 0), 0),
+                      status: p.status === 'ACTIVATE' ? 'active' : 'inactive',
+                      vendor: '',
+                      product_type: '',
+                    };
+                  });
+                  if (rows.length > 0) {
+                    await supabase.from('products').upsert(rows, {
+                      onConflict: 'user_id,platform_type,sku',
+                      ignoreDuplicates: false,
+                    });
+                    console.log(`[oauth-callback] Synced ${rows.length} TikTok Shop products for user ${userId}`);
+                  }
+                }
+              }
+            }
+          }
+        } catch (syncErr: any) {
+          console.warn('[oauth-callback] TikTok Shop sync failed (non-critical):', syncErr.message);
         }
       }
     }

@@ -85,6 +85,35 @@ function summarizeOrionAction(action: any): string {
     case 'ebay_relist':                 return `Relisted "${name}" on eBay`;
     case 'ebay_update_item_specifics':  return `Updated eBay item specifics for "${name}"`;
     case 'ebay_create_listing':         return `Created eBay listing: "${action.title || name}"`;
+    case 'tiktok_update_price':         return `Updated TikTok Shop price for "${name}" → $${action.price}`;
+    case 'tiktok_update_inventory':     return `Updated TikTok Shop inventory for "${name}" → ${action.quantity} units`;
+    case 'tiktok_update_title':         return `Updated TikTok Shop title for "${name}"`;
+    case 'tiktok_update_description':   return `Updated TikTok Shop description for "${name}"`;
+    case 'tiktok_end_listing':          return `Deactivated TikTok Shop listing "${name}"`;
+    case 'tiktok_renew_listing':        return `Reactivated TikTok Shop listing "${name}"`;
+    case 'tiktok_create_product':       return `Created TikTok Shop product: "${action.title || name}"`;
+    case 'query_analytics': return `Analytics: ${action.analytics_type || 'revenue_summary'} for ${action.period || '30d'}`;
+    case 'sync_orders':     return `Synced orders from all connected platforms`;
+    case 'get_orders':      return `Retrieved ${action.limit || 25} orders`;
+    case 'fulfill_order':   return `Marked order ${action.platform_order_id} as shipped (${action.tracking_number})`;
+    case 'cancel_order':    return `Cancelled order ${action.platform_order_id} on ${action.platform_type}`;
+    case 'refund_order':    return `Refunded order ${action.platform_order_id} on ${action.platform_type}`;
+    case 'shopify_create_discount': return `Created Shopify discount code ${action.code || ''}`;
+    case 'shopify_delete_discount': return `Deleted Shopify discount${action.code ? ` ${action.code}` : ''}`;
+    case 'etsy_create_sale':        return `Started Etsy sale on "${name}"${action.discount_percent ? ` (${action.discount_percent}% off)` : ''}`;
+    case 'etsy_end_sale':           return `Ended Etsy sale on "${name}" — restored $${action.regular_price}`;
+    case 'ebay_create_promotion':   return `Created eBay promotion: "${action.name}"`;
+    case 'ebay_end_promotion':      return `Ended eBay promotion ${action.promotion_id}`;
+    case 'woo_create_coupon':       return `Created WooCommerce coupon ${action.code || ''}`;
+    case 'woo_delete_coupon':       return `Deleted WooCommerce coupon ${action.code || action.coupon_id || ''}`;
+    case 'cross_platform_create':   return `Listed "${action.title || name}" on ${action.platforms?.join(', ') || 'all connected platforms'}`;
+    case 'bulk_ai_content': return `AI content rewrite: ${(action.updates || []).length} product${(action.updates || []).length !== 1 ? 's' : ''}`;
+    case 'get_messages':  return `Fetched customer messages from ${action.platform_type || 'all platforms'}`;
+    case 'send_message':  return `Sent reply to ${action.platform_type || 'customer'} conversation ${action.conversation_id || ''}`;
+    case 'check_reorder_needs': return `Checked reorder needs (threshold: ${action.low_stock_threshold ?? 10} units)`;
+    case 'create_purchase_order': return `Created draft PO for ${(action.items || []).length} item(s) from ${action.supplier_name || 'supplier'}`;
+    case 'get_purchase_orders': return `Retrieved purchase orders${action.status ? ` (${action.status})` : ''}`;
+    case 'update_purchase_order_status': return `Updated PO ${action.po_number || ''} status → ${action.status}`;
     case 'update_price':        return `Updated price for "${name}" → $${action.price}`;
     case 'update_title':        return `Updated title of "${name}" → "${action.new_title}"`;
     case 'update_tags':
@@ -652,6 +681,116 @@ async function getEbayClientForActions(supabaseClient: any, userId: string) {
   return { platform, apiBase, marketplaceId, headers };
 }
 
+// ─── TikTok Shop Client Helper ────────────────────────────────────────────────
+// Fetches the connected TikTok Shop platform, refreshes the token if needed,
+// resolves the shop_id (cached in metadata after first lookup), and returns
+// ready-to-use headers + apiBase + shopId.
+async function getTikTokClientForActions(supabaseClient: any, userId: string) {
+  const { data: ttPlatforms } = await supabaseClient
+    .from('platforms')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('platform_type', 'tiktok_shop')
+    .or('is_active.eq.true,status.eq.connected')
+    .limit(1);
+
+  if (!ttPlatforms || ttPlatforms.length === 0) {
+    throw new Error('No connected TikTok Shop found. Connect one in the Platforms tab first.');
+  }
+
+  const platform = ttPlatforms[0];
+  const credentials = platform.credentials;
+  const metadata = platform.metadata || {};
+  let accessToken = credentials.access_token;
+
+  // Refresh token if expired or within 5 minutes of expiry
+  const tokenExpiresAt = metadata.token_expires_at ? new Date(metadata.token_expires_at).getTime() : 0;
+  const needsRefresh = !metadata.token_expires_at || Date.now() > tokenExpiresAt - 5 * 60 * 1000;
+  if (needsRefresh && credentials.refresh_token) {
+    try {
+      const clientKey = Deno.env.get('TIKTOK_CLIENT_KEY');
+      const clientSecret = Deno.env.get('TIKTOK_CLIENT_SECRET');
+      if (clientKey && clientSecret) {
+        const refreshRes = await fetch('https://auth.tiktok-shops.com/api/v2/token/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            app_key: clientKey,
+            app_secret: clientSecret,
+            refresh_token: credentials.refresh_token,
+            grant_type: 'refresh_token',
+          }),
+        });
+        if (refreshRes.ok) {
+          const refreshData = await refreshRes.json();
+          if (refreshData.code === 0 && refreshData.data?.access_token) {
+            const newTokens = refreshData.data;
+            accessToken = newTokens.access_token;
+            await supabaseClient.from('platforms').update({
+              credentials: {
+                ...credentials,
+                access_token: newTokens.access_token,
+                refresh_token: newTokens.refresh_token || credentials.refresh_token,
+              },
+              metadata: {
+                ...metadata,
+                token_expires_at: new Date(Date.now() + (newTokens.access_token_expire_in || 172800) * 1000).toISOString(),
+              },
+            }).eq('id', platform.id);
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn('[Orion] TikTok token refresh error:', e.message);
+    }
+  }
+
+  const apiBase = 'https://open-api.tiktok-shops.com';
+  const headers: Record<string, string> = {
+    'x-tts-access-token': accessToken,
+    'Content-Type': 'application/json',
+  };
+
+  // Resolve shop_id — cached in metadata after first lookup
+  let shopId: string = metadata.shop_id || credentials.shop_id || '';
+  if (!shopId) {
+    const shopsRes = await fetch(`${apiBase}/authorization/202309/shops`, { headers });
+    if (shopsRes.ok) {
+      const shopsData = await shopsRes.json();
+      shopId = shopsData?.data?.shops?.[0]?.id || '';
+      if (shopId) {
+        await supabaseClient.from('platforms').update({
+          metadata: { ...metadata, shop_id: shopId },
+        }).eq('id', platform.id);
+      }
+    }
+    if (!shopId) throw new Error('Could not retrieve TikTok Shop ID. Try disconnecting and reconnecting TikTok Shop.');
+  }
+
+  return { platform, apiBase, headers, shopId };
+}
+
+// Looks up a TikTok product by keyword (SKU first, then product name) and returns
+// the first match with its product_id and first sku details.
+async function findTikTokProduct(apiBase: string, headers: Record<string, string>, shopId: string, productName: string, sku: string) {
+  const keyword = sku && sku !== 'N/A' ? sku : productName;
+  if (!keyword) throw new Error('product_name or sku is required to find a TikTok product.');
+
+  const searchRes = await fetch(`${apiBase}/product/202309/products/search?shop_id=${encodeURIComponent(shopId)}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ keyword, page_size: 10 }),
+  });
+  if (!searchRes.ok) throw new Error(`TikTok product search failed: ${await searchRes.text()}`);
+  const searchData = await searchRes.json();
+  if (searchData.code !== 0) throw new Error(`TikTok API error (${searchData.code}): ${searchData.message}`);
+
+  const products = searchData.data?.products || [];
+  if (products.length === 0) throw new Error(`Product "${productName || sku}" not found in TikTok Shop.`);
+
+  return products[0];
+}
+
 async function executeStoreAction(supabaseClient: any, userId: string, action: any) {
   const { data: platforms } = await supabaseClient
     .from('platforms')
@@ -787,6 +926,82 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         }
       } catch (e: any) {
         console.warn('[smart-api] eBay inventory fetch failed:', e.message);
+      }
+
+      // Fetch TikTok Shop products
+      try {
+        const { data: ttPlatforms } = await supabaseClient
+          .from('platforms')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('platform_type', 'tiktok_shop')
+          .or('is_active.eq.true,status.eq.connected');
+
+        for (const ttPlat of (ttPlatforms || [])) {
+          const creds = ttPlat.credentials;
+          const meta = ttPlat.metadata || {};
+          if (!creds?.access_token) continue;
+
+          const ttHeaders: Record<string, string> = {
+            'x-tts-access-token': creds.access_token,
+            'Content-Type': 'application/json',
+          };
+          const ttBase = 'https://open-api.tiktok-shops.com';
+
+          // Resolve shop_id
+          let ttShopId: string = meta.shop_id || creds.shop_id || '';
+          if (!ttShopId) {
+            const shopsRes = await fetch(`${ttBase}/authorization/202309/shops`, { headers: ttHeaders });
+            if (shopsRes.ok) {
+              const shopsData = await shopsRes.json();
+              ttShopId = shopsData?.data?.shops?.[0]?.id || '';
+              if (ttShopId) {
+                await supabaseClient.from('platforms').update({
+                  metadata: { ...meta, shop_id: ttShopId },
+                }).eq('id', ttPlat.id);
+              }
+            }
+          }
+          if (!ttShopId) continue;
+
+          const searchRes = await fetch(`${ttBase}/product/202309/products/search?shop_id=${encodeURIComponent(ttShopId)}`, {
+            method: 'POST',
+            headers: ttHeaders,
+            body: JSON.stringify({ page_size: 100 }),
+          });
+          if (!searchRes.ok) continue;
+          const searchData = await searchRes.json();
+          if (searchData.code !== 0) continue;
+
+          for (const p of (searchData.data?.products || [])) {
+            const firstSku = p.skus?.[0];
+            const price = parseFloat(firstSku?.price?.original_price || '0');
+            const qty = (firstSku?.inventory || []).reduce((sum: number, inv: any) => sum + (inv.quantity || 0), 0);
+            const imageUrl = p.main_images?.[0]?.urls?.[0] || p.images?.[0]?.urls?.[0] || null;
+            let status = 'active';
+            if (p.status === 'SELLER_DEACTIVATED' || p.status === 'PLATFORM_DEACTIVATED') status = 'inactive';
+            else if (qty === 0) status = 'out_of_stock';
+            else if (qty <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+
+            inventory.push({
+              id: `tiktok-${p.id}`,
+              product_name: p.title || 'TikTok Product',
+              sku: firstSku?.seller_sku || 'N/A',
+              category: '',
+              status,
+              total_stock: qty,
+              base_price: price,
+              image_url: imageUrl,
+              vendor: '',
+              tags: '',
+              platform_listings: [{ listing_id: p.id, platform: 'TikTok Shop' }],
+              source: 'tiktok_shop',
+              tiktok_product_id: p.id,
+            });
+          }
+        }
+      } catch (e: any) {
+        console.warn('[smart-api] TikTok Shop inventory fetch failed:', e.message);
       }
 
       return { inventory };
@@ -1414,6 +1629,765 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const publishData = await publishRes.json();
 
       return { message: `Created and published eBay listing for "${action.title}" (SKU: ${sku}, Listing ID: ${publishData.listingId || offerId}) at $${action.price}` };
+    }
+
+    // ── TikTok Shop write actions ─────────────────────────────────────────────
+
+    case 'tiktok_update_price': {
+      const { apiBase: ttBase, headers: ttHeaders, shopId } = await getTikTokClientForActions(supabaseClient, userId);
+      const product = await findTikTokProduct(ttBase, ttHeaders, shopId, action.product_name, action.sku);
+      const skuId = product.skus?.[0]?.id;
+      if (!skuId) throw new Error(`No SKU found on TikTok product "${action.product_name || action.sku}".`);
+
+      const res = await fetch(`${ttBase}/product/202309/skus?shop_id=${encodeURIComponent(shopId)}`, {
+        method: 'PUT',
+        headers: ttHeaders,
+        body: JSON.stringify({
+          skus: [{ id: skuId, price: { currency: 'USD', original_price: String(Number(action.price).toFixed(2)) } }],
+        }),
+      });
+      if (!res.ok) throw new Error(`TikTok price update failed: ${await res.text()}`);
+      const data = await res.json();
+      if (data.code !== 0) throw new Error(`TikTok API error: ${data.message}`);
+      return { message: `Updated TikTok Shop price for "${action.product_name || action.sku}" to $${action.price}` };
+    }
+
+    case 'tiktok_update_inventory': {
+      const { apiBase: ttBase, headers: ttHeaders, shopId } = await getTikTokClientForActions(supabaseClient, userId);
+      const product = await findTikTokProduct(ttBase, ttHeaders, shopId, action.product_name, action.sku);
+      const firstSku = product.skus?.[0];
+      if (!firstSku?.id) throw new Error(`No SKU found on TikTok product "${action.product_name || action.sku}".`);
+
+      // Fetch first warehouse to use for inventory update
+      const warehousesRes = await fetch(`${ttBase}/logistics/202309/warehouses?shop_id=${encodeURIComponent(shopId)}`, { headers: ttHeaders });
+      if (!warehousesRes.ok) throw new Error(`TikTok warehouse lookup failed: ${await warehousesRes.text()}`);
+      const warehousesData = await warehousesRes.json();
+      const warehouseId = warehousesData?.data?.warehouses?.[0]?.id;
+      if (!warehouseId) throw new Error('No TikTok Shop warehouse found. Check your seller account setup.');
+
+      const res = await fetch(`${ttBase}/product/202309/stocks?shop_id=${encodeURIComponent(shopId)}`, {
+        method: 'POST',
+        headers: ttHeaders,
+        body: JSON.stringify({
+          skus: [{
+            id: firstSku.id,
+            seller_sku: firstSku.seller_sku || '',
+            inventory: [{ warehouse_id: warehouseId, quantity: Number(action.quantity) }],
+          }],
+        }),
+      });
+      if (!res.ok) throw new Error(`TikTok inventory update failed: ${await res.text()}`);
+      const data = await res.json();
+      if (data.code !== 0) throw new Error(`TikTok API error: ${data.message}`);
+      return { message: `Updated TikTok Shop inventory for "${action.product_name || action.sku}" to ${action.quantity} units` };
+    }
+
+    case 'tiktok_update_title':
+    case 'tiktok_update_description': {
+      const { apiBase: ttBase, headers: ttHeaders, shopId } = await getTikTokClientForActions(supabaseClient, userId);
+      const product = await findTikTokProduct(ttBase, ttHeaders, shopId, action.product_name, action.sku);
+
+      const body: Record<string, string> = {};
+      if (action.type === 'tiktok_update_title') body.title = action.new_title;
+      if (action.type === 'tiktok_update_description') body.description = action.description;
+
+      const res = await fetch(`${ttBase}/product/202309/products/${encodeURIComponent(product.id)}?shop_id=${encodeURIComponent(shopId)}`, {
+        method: 'PUT',
+        headers: ttHeaders,
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`TikTok product update failed: ${await res.text()}`);
+      const data = await res.json();
+      if (data.code !== 0) throw new Error(`TikTok API error: ${data.message}`);
+
+      if (action.type === 'tiktok_update_title') return { message: `Updated TikTok Shop title for "${action.product_name || action.sku}" → "${action.new_title}"` };
+      return { message: `Updated TikTok Shop description for "${action.product_name || action.sku}"` };
+    }
+
+    case 'tiktok_end_listing':
+    case 'tiktok_renew_listing': {
+      const { apiBase: ttBase, headers: ttHeaders, shopId } = await getTikTokClientForActions(supabaseClient, userId);
+      const product = await findTikTokProduct(ttBase, ttHeaders, shopId, action.product_name, action.sku);
+
+      const endpoint = action.type === 'tiktok_end_listing' ? 'deactivate' : 'activate';
+      const res = await fetch(`${ttBase}/product/202309/products/${endpoint}?shop_id=${encodeURIComponent(shopId)}`, {
+        method: 'POST',
+        headers: ttHeaders,
+        body: JSON.stringify({ product_ids: [product.id] }),
+      });
+      if (!res.ok) throw new Error(`TikTok ${endpoint} failed: ${await res.text()}`);
+      const data = await res.json();
+      if (data.code !== 0) throw new Error(`TikTok API error: ${data.message}`);
+
+      const verb = action.type === 'tiktok_end_listing' ? 'Deactivated' : 'Reactivated';
+      return { message: `${verb} TikTok Shop listing for "${action.product_name || action.sku}"` };
+    }
+
+    case 'tiktok_create_product': {
+      // Requires category_id — look up via GET /product/202309/categories if not provided.
+      // All other fields are required: title, description, images[], price, quantity, category_id.
+      const { apiBase: ttBase, headers: ttHeaders, shopId } = await getTikTokClientForActions(supabaseClient, userId);
+
+      if (!action.title) throw new Error('title is required for tiktok_create_product.');
+      if (!action.price) throw new Error('price is required for tiktok_create_product.');
+      if (!action.category_id) throw new Error('category_id is required for tiktok_create_product. Ask the user to provide it or look it up first.');
+      if (!action.images || action.images.length === 0) throw new Error('At least one image URL is required for tiktok_create_product.');
+
+      const body = {
+        title: action.title,
+        description: action.description || '',
+        category_id: String(action.category_id),
+        main_images: action.images.map((url: string) => ({ urls: [url] })),
+        skus: [{
+          seller_sku: action.sku || '',
+          price: { currency: 'USD', original_price: String(Number(action.price).toFixed(2)) },
+          inventory: [{ quantity: Number(action.quantity ?? 0) }],
+        }],
+      };
+
+      const res = await fetch(`${ttBase}/product/202309/products?shop_id=${encodeURIComponent(shopId)}`, {
+        method: 'POST',
+        headers: ttHeaders,
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`TikTok product create failed: ${await res.text()}`);
+      const data = await res.json();
+      if (data.code !== 0) throw new Error(`TikTok API error: ${data.message}`);
+      return { message: `Created TikTok Shop product: "${action.title}" (ID: ${data.data?.product_id || 'unknown'})` };
+    }
+
+    // ── Order management actions ──────────────────────────────────────────────
+    // Cross-platform: each action looks up the right platform via platform_type.
+
+    case 'sync_orders': {
+      // Pulls recent orders from all connected platforms and upserts to the orders table.
+      // Call this whenever Orion needs fresh order data, or when the user asks to refresh.
+      const { data: connectedPlatforms } = await supabaseClient
+        .from('platforms')
+        .select('*')
+        .eq('user_id', userId)
+        .or('is_active.eq.true,status.eq.connected');
+
+      let synced = 0;
+      const errors: string[] = [];
+
+      for (const plat of (connectedPlatforms || [])) {
+        try {
+          const rows: any[] = [];
+
+          // ── Shopify ──────────────────────────────────────────────────────────
+          if (plat.platform_type === 'shopify') {
+            const shopDomain = plat.shop_domain || plat.domain || plat.store_domain;
+            let tok = plat.access_token;
+            if (!shopDomain || !tok) continue;
+            try {
+              if (tok.length > 50 && !tok.startsWith('shpat_') && !tok.startsWith('shpca_')) {
+                const { decrypt } = await import('../_shared/encryption.ts');
+                tok = await decrypt(tok);
+              }
+            } catch {}
+            const shopBase = `https://${shopDomain}/admin/api/2024-01`;
+            const shopHeaders = { 'X-Shopify-Access-Token': tok, 'Content-Type': 'application/json' };
+            const oRes = await fetch(`${shopBase}/orders.json?limit=250&status=any`, { headers: shopHeaders });
+            if (oRes.ok) {
+              const { orders: shopOrders } = await oRes.json();
+              for (const o of (shopOrders || [])) {
+                rows.push({
+                  user_id: userId,
+                  platform_type: 'shopify',
+                  platform_order_id: String(o.id),
+                  order_number: o.name || String(o.order_number),
+                  status: o.cancelled_at ? 'cancelled' : o.financial_status === 'refunded' ? 'refunded' : o.fulfillment_status === 'fulfilled' ? 'shipped' : 'processing',
+                  fulfillment_status: o.fulfillment_status || 'unfulfilled',
+                  customer_name: o.customer ? `${o.customer.first_name || ''} ${o.customer.last_name || ''}`.trim() : (o.shipping_address?.name || 'Guest'),
+                  customer_email: o.email || o.customer?.email || '',
+                  shipping_address: o.shipping_address || null,
+                  subtotal: parseFloat(o.subtotal_price || '0'),
+                  total_price: parseFloat(o.total_price || '0'),
+                  currency: o.currency || 'USD',
+                  line_items: (o.line_items || []).map((i: any) => ({ title: i.title, sku: i.sku, quantity: i.quantity, unit_price: parseFloat(i.price || '0'), variant_title: i.variant_title })),
+                  tracking_number: o.fulfillments?.[0]?.tracking_number || null,
+                  tracking_company: o.fulfillments?.[0]?.tracking_company || null,
+                  shipped_at: o.fulfillments?.[0]?.created_at || null,
+                  order_date: o.created_at,
+                });
+              }
+            }
+          }
+
+          // ── Etsy ─────────────────────────────────────────────────────────────
+          if (plat.platform_type === 'etsy') {
+            const shopId = plat.metadata?.shop_id;
+            const tok = plat.credentials?.access_token;
+            const clientId = Deno.env.get('ETSY_CLIENT_ID');
+            if (!shopId || !tok || !clientId) continue;
+            const rRes = await fetch(
+              `https://openapi.etsy.com/v3/application/shops/${shopId}/receipts?limit=100`,
+              { headers: { 'x-api-key': clientId, 'Authorization': `Bearer ${tok}` } }
+            );
+            if (rRes.ok) {
+              const { results } = await rRes.json();
+              for (const r of (results || [])) {
+                rows.push({
+                  user_id: userId,
+                  platform_type: 'etsy',
+                  platform_order_id: String(r.receipt_id),
+                  order_number: String(r.receipt_id),
+                  status: r.is_shipped ? 'shipped' : r.status === 'paid' ? 'processing' : r.status,
+                  fulfillment_status: r.is_shipped ? 'fulfilled' : 'unfulfilled',
+                  customer_name: r.name || 'Etsy Customer',
+                  customer_email: r.buyer_email || '',
+                  shipping_address: r.formatted_address ? { address1: r.formatted_address } : null,
+                  subtotal: (r.subtotal?.amount || 0) / (r.subtotal?.divisor || 100),
+                  total_price: (r.grandtotal?.amount || 0) / (r.grandtotal?.divisor || 100),
+                  currency: r.grandtotal?.currency_code || 'USD',
+                  line_items: (r.transactions || []).map((t: any) => ({ title: t.title, sku: t.product_data?.sku?.[0] || '', quantity: t.quantity, unit_price: (t.price?.amount || 0) / (t.price?.divisor || 100) })),
+                  tracking_number: r.shipments?.[0]?.tracking_code || null,
+                  tracking_company: r.shipments?.[0]?.carrier_name || null,
+                  order_date: r.created_timestamp ? new Date(r.created_timestamp * 1000).toISOString() : null,
+                });
+              }
+            }
+          }
+
+          // ── eBay ─────────────────────────────────────────────────────────────
+          if (plat.platform_type === 'ebay') {
+            const creds = plat.credentials;
+            const meta = plat.metadata || {};
+            if (!creds?.access_token) continue;
+            const ebayBase = meta.environment === 'sandbox' ? 'https://api.sandbox.ebay.com' : 'https://api.ebay.com';
+            const ebayH = { 'Authorization': `Bearer ${creds.access_token}`, 'Content-Type': 'application/json', 'X-EBAY-C-MARKETPLACE-ID': creds.marketplace_id || 'EBAY_US' };
+            const oRes = await fetch(`${ebayBase}/sell/fulfillment/v1/order?limit=50`, { headers: ebayH });
+            if (oRes.ok) {
+              const { orders: ebayOrders } = await oRes.json();
+              for (const o of (ebayOrders || [])) {
+                rows.push({
+                  user_id: userId,
+                  platform_type: 'ebay',
+                  platform_order_id: o.orderId,
+                  order_number: o.orderId,
+                  status: o.orderFulfillmentStatus === 'FULFILLED' ? 'shipped' : o.orderPaymentStatus === 'PAID' ? 'processing' : 'pending',
+                  fulfillment_status: o.orderFulfillmentStatus === 'FULFILLED' ? 'fulfilled' : 'unfulfilled',
+                  customer_name: o.buyer?.username || 'eBay Buyer',
+                  customer_email: '',
+                  shipping_address: o.fulfillmentStartInstructions?.[0]?.shippingStep?.shipTo?.contactAddress || null,
+                  total_price: parseFloat(o.pricingSummary?.total?.value || '0'),
+                  currency: o.pricingSummary?.total?.currency || 'USD',
+                  line_items: (o.lineItems || []).map((i: any) => ({ title: i.title, sku: i.sku || '', quantity: i.quantity, unit_price: parseFloat(i.lineItemCost?.value || '0') })),
+                  order_date: o.creationDate,
+                });
+              }
+            }
+          }
+
+          // ── TikTok Shop ───────────────────────────────────────────────────────
+          if (plat.platform_type === 'tiktok_shop') {
+            const tok = plat.credentials?.access_token;
+            const shopId = plat.metadata?.shop_id;
+            if (!tok || !shopId) continue;
+            const ttH = { 'x-tts-access-token': tok, 'Content-Type': 'application/json' };
+            const oRes = await fetch(`https://open-api.tiktok-shops.com/order/202309/orders/search?shop_id=${encodeURIComponent(shopId)}`, {
+              method: 'POST',
+              headers: ttH,
+              body: JSON.stringify({ page_size: 50, order_status: 100 }), // 100 = awaiting shipment
+            });
+            if (oRes.ok) {
+              const oData = await oRes.json();
+              if (oData.code === 0) {
+                for (const o of (oData.data?.orders || [])) {
+                  rows.push({
+                    user_id: userId,
+                    platform_type: 'tiktok_shop',
+                    platform_order_id: o.id,
+                    order_number: o.id,
+                    status: o.status === 'AWAITING_SHIPMENT' ? 'processing' : o.status === 'SHIPPED' ? 'shipped' : o.status === 'DELIVERED' ? 'delivered' : 'pending',
+                    fulfillment_status: o.status === 'SHIPPED' || o.status === 'DELIVERED' ? 'fulfilled' : 'unfulfilled',
+                    customer_name: o.recipient_address?.name || 'TikTok Customer',
+                    customer_email: '',
+                    shipping_address: o.recipient_address || null,
+                    total_price: parseFloat(o.payment?.total_amount || '0'),
+                    currency: o.payment?.currency || 'USD',
+                    line_items: (o.line_items || []).map((i: any) => ({ title: i.product_name, sku: i.seller_sku || '', quantity: i.quantity, unit_price: parseFloat(i.sale_price || '0') })),
+                    order_date: o.create_time ? new Date(o.create_time * 1000).toISOString() : null,
+                  });
+                }
+              }
+            }
+          }
+
+          // ── WooCommerce ───────────────────────────────────────────────────────
+          if (plat.platform_type === 'woocommerce') {
+            const { consumer_key, consumer_secret } = plat.credentials;
+            const wooBase = `${plat.store_url}/wp-json/wc/v3`;
+            const wooH = { 'Content-Type': 'application/json', 'Authorization': `Basic ${btoa(`${consumer_key}:${consumer_secret}`)}` };
+            const oRes = await fetch(`${wooBase}/orders?per_page=100&status=any`, { headers: wooH });
+            if (oRes.ok) {
+              const wooOrders = await oRes.json();
+              for (const o of (wooOrders || [])) {
+                rows.push({
+                  user_id: userId,
+                  platform_type: 'woocommerce',
+                  platform_order_id: String(o.id),
+                  order_number: o.number ? `#${o.number}` : String(o.id),
+                  status: o.status === 'completed' ? 'shipped' : o.status === 'cancelled' ? 'cancelled' : o.status === 'refunded' ? 'refunded' : 'processing',
+                  fulfillment_status: o.status === 'completed' ? 'fulfilled' : 'unfulfilled',
+                  customer_name: `${o.billing?.first_name || ''} ${o.billing?.last_name || ''}`.trim() || 'WooCommerce Customer',
+                  customer_email: o.billing?.email || '',
+                  shipping_address: o.shipping || null,
+                  subtotal: parseFloat(o.total || '0'),
+                  total_price: parseFloat(o.total || '0'),
+                  currency: o.currency || 'USD',
+                  line_items: (o.line_items || []).map((i: any) => ({ title: i.name, sku: i.sku || '', quantity: i.quantity, unit_price: parseFloat(i.price || '0') })),
+                  order_date: o.date_created,
+                });
+              }
+            }
+          }
+
+          if (rows.length > 0) {
+            const { error: upsertErr } = await supabaseClient.from('orders').upsert(rows, {
+              onConflict: 'user_id,platform_type,platform_order_id',
+              ignoreDuplicates: false,
+            });
+            if (upsertErr) errors.push(`${plat.platform_type}: ${upsertErr.message}`);
+            else synced += rows.length;
+          }
+        } catch (e: any) {
+          errors.push(`${plat.platform_type}: ${e.message}`);
+        }
+      }
+
+      return {
+        message: `Synced ${synced} orders across your connected platforms.${errors.length > 0 ? ` Errors: ${errors.join('; ')}` : ''}`,
+        synced_count: synced,
+        errors,
+      };
+    }
+
+    case 'get_orders': {
+      // Query orders from the local DB. Supports filtering by status, platform, date range.
+      let query = supabaseClient
+        .from('orders')
+        .select('*')
+        .eq('user_id', userId)
+        .order('order_date', { ascending: false })
+        .limit(action.limit || 25);
+
+      if (action.status) query = query.eq('status', action.status);
+      if (action.platform_type) query = query.eq('platform_type', action.platform_type);
+      if (action.fulfillment_status) query = query.eq('fulfillment_status', action.fulfillment_status);
+      if (action.since) query = query.gte('order_date', action.since);
+
+      const { data: orders, error: qErr } = await query;
+      if (qErr) throw new Error(`Order query failed: ${qErr.message}`);
+
+      const unfulfilled = (orders || []).filter((o: any) => o.fulfillment_status === 'unfulfilled');
+      return {
+        orders: orders || [],
+        count: (orders || []).length,
+        unfulfilled_count: unfulfilled.length,
+        message: `Found ${(orders || []).length} order(s)${action.status ? ` with status "${action.status}"` : ''}.`,
+      };
+    }
+
+    case 'fulfill_order': {
+      // Marks an order as shipped on the originating platform and updates local DB.
+      // Required: platform_type, platform_order_id, tracking_number
+      // Optional: tracking_company (carrier), carrier_code
+      const { platform_type: orderPlatform, platform_order_id: orderId, tracking_number, tracking_company } = action;
+      if (!orderPlatform) throw new Error('platform_type is required for fulfill_order.');
+      if (!orderId) throw new Error('platform_order_id is required for fulfill_order.');
+      if (!tracking_number) throw new Error('tracking_number is required for fulfill_order.');
+
+      const { data: orderPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', orderPlatform).or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!orderPlats || orderPlats.length === 0) throw new Error(`No connected ${orderPlatform} account found.`);
+      const orderPlat = orderPlats[0];
+
+      // ── Shopify ──────────────────────────────────────────────────────────────
+      if (orderPlatform === 'shopify') {
+        const shopDomain = orderPlat.shop_domain || orderPlat.domain || orderPlat.store_domain;
+        let tok = orderPlat.access_token;
+        try {
+          if (tok.length > 50 && !tok.startsWith('shpat_') && !tok.startsWith('shpca_')) {
+            const { decrypt } = await import('../_shared/encryption.ts');
+            tok = await decrypt(tok);
+          }
+        } catch {}
+        const shopBase = `https://${shopDomain}/admin/api/2024-01`;
+        const shopH = { 'X-Shopify-Access-Token': tok, 'Content-Type': 'application/json' };
+
+        // Get line item IDs for the fulfillment
+        const oRes = await fetch(`${shopBase}/orders/${orderId}.json`, { headers: shopH });
+        if (!oRes.ok) throw new Error(`Could not find Shopify order ${orderId}`);
+        const { order: shopOrder } = await oRes.json();
+        const locationRes = await fetch(`${shopBase}/locations.json`, { headers: shopH });
+        const locationData = locationRes.ok ? await locationRes.json() : null;
+        const locationId = locationData?.locations?.[0]?.id;
+
+        const fulfillBody: any = {
+          fulfillment: {
+            location_id: locationId,
+            tracking_number,
+            tracking_company: tracking_company || '',
+            line_items: (shopOrder.line_items || []).map((i: any) => ({ id: i.id })),
+          },
+        };
+        const fRes = await fetch(`${shopBase}/orders/${orderId}/fulfillments.json`, {
+          method: 'POST', headers: shopH, body: JSON.stringify(fulfillBody),
+        });
+        if (!fRes.ok) throw new Error(`Shopify fulfillment failed: ${await fRes.text()}`);
+      }
+
+      // ── Etsy ─────────────────────────────────────────────────────────────────
+      if (orderPlatform === 'etsy') {
+        const shopId = orderPlat.metadata?.shop_id;
+        const tok = orderPlat.credentials?.access_token;
+        const clientId = Deno.env.get('ETSY_CLIENT_ID');
+        if (!shopId || !tok || !clientId) throw new Error('Etsy credentials incomplete for fulfillment.');
+        const eRes = await fetch(`https://openapi.etsy.com/v3/application/shops/${shopId}/receipts/${orderId}`, {
+          method: 'PUT',
+          headers: { 'x-api-key': clientId, 'Authorization': `Bearer ${tok}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ was_shipped: true, tracking_code: tracking_number, carrier_name: tracking_company || '' }),
+        });
+        if (!eRes.ok) throw new Error(`Etsy fulfillment failed: ${await eRes.text()}`);
+      }
+
+      // ── eBay ──────────────────────────────────────────────────────────────────
+      if (orderPlatform === 'ebay') {
+        const { apiBase: ebayBase, headers: ebayH } = await getEbayClientForActions(supabaseClient, userId);
+        const eRes = await fetch(`${ebayBase}/sell/fulfillment/v1/order/${encodeURIComponent(orderId)}/shippingFulfillment`, {
+          method: 'POST',
+          headers: ebayH,
+          body: JSON.stringify({
+            lineItems: [{ lineItemId: action.line_item_id || orderId, quantity: 1 }],
+            shippedDate: new Date().toISOString(),
+            shippingCarrierCode: action.carrier_code || tracking_company || 'Other',
+            trackingNumber: tracking_number,
+          }),
+        });
+        if (!eRes.ok) throw new Error(`eBay fulfillment failed: ${await eRes.text()}`);
+      }
+
+      // ── WooCommerce ───────────────────────────────────────────────────────────
+      if (orderPlatform === 'woocommerce') {
+        const { consumer_key, consumer_secret } = orderPlat.credentials;
+        const wooBase = `${orderPlat.store_url}/wp-json/wc/v3`;
+        const wooH = { 'Content-Type': 'application/json', 'Authorization': `Basic ${btoa(`${consumer_key}:${consumer_secret}`)}` };
+        const wRes = await fetch(`${wooBase}/orders/${orderId}`, {
+          method: 'PUT', headers: wooH,
+          body: JSON.stringify({ status: 'completed' }),
+        });
+        if (!wRes.ok) throw new Error(`WooCommerce order update failed: ${await wRes.text()}`);
+      }
+
+      // ── TikTok Shop ───────────────────────────────────────────────────────────
+      if (orderPlatform === 'tiktok_shop') {
+        const { apiBase: ttBase, headers: ttH, shopId } = await getTikTokClientForActions(supabaseClient, userId);
+        // TikTok requires package creation before marking shipped
+        const pkgRes = await fetch(`${ttBase}/fulfillment/202309/packages?shop_id=${encodeURIComponent(shopId)}`, {
+          method: 'POST',
+          headers: ttH,
+          body: JSON.stringify({ order_id: orderId, tracking_number, provider_id: action.carrier_code || '' }),
+        });
+        if (!pkgRes.ok) throw new Error(`TikTok fulfillment failed: ${await pkgRes.text()}`);
+        const pkgData = await pkgRes.json();
+        if (pkgData.code !== 0) throw new Error(`TikTok API error: ${pkgData.message}`);
+      }
+
+      // Update local DB regardless of platform
+      await supabaseClient.from('orders')
+        .update({ status: 'shipped', fulfillment_status: 'fulfilled', tracking_number, tracking_company: tracking_company || null, shipped_at: new Date().toISOString() })
+        .eq('user_id', userId).eq('platform_type', orderPlatform).eq('platform_order_id', orderId);
+
+      return { message: `Order ${orderId} marked as shipped on ${orderPlatform} with tracking ${tracking_number}.` };
+    }
+
+    case 'cancel_order': {
+      const { platform_type: orderPlatform, platform_order_id: orderId } = action;
+      if (!orderPlatform || !orderId) throw new Error('platform_type and platform_order_id are required for cancel_order.');
+
+      const { data: cPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', orderPlatform).or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!cPlats || cPlats.length === 0) throw new Error(`No connected ${orderPlatform} account found.`);
+      const cPlat = cPlats[0];
+
+      if (orderPlatform === 'shopify') {
+        const shopDomain = cPlat.shop_domain || cPlat.domain || cPlat.store_domain;
+        let tok = cPlat.access_token;
+        try {
+          if (tok.length > 50 && !tok.startsWith('shpat_') && !tok.startsWith('shpca_')) {
+            const { decrypt } = await import('../_shared/encryption.ts');
+            tok = await decrypt(tok);
+          }
+        } catch {}
+        const cRes = await fetch(`https://${shopDomain}/admin/api/2024-01/orders/${orderId}/cancel.json`, {
+          method: 'POST', headers: { 'X-Shopify-Access-Token': tok, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: action.reason || 'customer' }),
+        });
+        if (!cRes.ok) throw new Error(`Shopify cancel failed: ${await cRes.text()}`);
+      }
+
+      if (orderPlatform === 'woocommerce') {
+        const { consumer_key, consumer_secret } = cPlat.credentials;
+        const cRes = await fetch(`${cPlat.store_url}/wp-json/wc/v3/orders/${orderId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${btoa(`${consumer_key}:${consumer_secret}`)}` },
+          body: JSON.stringify({ status: 'cancelled' }),
+        });
+        if (!cRes.ok) throw new Error(`WooCommerce cancel failed: ${await cRes.text()}`);
+      }
+
+      if (orderPlatform === 'ebay') {
+        const { apiBase: ebayBase, headers: ebayH } = await getEbayClientForActions(supabaseClient, userId);
+        const cRes = await fetch(`${ebayBase}/sell/fulfillment/v1/order/${encodeURIComponent(orderId)}/cancel`, {
+          method: 'POST', headers: ebayH,
+          body: JSON.stringify({ cancelReason: action.reason || 'BUYER_ASKED_CANCEL' }),
+        });
+        if (!cRes.ok) throw new Error(`eBay cancel failed: ${await cRes.text()}`);
+      }
+
+      await supabaseClient.from('orders')
+        .update({ status: 'cancelled' })
+        .eq('user_id', userId).eq('platform_type', orderPlatform).eq('platform_order_id', orderId);
+
+      return { message: `Order ${orderId} cancelled on ${orderPlatform}.` };
+    }
+
+    case 'refund_order': {
+      // Full refund. For partial refunds, platform dashboards are recommended.
+      const { platform_type: orderPlatform, platform_order_id: orderId } = action;
+      if (!orderPlatform || !orderId) throw new Error('platform_type and platform_order_id are required for refund_order.');
+
+      const { data: rPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', orderPlatform).or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!rPlats || rPlats.length === 0) throw new Error(`No connected ${orderPlatform} account found.`);
+      const rPlat = rPlats[0];
+
+      if (orderPlatform === 'shopify') {
+        const shopDomain = rPlat.shop_domain || rPlat.domain || rPlat.store_domain;
+        let tok = rPlat.access_token;
+        try {
+          if (tok.length > 50 && !tok.startsWith('shpat_') && !tok.startsWith('shpca_')) {
+            const { decrypt } = await import('../_shared/encryption.ts');
+            tok = await decrypt(tok);
+          }
+        } catch {}
+        // Calculate refund amounts
+        const oRes = await fetch(`https://${shopDomain}/admin/api/2024-01/orders/${orderId}.json`, {
+          headers: { 'X-Shopify-Access-Token': tok, 'Content-Type': 'application/json' },
+        });
+        if (!oRes.ok) throw new Error(`Could not fetch Shopify order ${orderId} for refund.`);
+        const { order: shopOrder } = await oRes.json();
+        const refundBody = {
+          refund: {
+            notify: true,
+            note: action.reason || 'Refund requested',
+            refund_line_items: (shopOrder.line_items || []).map((i: any) => ({ line_item_id: i.id, quantity: i.quantity, restock_type: 'return' })),
+            transactions: [{ kind: 'refund', gateway: shopOrder.gateway, amount: shopOrder.total_price }],
+          },
+        };
+        const rRes = await fetch(`https://${shopDomain}/admin/api/2024-01/orders/${orderId}/refunds.json`, {
+          method: 'POST',
+          headers: { 'X-Shopify-Access-Token': tok, 'Content-Type': 'application/json' },
+          body: JSON.stringify(refundBody),
+        });
+        if (!rRes.ok) throw new Error(`Shopify refund failed: ${await rRes.text()}`);
+      }
+
+      if (orderPlatform === 'woocommerce') {
+        const { consumer_key, consumer_secret } = rPlat.credentials;
+        const rRes = await fetch(`${rPlat.store_url}/wp-json/wc/v3/orders/${orderId}/refunds`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${btoa(`${consumer_key}:${consumer_secret}`)}` },
+          body: JSON.stringify({ reason: action.reason || 'Refund requested', api_refund: true }),
+        });
+        if (!rRes.ok) throw new Error(`WooCommerce refund failed: ${await rRes.text()}`);
+      }
+
+      await supabaseClient.from('orders')
+        .update({ status: 'refunded' })
+        .eq('user_id', userId).eq('platform_type', orderPlatform).eq('platform_order_id', orderId);
+
+      return { message: `Refund processed for order ${orderId} on ${orderPlatform}.` };
+    }
+
+    case 'query_analytics': {
+      // On-demand analytics queries against the orders table.
+      // analytics_type: revenue_summary | top_products | platform_breakdown | order_trends | refund_rate
+      // period: today | 7d | 30d | 90d | 1y  (or use since + until for custom range)
+      const analyticsType = action.analytics_type || 'revenue_summary';
+
+      // Resolve date range
+      const now = new Date();
+      let since: Date;
+      let until: Date = now;
+
+      if (action.since) {
+        since = new Date(action.since);
+        if (action.until) until = new Date(action.until);
+      } else {
+        const periodDays: Record<string, number> = { today: 0, '7d': 7, '30d': 30, '90d': 90, '1y': 365 };
+        const days = periodDays[action.period ?? '30d'] ?? 30;
+        since = days === 0
+          ? new Date(now.getFullYear(), now.getMonth(), now.getDate()) // start of today
+          : new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+      }
+
+      const sinceISO = since.toISOString();
+      const untilISO = until.toISOString();
+      const periodLabel = action.period === 'today' ? 'today' : `${since.toLocaleDateString()} – ${until.toLocaleDateString()}`;
+
+      // Core query — excludes cancelled/refunded unless analytics_type is refund_rate
+      const coreQuery = () => supabaseClient
+        .from('orders')
+        .select('*')
+        .eq('user_id', userId)
+        .gte('order_date', sinceISO)
+        .lte('order_date', untilISO);
+
+      const paidQuery = () => coreQuery().not('status', 'in', '(cancelled,refunded)');
+
+      // ── revenue_summary ──────────────────────────────────────────────────────
+      if (analyticsType === 'revenue_summary') {
+        let q = paidQuery();
+        if (action.platform_type) q = q.eq('platform_type', action.platform_type);
+        const { data: orders } = await q;
+
+        const revenue = (orders || []).reduce((s: number, o: any) => s + parseFloat(o.total_price || 0), 0);
+        const count   = (orders || []).length;
+        const aov     = count > 0 ? revenue / count : 0;
+
+        // Compare to same-length previous period
+        const periodMs = until.getTime() - since.getTime();
+        const prevSince = new Date(since.getTime() - periodMs);
+        const { data: prevOrders } = await supabaseClient
+          .from('orders').select('total_price').eq('user_id', userId)
+          .gte('order_date', prevSince.toISOString()).lt('order_date', sinceISO)
+          .not('status', 'in', '(cancelled,refunded)');
+        const prevRevenue = (prevOrders || []).reduce((s: number, o: any) => s + parseFloat(o.total_price || 0), 0);
+        const changePct   = prevRevenue > 0 ? ((revenue - prevRevenue) / prevRevenue * 100) : null;
+        const changeStr   = changePct !== null ? ` (${changePct >= 0 ? '+' : ''}${changePct.toFixed(1)}% vs prior period)` : '';
+
+        return {
+          analytics_type: 'revenue_summary',
+          period: periodLabel,
+          revenue,
+          orders: count,
+          aov,
+          previous_period_revenue: prevRevenue,
+          change_pct: changePct,
+          message: `Revenue ${periodLabel}: $${revenue.toFixed(2)} across ${count} order(s). AOV: $${aov.toFixed(2)}${changeStr}.`,
+        };
+      }
+
+      // ── top_products ─────────────────────────────────────────────────────────
+      if (analyticsType === 'top_products') {
+        let q = paidQuery();
+        if (action.platform_type) q = q.eq('platform_type', action.platform_type);
+        const { data: orders } = await q;
+
+        const productMap: Record<string, { revenue: number; units: number; title: string }> = {};
+        for (const order of (orders || [])) {
+          for (const item of (order.line_items || [])) {
+            const key = item.sku || item.title || 'Unknown';
+            if (!productMap[key]) productMap[key] = { revenue: 0, units: 0, title: item.title || key };
+            productMap[key].revenue += (item.unit_price || 0) * (item.quantity || 1);
+            productMap[key].units   += item.quantity || 1;
+          }
+        }
+
+        const limit = action.limit || 10;
+        const sorted = Object.entries(productMap)
+          .sort((a, b) => (action.sort_by === 'units' ? b[1].units - a[1].units : b[1].revenue - a[1].revenue))
+          .slice(0, limit)
+          .map(([sku, d], i) => ({ rank: i + 1, sku, title: d.title, revenue: parseFloat(d.revenue.toFixed(2)), units: d.units }));
+
+        return {
+          analytics_type: 'top_products',
+          period: periodLabel,
+          products: sorted,
+          message: `Top ${sorted.length} products by ${action.sort_by === 'units' ? 'units sold' : 'revenue'} ${periodLabel}.`,
+        };
+      }
+
+      // ── platform_breakdown ───────────────────────────────────────────────────
+      if (analyticsType === 'platform_breakdown') {
+        const { data: orders } = await paidQuery();
+
+        const platMap: Record<string, { revenue: number; orders: number }> = {};
+        for (const o of (orders || [])) {
+          const p = o.platform_type || 'unknown';
+          if (!platMap[p]) platMap[p] = { revenue: 0, orders: 0 };
+          platMap[p].revenue += parseFloat(o.total_price || 0);
+          platMap[p].orders++;
+        }
+        const total = Object.values(platMap).reduce((s, p) => s + p.revenue, 0);
+        const rows  = Object.entries(platMap)
+          .sort((a, b) => b[1].revenue - a[1].revenue)
+          .map(([platform, d]) => ({
+            platform,
+            revenue: parseFloat(d.revenue.toFixed(2)),
+            orders: d.orders,
+            share: total > 0 ? `${(d.revenue / total * 100).toFixed(1)}%` : '0%',
+          }));
+
+        return {
+          analytics_type: 'platform_breakdown',
+          period: periodLabel,
+          total_revenue: parseFloat(total.toFixed(2)),
+          platforms: rows,
+          message: `Platform revenue breakdown ${periodLabel}. Total: $${total.toFixed(2)}.`,
+        };
+      }
+
+      // ── order_trends ─────────────────────────────────────────────────────────
+      if (analyticsType === 'order_trends') {
+        const { data: orders } = await paidQuery();
+
+        const dayMap: Record<string, { revenue: number; count: number }> = {};
+        for (const o of (orders || [])) {
+          const day = (o.order_date || o.created_at || '').slice(0, 10);
+          if (!day) continue;
+          if (!dayMap[day]) dayMap[day] = { revenue: 0, count: 0 };
+          dayMap[day].revenue += parseFloat(o.total_price || 0);
+          dayMap[day].count++;
+        }
+        const trend = Object.entries(dayMap)
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([date, d]) => ({ date, revenue: parseFloat(d.revenue.toFixed(2)), orders: d.count }));
+
+        const bestDay = trend.reduce((best, d) => (!best || d.revenue > best.revenue ? d : best), null as any);
+        return {
+          analytics_type: 'order_trends',
+          period: periodLabel,
+          trend,
+          best_day: bestDay,
+          message: `Daily trends ${periodLabel}: ${trend.length} days with sales.${bestDay ? ` Best day: ${bestDay.date} ($${bestDay.revenue.toFixed(2)})` : ''}`,
+        };
+      }
+
+      // ── refund_rate ──────────────────────────────────────────────────────────
+      if (analyticsType === 'refund_rate') {
+        const { data: allOrders } = await coreQuery().select('status,total_price,platform_type');
+        const total     = (allOrders || []).length;
+        const refunded  = (allOrders || []).filter((o: any) => o.status === 'refunded');
+        const cancelled = (allOrders || []).filter((o: any) => o.status === 'cancelled').length;
+        const refundedRevenue = refunded.reduce((s: number, o: any) => s + parseFloat(o.total_price || 0), 0);
+
+        return {
+          analytics_type: 'refund_rate',
+          period: periodLabel,
+          total_orders: total,
+          refunded_orders: refunded.length,
+          cancelled_orders: cancelled,
+          refund_rate_pct: total > 0 ? parseFloat((refunded.length / total * 100).toFixed(2)) : 0,
+          refunded_revenue: parseFloat(refundedRevenue.toFixed(2)),
+          message: `Refund rate ${periodLabel}: ${refunded.length} refunds out of ${total} total orders (${total > 0 ? (refunded.length / total * 100).toFixed(1) : 0}%). $${refundedRevenue.toFixed(2)} refunded.`,
+        };
+      }
+
+      throw new Error(`Unknown analytics_type "${analyticsType}". Valid: revenue_summary, top_products, platform_breakdown, order_trends, refund_rate`);
     }
 
     case 'woo_create_product': {
@@ -2639,6 +3613,1055 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       };
     }
 
+    // ── Promotions & Discounts ────────────────────────────────────────────────
+
+    case 'shopify_create_discount': {
+      // Creates a price rule + discount code on Shopify.
+      // action.code           — e.g. "SUMMER20"
+      // action.discount_type  — 'percentage' | 'fixed_amount' | 'free_shipping'
+      // action.value          — positive number (% or $ off); ignored for free_shipping
+      // action.min_subtotal   — optional minimum order subtotal (USD)
+      // action.usage_limit    — optional max total uses (omit for unlimited)
+      // action.starts_at      — optional ISO datetime (defaults to now)
+      // action.ends_at        — optional ISO datetime (omit for no expiry)
+      const discountCode = (action.code || `ORION${Date.now()}`).toUpperCase();
+      const discountType = action.discount_type || 'percentage';
+      const discountValue = discountType === 'free_shipping' ? '0.0' : String(Math.abs(Number(action.value || 10)));
+
+      const priceRuleBody: any = {
+        price_rule: {
+          title: discountCode,
+          target_type: 'line_item',
+          target_selection: 'all',
+          allocation_method: 'across',
+          value_type: discountType === 'fixed_amount' ? 'fixed_amount' : (discountType === 'free_shipping' ? 'percentage' : 'percentage'),
+          value: discountType === 'free_shipping' ? '0.0' : `-${discountValue}`,
+          customer_selection: 'all',
+          starts_at: action.starts_at || new Date().toISOString(),
+        },
+      };
+      if (discountType === 'free_shipping') {
+        priceRuleBody.price_rule.target_type = 'shipping_line';
+        priceRuleBody.price_rule.target_selection = 'all';
+        priceRuleBody.price_rule.value_type = 'percentage';
+        priceRuleBody.price_rule.value = '-100.0';
+      }
+      if (action.min_subtotal) {
+        priceRuleBody.price_rule.prerequisite_subtotal_range = { greater_than_or_equal_to: String(action.min_subtotal) };
+      }
+      if (action.usage_limit) {
+        priceRuleBody.price_rule.usage_limit = Number(action.usage_limit);
+      }
+      if (action.ends_at) {
+        priceRuleBody.price_rule.ends_at = action.ends_at;
+      }
+
+      const prRes = await fetch(`${shopifyBase}/price_rules.json`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(priceRuleBody),
+      });
+      if (!prRes.ok) throw new Error(`Shopify price rule creation failed: ${await prRes.text()}`);
+      const { price_rule: newRule } = await prRes.json();
+
+      // Attach the discount code to the price rule
+      const codeRes = await fetch(`${shopifyBase}/price_rules/${newRule.id}/discount_codes.json`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ discount_code: { code: discountCode } }),
+      });
+      if (!codeRes.ok) throw new Error(`Shopify discount code creation failed: ${await codeRes.text()}`);
+
+      const summary = discountType === 'free_shipping'
+        ? 'Free shipping'
+        : discountType === 'fixed_amount'
+          ? `$${discountValue} off`
+          : `${discountValue}% off`;
+      const expiry = action.ends_at ? ` (expires ${action.ends_at.slice(0, 10)})` : ' (no expiry)';
+      return {
+        message: `Created Shopify discount code **${discountCode}** — ${summary}${action.min_subtotal ? ` on orders over $${action.min_subtotal}` : ''}${expiry}. Price rule ID: ${newRule.id}`,
+        price_rule_id: newRule.id,
+        code: discountCode,
+      };
+    }
+
+    case 'shopify_delete_discount': {
+      // Deletes a Shopify price rule (and all its codes) by price_rule_id or code string.
+      let priceRuleId = action.price_rule_id;
+
+      if (!priceRuleId && action.code) {
+        // Look up price rule by scanning discount codes — Shopify doesn't have a direct lookup endpoint
+        const listRes = await fetch(`${shopifyBase}/price_rules.json?limit=250`, { headers });
+        if (listRes.ok) {
+          const { price_rules } = await listRes.json();
+          for (const rule of (price_rules || [])) {
+            const codesRes = await fetch(`${shopifyBase}/price_rules/${rule.id}/discount_codes.json`, { headers });
+            if (codesRes.ok) {
+              const { discount_codes } = await codesRes.json();
+              const match = (discount_codes || []).find((c: any) => c.code.toUpperCase() === action.code.toUpperCase());
+              if (match) { priceRuleId = rule.id; break; }
+            }
+          }
+        }
+      }
+      if (!priceRuleId) throw new Error('price_rule_id or code is required for shopify_delete_discount.');
+
+      const delRes = await fetch(`${shopifyBase}/price_rules/${priceRuleId}.json`, { method: 'DELETE', headers });
+      if (!delRes.ok && delRes.status !== 404) throw new Error(`Shopify delete discount failed: ${await delRes.text()}`);
+      return { message: `Deleted Shopify discount${action.code ? ` code ${action.code}` : ''} (price rule ${priceRuleId}).` };
+    }
+
+    case 'etsy_create_sale': {
+      // Starts an Etsy sale by temporarily overriding the listing price.
+      // Etsy's Offsite Ads / Sales Events API doesn't exist in v3 Open API —
+      // the supported approach is to PATCH the listing price directly.
+      // action.listing_id | product_name/sku   — identifies the listing
+      // action.sale_price  OR  action.discount_percent  — new price or % off
+      const { data: etsySalePlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!etsySalePlats || etsySalePlats.length === 0) throw new Error('No connected Etsy shop found.');
+      const etsySalePlat = etsySalePlats[0];
+      const etsySaleTok = etsySalePlat.credentials?.access_token;
+      const etsySaleShopId = etsySalePlat.metadata?.shop_id;
+      const etsySaleClientId = Deno.env.get('ETSY_CLIENT_ID');
+      if (!etsySaleTok || !etsySaleShopId || !etsySaleClientId) throw new Error('Etsy credentials or shop_id missing.');
+
+      const etsySaleHeaders: Record<string, string> = {
+        'x-api-key': etsySaleClientId,
+        'Authorization': `Bearer ${etsySaleTok}`,
+        'Content-Type': 'application/json',
+      };
+
+      // Resolve listing_id
+      let saleListingId = action.listing_id;
+      if (!saleListingId && (action.product_name || action.sku)) {
+        const srRes = await fetch(
+          `https://openapi.etsy.com/v3/application/shops/${etsySaleShopId}/listings?limit=100&state=active`,
+          { headers: etsySaleHeaders }
+        );
+        if (srRes.ok) {
+          const srData = await srRes.json();
+          const found = (srData.results || []).find((l: any) =>
+            (action.product_name && l.title?.toLowerCase().includes(action.product_name.toLowerCase())) ||
+            (action.sku && l.sku?.includes(action.sku))
+          );
+          if (found) saleListingId = found.listing_id;
+        }
+        if (!saleListingId) throw new Error(`Could not find Etsy listing matching "${action.product_name || action.sku}".`);
+      }
+      if (!saleListingId) throw new Error('listing_id or product_name/sku required for etsy_create_sale.');
+
+      // Determine sale price
+      let salePrice = action.sale_price;
+      if (!salePrice && action.discount_percent) {
+        // Fetch current price to calculate sale price
+        const listRes = await fetch(
+          `https://openapi.etsy.com/v3/application/listings/${saleListingId}`,
+          { headers: etsySaleHeaders }
+        );
+        if (!listRes.ok) throw new Error(`Could not fetch Etsy listing ${saleListingId}: ${await listRes.text()}`);
+        const listData = await listRes.json();
+        const currentPrice = parseFloat(listData.price?.amount) / (listData.price?.divisor || 100);
+        salePrice = parseFloat((currentPrice * (1 - Number(action.discount_percent) / 100)).toFixed(2));
+      }
+      if (!salePrice) throw new Error('sale_price or discount_percent is required for etsy_create_sale.');
+
+      const saleRes = await fetch(
+        `https://openapi.etsy.com/v3/application/shops/${etsySaleShopId}/listings/${saleListingId}`,
+        { method: 'PATCH', headers: etsySaleHeaders, body: JSON.stringify({ price: Number(salePrice) }) }
+      );
+      if (!saleRes.ok) throw new Error(`Etsy sale price update failed: ${await saleRes.text()}`);
+      const discountDisplay = action.discount_percent ? `${action.discount_percent}% off → ` : '';
+      return { message: `Etsy listing #${saleListingId} sale started: ${discountDisplay}$${salePrice}. To end the sale, use etsy_end_sale with the original price.` };
+    }
+
+    case 'etsy_end_sale': {
+      // Restores the regular price on an Etsy listing after a sale.
+      // action.listing_id | product_name/sku  — identifies the listing
+      // action.regular_price                  — the original pre-sale price to restore
+      const { data: etsyEndSalePlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!etsyEndSalePlats || etsyEndSalePlats.length === 0) throw new Error('No connected Etsy shop found.');
+      const etsyEndPlat = etsyEndSalePlats[0];
+      const etsyEndTok = etsyEndPlat.credentials?.access_token;
+      const etsyEndShopId = etsyEndPlat.metadata?.shop_id;
+      const etsyEndClientId = Deno.env.get('ETSY_CLIENT_ID');
+      if (!etsyEndTok || !etsyEndShopId || !etsyEndClientId) throw new Error('Etsy credentials or shop_id missing.');
+
+      const etsyEndHeaders: Record<string, string> = {
+        'x-api-key': etsyEndClientId,
+        'Authorization': `Bearer ${etsyEndTok}`,
+        'Content-Type': 'application/json',
+      };
+
+      let endListingId = action.listing_id;
+      if (!endListingId && (action.product_name || action.sku)) {
+        const srRes = await fetch(
+          `https://openapi.etsy.com/v3/application/shops/${etsyEndShopId}/listings?limit=100&state=active`,
+          { headers: etsyEndHeaders }
+        );
+        if (srRes.ok) {
+          const srData = await srRes.json();
+          const found = (srData.results || []).find((l: any) =>
+            (action.product_name && l.title?.toLowerCase().includes(action.product_name.toLowerCase())) ||
+            (action.sku && l.sku?.includes(action.sku))
+          );
+          if (found) endListingId = found.listing_id;
+        }
+        if (!endListingId) throw new Error(`Could not find Etsy listing matching "${action.product_name || action.sku}".`);
+      }
+      if (!endListingId) throw new Error('listing_id or product_name/sku required for etsy_end_sale.');
+      if (!action.regular_price) throw new Error('regular_price is required for etsy_end_sale (the price to restore).');
+
+      const restoreRes = await fetch(
+        `https://openapi.etsy.com/v3/application/shops/${etsyEndShopId}/listings/${endListingId}`,
+        { method: 'PATCH', headers: etsyEndHeaders, body: JSON.stringify({ price: Number(action.regular_price) }) }
+      );
+      if (!restoreRes.ok) throw new Error(`Etsy end sale failed: ${await restoreRes.text()}`);
+      return { message: `Etsy listing #${endListingId} sale ended — price restored to $${action.regular_price}.` };
+    }
+
+    case 'ebay_create_promotion': {
+      // Creates an eBay item promotion (markdown sale) using the Promotions API.
+      // action.name           — promo name (required)
+      // action.discount_type  — 'PERCENT_OFF' | 'AMOUNT_OFF'
+      // action.discount_value — % or $ off (required)
+      // action.listing_ids    — optional array of eBay listing IDs to apply to (omit = store-wide)
+      // action.starts_at      — optional ISO datetime (defaults to now)
+      // action.ends_at        — optional ISO datetime (required for item promotions)
+      const { apiBase: ebayPromoBase, headers: ebayPromoHeaders } = await getEbayClientForActions(supabaseClient, userId);
+      if (!action.name) throw new Error('name is required for ebay_create_promotion.');
+      if (!action.discount_value) throw new Error('discount_value is required for ebay_create_promotion.');
+
+      const discountTypeEbay = (action.discount_type || 'PERCENT_OFF').toUpperCase();
+      const promoBody: any = {
+        name: action.name,
+        promotionType: 'ITEM_PRICE_MARKDOWN',
+        status: 'ACTIVE',
+        startDate: action.starts_at || new Date().toISOString(),
+        ...(action.ends_at ? { endDate: action.ends_at } : {}),
+        discountRules: [{
+          discountBenefit: {
+            ...(discountTypeEbay === 'PERCENT_OFF'
+              ? { percentageDiscount: String(action.discount_value) }
+              : { amountOffItem: { currency: 'USD', value: String(action.discount_value) } }
+            ),
+          },
+          inventoryCriterion: action.listing_ids?.length
+            ? { inventoryCriterionType: 'INVENTORY_BY_VALUE', inventoryItems: action.listing_ids.map((id: string) => ({ listingId: id })) }
+            : { inventoryCriterionType: 'INVENTORY_ANY' },
+        }],
+      };
+
+      const promoRes = await fetch(`${ebayPromoBase}/sell/marketing/v1/item_promotion`, {
+        method: 'POST',
+        headers: ebayPromoHeaders,
+        body: JSON.stringify(promoBody),
+      });
+      if (!promoRes.ok) throw new Error(`eBay promotion creation failed: ${await promoRes.text()}`);
+      const promoData = promoRes.status === 201 ? {} : await promoRes.json();
+      const promoId = promoData.promotionId || promoRes.headers?.get('location')?.split('/').pop() || 'unknown';
+
+      const discountSummary = discountTypeEbay === 'PERCENT_OFF' ? `${action.discount_value}% off` : `$${action.discount_value} off`;
+      return {
+        message: `Created eBay promotion "${action.name}": ${discountSummary}${action.ends_at ? ` through ${action.ends_at.slice(0, 10)}` : ''}. Promotion ID: ${promoId}`,
+        promotion_id: promoId,
+      };
+    }
+
+    case 'ebay_end_promotion': {
+      // Ends (deletes) an eBay promotion.
+      // action.promotion_id — required
+      const { apiBase: ebayEndPromoBase, headers: ebayEndPromoHeaders } = await getEbayClientForActions(supabaseClient, userId);
+      if (!action.promotion_id) throw new Error('promotion_id is required for ebay_end_promotion.');
+
+      const endPromoRes = await fetch(`${ebayEndPromoBase}/sell/marketing/v1/item_promotion/${action.promotion_id}`, {
+        method: 'DELETE',
+        headers: ebayEndPromoHeaders,
+      });
+      if (!endPromoRes.ok && endPromoRes.status !== 404) throw new Error(`eBay end promotion failed: ${await endPromoRes.text()}`);
+      return { message: `eBay promotion ${action.promotion_id} ended and deleted.` };
+    }
+
+    case 'woo_create_coupon': {
+      // Creates a WooCommerce coupon code.
+      // action.code           — coupon code string (required)
+      // action.discount_type  — 'percent' | 'fixed_cart' | 'fixed_product' (default: 'percent')
+      // action.amount         — discount value as a string (required)
+      // action.min_amount     — optional minimum order subtotal
+      // action.usage_limit    — optional max uses (integer)
+      // action.expires_at     — optional expiry date (YYYY-MM-DD)
+      // action.description    — optional note
+      const { data: wooCouponPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'woocommerce').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!wooCouponPlats || wooCouponPlats.length === 0) throw new Error('No connected WooCommerce store found.');
+      const wooCouponPlat = wooCouponPlats[0];
+      const { consumer_key: wooCK, consumer_secret: wooCSecret } = wooCouponPlat.credentials;
+      const wooCouponBase = `${wooCouponPlat.store_url}/wp-json/wc/v3`;
+      const wooCouponHeaders = {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${btoa(`${wooCK}:${wooCSecret}`)}`,
+      };
+
+      if (!action.code) throw new Error('code is required for woo_create_coupon.');
+      if (!action.amount) throw new Error('amount is required for woo_create_coupon.');
+
+      const couponBody: any = {
+        code: action.code.toLowerCase(),
+        discount_type: action.discount_type || 'percent',
+        amount: String(action.amount),
+        description: action.description || '',
+        ...(action.min_amount ? { minimum_amount: String(action.min_amount) } : {}),
+        ...(action.usage_limit ? { usage_limit: Number(action.usage_limit) } : {}),
+        ...(action.expires_at ? { date_expires: action.expires_at } : {}),
+      };
+
+      const couponRes = await fetch(`${wooCouponBase}/coupons`, {
+        method: 'POST',
+        headers: wooCouponHeaders,
+        body: JSON.stringify(couponBody),
+      });
+      if (!couponRes.ok) throw new Error(`WooCommerce coupon creation failed: ${await couponRes.text()}`);
+      const couponData = await couponRes.json();
+      const discTypeName = { percent: '%', fixed_cart: '$ off cart', fixed_product: '$ off product' }[couponBody.discount_type] || couponBody.discount_type;
+      return {
+        message: `Created WooCommerce coupon **${couponData.code.toUpperCase()}**: ${action.amount}${discTypeName}${action.expires_at ? ` (expires ${action.expires_at})` : ''}. Coupon ID: ${couponData.id}`,
+        coupon_id: couponData.id,
+        code: couponData.code,
+      };
+    }
+
+    case 'woo_delete_coupon': {
+      // Deletes a WooCommerce coupon by ID or code.
+      const { data: wooDelCouponPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'woocommerce').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!wooDelCouponPlats || wooDelCouponPlats.length === 0) throw new Error('No connected WooCommerce store found.');
+      const wooDelPlat = wooDelCouponPlats[0];
+      const { consumer_key: wooDelCK, consumer_secret: wooDelCS } = wooDelPlat.credentials;
+      const wooDelBase = `${wooDelPlat.store_url}/wp-json/wc/v3`;
+      const wooDelHeaders = {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${btoa(`${wooDelCK}:${wooDelCS}`)}`,
+      };
+
+      let couponId = action.coupon_id;
+      if (!couponId && action.code) {
+        const searchRes = await fetch(`${wooDelBase}/coupons?code=${encodeURIComponent(action.code)}&per_page=1`, { headers: wooDelHeaders });
+        if (searchRes.ok) {
+          const [found] = await searchRes.json();
+          if (found) couponId = found.id;
+        }
+        if (!couponId) throw new Error(`WooCommerce coupon "${action.code}" not found.`);
+      }
+      if (!couponId) throw new Error('coupon_id or code is required for woo_delete_coupon.');
+
+      const delRes = await fetch(`${wooDelBase}/coupons/${couponId}?force=true`, { method: 'DELETE', headers: wooDelHeaders });
+      if (!delRes.ok && delRes.status !== 404) throw new Error(`WooCommerce delete coupon failed: ${await delRes.text()}`);
+      return { message: `Deleted WooCommerce coupon ${action.code || `#${couponId}`}.` };
+    }
+
+    case 'cross_platform_create': {
+      // Lists a product on ALL connected platforms in one shot.
+      // Orion dispatches a platform-native create action for each connected platform
+      // and aggregates the results. The user confirms once, Orion does the rest.
+      //
+      // Required: title, price
+      // Optional: description, sku, quantity, tags, images, product_type
+      //           platforms — array of platform_type strings to target (omit = all connected)
+      //
+      // Platform-specific overrides (optional):
+      //   etsy_overrides: { who_made, when_made, taxonomy_id, state }
+      //   ebay_overrides: { condition_id, category_id, marketplace_id }
+
+      if (!action.title) throw new Error('title is required for cross_platform_create.');
+      if (action.price == null) throw new Error('price is required for cross_platform_create.');
+
+      // Fetch all connected platforms
+      const { data: connectedPlatforms } = await supabaseClient
+        .from('platforms')
+        .select('platform_type,metadata,credentials,shop_domain,store_url')
+        .eq('user_id', userId)
+        .or('is_active.eq.true,status.eq.connected');
+
+      if (!connectedPlatforms || connectedPlatforms.length === 0) {
+        throw new Error('No connected platforms found. Connect at least one platform in the Platforms tab first.');
+      }
+
+      // Filter to requested platforms if specified
+      const targetTypes: string[] = action.platforms?.length
+        ? action.platforms
+        : connectedPlatforms.map((p: any) => p.platform_type);
+
+      const filteredPlatforms = connectedPlatforms.filter((p: any) => targetTypes.includes(p.platform_type));
+      if (filteredPlatforms.length === 0) {
+        throw new Error(`None of the requested platforms (${targetTypes.join(', ')}) are connected.`);
+      }
+
+      const results: Array<{ platform: string; success: boolean; message: string }> = [];
+
+      for (const plat of filteredPlatforms) {
+        const pt = plat.platform_type;
+        try {
+          let subAction: Record<string, any> | null = null;
+
+          if (pt === 'shopify') {
+            subAction = {
+              type: 'create_product',
+              title: action.title,
+              price: action.price,
+              sku: action.sku,
+              quantity: action.quantity ?? 0,
+              description: action.description || '',
+              product_type: action.product_type || '',
+              tags: action.tags || [],
+              images: action.images || [],
+            };
+          } else if (pt === 'etsy') {
+            const etsyOverrides = action.etsy_overrides || {};
+            subAction = {
+              type: 'etsy_create_listing',
+              title: action.title,
+              description: action.description || action.title,
+              price: action.price,
+              quantity: action.quantity ?? 1,
+              sku: action.sku,
+              tags: action.tags || [],
+              who_made: etsyOverrides.who_made || 'i_did',
+              when_made: etsyOverrides.when_made || 'made_to_order',
+              taxonomy_id: etsyOverrides.taxonomy_id,
+              state: etsyOverrides.state || 'draft',
+            };
+          } else if (pt === 'ebay') {
+            const ebayOverrides = action.ebay_overrides || {};
+            subAction = {
+              type: 'ebay_create_listing',
+              title: action.title,
+              description: action.description || action.title,
+              price: action.price,
+              quantity: action.quantity ?? 1,
+              sku: action.sku,
+              condition_id: ebayOverrides.condition_id || '1000',
+              category_id: ebayOverrides.category_id,
+              marketplace_id: ebayOverrides.marketplace_id,
+              images: action.images || [],
+            };
+          } else if (pt === 'woocommerce') {
+            subAction = {
+              type: 'woo_create_product',
+              title: action.title,
+              name: action.title,
+              price: action.price,
+              sku: action.sku,
+              quantity: action.quantity ?? 0,
+              description: action.description || '',
+              tags: action.tags || [],
+              images: action.images || [],
+              product_type: action.product_type || 'simple',
+            };
+          } else if (pt === 'ecwid') {
+            subAction = {
+              type: 'ecwid_create_product',
+              title: action.title,
+              price: action.price,
+              sku: action.sku,
+              quantity: action.quantity ?? 0,
+              description: action.description || '',
+              keywords: (action.tags || []).join(' '),
+              images: action.images || [],
+            };
+          } else if (pt === 'magento') {
+            subAction = {
+              type: 'magento_create_product',
+              title: action.title,
+              price: action.price,
+              sku: action.sku || `${action.title.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`,
+              quantity: action.quantity ?? 0,
+              description: action.description || '',
+            };
+          } else if (pt === 'prestashop') {
+            subAction = {
+              type: 'prestashop_create_product',
+              title: action.title,
+              price: action.price,
+              sku: action.sku,
+              quantity: action.quantity ?? 0,
+              description: action.description || '',
+            };
+          } else if (pt === 'tiktok_shop') {
+            subAction = {
+              type: 'tiktok_create_product',
+              title: action.title,
+              price: action.price,
+              sku: action.sku,
+              quantity: action.quantity ?? 0,
+              description: action.description || '',
+              images: action.images || [],
+            };
+          } else {
+            // Unsupported platform for cross_platform_create — skip gracefully
+            results.push({ platform: pt, success: false, message: `Platform "${pt}" does not support cross_platform_create yet.` });
+            continue;
+          }
+
+          const res = await executeStoreAction(supabaseClient, userId, subAction);
+          results.push({ platform: pt, success: true, message: res?.message || `Created on ${pt}` });
+        } catch (err: any) {
+          results.push({ platform: pt, success: false, message: `Error: ${err.message}` });
+        }
+      }
+
+      const successCount = results.filter(r => r.success).length;
+      const failCount = results.filter(r => !r.success).length;
+      const summary = results.map(r => `• **${r.platform}**: ${r.success ? '✓' : '✗'} ${r.message}`).join('\n');
+
+      return {
+        message: `Cross-platform listing "${action.title}" complete: ${successCount} succeeded, ${failCount} failed.\n\n${summary}`,
+        results,
+      };
+    }
+
+    default:
+    case 'bulk_ai_content': {
+      // Applies AI-generated content to multiple products in one confirmed batch.
+      // Orion generates the content (titles/descriptions/tags/etc.), then packages it
+      // into this single action so the user confirms once instead of per-product.
+      //
+      // action.updates — array of product content objects:
+      //   { product_name, sku, platform_type?, title?, description?, tags?, seo_title?, seo_description?, url_handle?, image_alt? }
+      //
+      // Each product update runs the minimum necessary action(s):
+      //   - title → update_title / etsy_update_title / ebay_update_title / woo_update_title / etc.
+      //   - description → update_description / etsy_update_description / etc.
+      //   - tags → update_tags / etsy_update_tags / woo_update_tags / etc.
+      //   - seo_title + seo_description → update_seo_listing (Shopify only)
+      //   - url_handle → update_url_handle (Shopify only)
+      //   - image_alt → update_image_alt
+      // Multiple fields for the same product are bundled as a multi_action.
+
+      const updates: any[] = action.updates || [];
+      if (updates.length === 0) throw new Error('updates array is required and must be non-empty for bulk_ai_content.');
+      if (updates.length > 50) throw new Error('bulk_ai_content supports up to 50 products per batch. Split into multiple batches.');
+
+      const bulkResults: Array<{ product: string; success: boolean; message: string }> = [];
+
+      for (const u of updates) {
+        const productLabel = u.product_name || u.sku || 'Unknown';
+        const pt = (u.platform_type || 'shopify').toLowerCase();
+
+        try {
+          // Build the list of sub-actions for this product
+          const subActions: any[] = [];
+
+          if (u.title) {
+            if (pt === 'shopify') subActions.push({ type: 'update_title', new_title: u.title });
+            else if (pt === 'etsy') subActions.push({ type: 'etsy_update_title', title: u.title, product_name: u.product_name, sku: u.sku, listing_id: u.listing_id });
+            else if (pt === 'ebay') subActions.push({ type: 'ebay_update_title', new_title: u.title, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'woocommerce') subActions.push({ type: 'woo_update_title', new_title: u.title, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'ecwid') subActions.push({ type: 'ecwid_update_title', title: u.title, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'magento') subActions.push({ type: 'magento_update_title', new_title: u.title, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'prestashop') subActions.push({ type: 'prestashop_update_title', title: u.title, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'tiktok_shop') subActions.push({ type: 'tiktok_update_title', new_title: u.title, product_name: u.product_name, sku: u.sku });
+          }
+
+          if (u.description) {
+            if (pt === 'shopify') subActions.push({ type: 'update_description', description: u.description });
+            else if (pt === 'etsy') subActions.push({ type: 'etsy_update_description', description: u.description, product_name: u.product_name, sku: u.sku, listing_id: u.listing_id });
+            else if (pt === 'ebay') subActions.push({ type: 'ebay_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'woocommerce') subActions.push({ type: 'woo_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'ecwid') subActions.push({ type: 'ecwid_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'magento') subActions.push({ type: 'magento_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'prestashop') subActions.push({ type: 'prestashop_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
+            else if (pt === 'tiktok_shop') subActions.push({ type: 'tiktok_update_description', description: u.description, product_name: u.product_name, sku: u.sku });
+          }
+
+          if (u.tags) {
+            if (pt === 'shopify') subActions.push({ type: 'update_tags', tags: u.tags });
+            else if (pt === 'etsy') subActions.push({ type: 'etsy_update_tags', tags: u.tags, product_name: u.product_name, sku: u.sku, listing_id: u.listing_id });
+            else if (pt === 'woocommerce') subActions.push({ type: 'woo_update_tags', tags: u.tags, product_name: u.product_name, sku: u.sku });
+          }
+
+          if ((u.seo_title || u.seo_description) && pt === 'shopify') {
+            subActions.push({ type: 'update_seo_listing', seo_title: u.seo_title, seo_description: u.seo_description });
+          }
+
+          if (u.url_handle && pt === 'shopify') {
+            subActions.push({ type: 'update_url_handle', new_handle: u.url_handle });
+          }
+
+          if (u.image_alt) {
+            subActions.push({ type: 'update_image_alt', alt_text: u.image_alt });
+          }
+
+          if (subActions.length === 0) {
+            bulkResults.push({ product: productLabel, success: false, message: 'No content fields specified (title/description/tags/seo_title/seo_description/url_handle/image_alt).' });
+            continue;
+          }
+
+          // Attach the product identifier to each sub-action that needs it
+          const enrichedSubActions = subActions.map((sa: any) => ({
+            ...sa,
+            product_name: sa.product_name || u.product_name,
+            sku: sa.sku || u.sku,
+          }));
+
+          let result: any;
+          if (enrichedSubActions.length === 1) {
+            result = await executeStoreAction(supabaseClient, userId, enrichedSubActions[0]);
+          } else {
+            // Bundle multiple field updates as a multi_action
+            result = await executeStoreAction(supabaseClient, userId, {
+              type: 'multi_action',
+              product_name: u.product_name,
+              sku: u.sku,
+              description: `AI content update: ${Object.keys(u).filter(k => ['title','description','tags','seo_title','seo_description','url_handle','image_alt'].includes(k)).join(', ')}`,
+              actions: enrichedSubActions,
+            });
+          }
+
+          bulkResults.push({ product: productLabel, success: true, message: result?.message || 'Updated' });
+        } catch (err: any) {
+          bulkResults.push({ product: productLabel, success: false, message: `Error: ${err.message}` });
+        }
+      }
+
+      const successCount = bulkResults.filter(r => r.success).length;
+      const failCount = bulkResults.filter(r => !r.success).length;
+      const summaryLines = bulkResults.map(r => `• **${r.product}**: ${r.success ? '✓' : '✗'} ${r.message}`).join('\n');
+
+      return {
+        message: `Bulk AI content update complete: ${successCount}/${updates.length} products updated${failCount > 0 ? `, ${failCount} failed` : ''}.\n\n${summaryLines}`,
+        results: bulkResults,
+      };
+    }
+
+    // ── Customer Messages ─────────────────────────────────────────────────────
+
+    case 'get_messages': {
+      // Fetches recent unread/unanswered customer messages from connected platforms.
+      // action.platform_type — 'etsy' | 'ebay' | 'all' (default: 'all')
+      // action.limit         — max messages per platform (default: 20)
+      // action.unread_only   — boolean, default true
+
+      const msgPlatform = action.platform_type || 'all';
+      const msgLimit = action.limit || 20;
+      const allMessages: any[] = [];
+
+      // ── Etsy Messages ────────────────────────────────────────────────────────
+      if (msgPlatform === 'all' || msgPlatform === 'etsy') {
+        const { data: etsyMsgPlats } = await supabaseClient.from('platforms').select('*')
+          .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
+        if (etsyMsgPlats && etsyMsgPlats.length > 0) {
+          const etsyMsgPlat = etsyMsgPlats[0];
+          const etsyMsgTok = etsyMsgPlat.credentials?.access_token;
+          const etsyMsgShopId = etsyMsgPlat.metadata?.shop_id;
+          const etsyMsgClientId = Deno.env.get('ETSY_CLIENT_ID');
+          if (etsyMsgTok && etsyMsgShopId && etsyMsgClientId) {
+            const etsyMsgHeaders = {
+              'x-api-key': etsyMsgClientId,
+              'Authorization': `Bearer ${etsyMsgTok}`,
+              'Content-Type': 'application/json',
+            };
+            // Etsy Conversations API: GET /v3/application/shops/{shop_id}/conversations
+            const convRes = await fetch(
+              `https://openapi.etsy.com/v3/application/shops/${etsyMsgShopId}/conversations?limit=${msgLimit}`,
+              { headers: etsyMsgHeaders }
+            );
+            if (convRes.ok) {
+              const convData = await convRes.json();
+              for (const conv of (convData.results || [])) {
+                // Fetch latest message in each conversation
+                const lastMsg = conv.last_message;
+                allMessages.push({
+                  platform: 'etsy',
+                  conversation_id: String(conv.conversation_id),
+                  from: conv.other_user?.login_name || 'Buyer',
+                  subject: conv.subject || '(no subject)',
+                  preview: lastMsg?.text?.slice(0, 200) || '',
+                  unread: !conv.read_by_seller,
+                  created_at: lastMsg?.creation_timestamp
+                    ? new Date(lastMsg.creation_timestamp * 1000).toISOString()
+                    : null,
+                  listing_id: conv.listing_id ? String(conv.listing_id) : null,
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // ── eBay Messages (Ask Seller a Question) ────────────────────────────────
+      if (msgPlatform === 'all' || msgPlatform === 'ebay') {
+        const { data: ebayMsgPlats } = await supabaseClient.from('platforms').select('*')
+          .eq('user_id', userId).eq('platform_type', 'ebay').or('is_active.eq.true,status.eq.connected').limit(1);
+        if (ebayMsgPlats && ebayMsgPlats.length > 0) {
+          try {
+            const { apiBase: ebayMsgBase, headers: ebayMsgHeaders } = await getEbayClientForActions(supabaseClient, userId);
+            // eBay Post Order API: GET /post-order/v2/inquiry or member messages
+            // Member Messages (older API) uses Trading API — we'll use the newer messaging SDK approach
+            const msgRes = await fetch(
+              `${ebayMsgBase}/sell/fulfillment/v1/shipping_fulfillment?limit=${msgLimit}`,
+              { headers: ebayMsgHeaders }
+            );
+            // eBay doesn't have a simple REST "get messages" endpoint in the modern API suite.
+            // Buyer messages are surfaced through the Resolution Center / Post-Order API.
+            // We note this limitation and surface a fallback message.
+            allMessages.push({
+              platform: 'ebay',
+              conversation_id: null,
+              from: 'eBay',
+              subject: 'eBay Messages',
+              preview: 'eBay buyer messages are managed through the eBay Resolution Center or the My Messages section in your eBay account. Direct message API access requires the Post-Order API with buyer-seller communication scope.',
+              unread: false,
+              created_at: null,
+              note: 'api_limitation',
+            });
+          } catch (_) {
+            // no-op if eBay fetch fails
+          }
+        }
+      }
+
+      const unreadCount = allMessages.filter(m => m.unread).length;
+      return {
+        messages: allMessages,
+        total: allMessages.length,
+        unread: unreadCount,
+        message: `Found ${allMessages.length} customer message${allMessages.length !== 1 ? 's' : ''} (${unreadCount} unread).`,
+      };
+    }
+
+    case 'send_message': {
+      // Sends a reply to a customer message on Etsy.
+      // action.platform_type    — 'etsy' (only platform with reply API in v3)
+      // action.conversation_id  — required for Etsy
+      // action.body             — the reply text (required)
+
+      const { platform_type: sendPlatform, conversation_id: sendConvId, body: replyBody } = action;
+      if (!sendPlatform) throw new Error('platform_type is required for send_message.');
+      if (!replyBody) throw new Error('body is required for send_message.');
+
+      if (sendPlatform === 'etsy') {
+        if (!sendConvId) throw new Error('conversation_id is required for etsy send_message.');
+
+        const { data: etsySendPlats } = await supabaseClient.from('platforms').select('*')
+          .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
+        if (!etsySendPlats || etsySendPlats.length === 0) throw new Error('No connected Etsy shop found.');
+        const etsySendPlat = etsySendPlats[0];
+        const etsySendTok = etsySendPlat.credentials?.access_token;
+        const etsySendShopId = etsySendPlat.metadata?.shop_id;
+        const etsySendClientId = Deno.env.get('ETSY_CLIENT_ID');
+        if (!etsySendTok || !etsySendShopId || !etsySendClientId) throw new Error('Etsy credentials or shop_id missing.');
+
+        const sendRes = await fetch(
+          `https://openapi.etsy.com/v3/application/shops/${etsySendShopId}/conversations/${sendConvId}/messages`,
+          {
+            method: 'POST',
+            headers: {
+              'x-api-key': etsySendClientId,
+              'Authorization': `Bearer ${etsySendTok}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ message: replyBody }),
+          }
+        );
+        if (!sendRes.ok) throw new Error(`Etsy message send failed: ${await sendRes.text()}`);
+        return { message: `Reply sent to Etsy conversation #${sendConvId}.` };
+      }
+
+      if (sendPlatform === 'ebay') {
+        throw new Error('eBay direct message replies are not supported via the current API scope. Please reply through the eBay My Messages portal.');
+      }
+
+      throw new Error(`send_message is not supported for platform "${sendPlatform}". Supported: etsy.`);
+    }
+
+    // ── Auto-Reorder / Purchase Orders ────────────────────────────────────────
+
+    case 'check_reorder_needs': {
+      // Scans inventory for products below their reorder point and cross-references
+      // product_suppliers to suggest or auto-create purchase orders.
+      //
+      // action.low_stock_threshold   — stock level to flag (default: 10)
+      // action.create_draft_pos      — boolean: if true, auto-create draft POs (default: false = suggest only)
+
+      const reorderThreshold = action.low_stock_threshold ?? 10;
+      const createDrafts = action.create_draft_pos === true;
+
+      // Fetch all product<→supplier mappings for this user
+      const { data: productSuppliers } = await supabaseClient
+        .from('product_suppliers')
+        .select('*, suppliers!inner(*)')
+        .eq('user_id', userId);
+
+      if (!productSuppliers || productSuppliers.length === 0) {
+        return {
+          message: 'No supplier relationships found. Add suppliers and link them to products in the Suppliers section first, then Orion can auto-suggest reorders.',
+          needs_reorder: [],
+        };
+      }
+
+      // Build a map: sku/product_name → product_supplier entries
+      const supplierMap: Record<string, any[]> = {};
+      for (const ps of productSuppliers) {
+        const key = ps.sku || ps.product_name;
+        if (!supplierMap[key]) supplierMap[key] = [];
+        supplierMap[key].push(ps);
+      }
+
+      // Fetch current inventory from Shopify (primary platform)
+      let lowStockItems: Array<{ product_name: string; sku: string; current_stock: number; supplier: any; reorder_qty: number; cost_estimate: number }> = [];
+
+      const { data: shopifyPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'shopify').or('is_active.eq.true,status.eq.connected').limit(1);
+
+      if (shopifyPlats && shopifyPlats.length > 0) {
+        const spPlat = shopifyPlats[0];
+        const spDomain = spPlat.shop_domain || spPlat.domain || spPlat.store_domain;
+        let spToken = spPlat.access_token;
+        try {
+          if (spToken && spToken.length > 50 && !spToken.startsWith('shpat_') && !spToken.startsWith('shpca_')) {
+            const { decrypt } = await import('../_shared/encryption.ts');
+            spToken = await decrypt(spToken);
+          }
+        } catch {}
+
+        const spHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': spToken };
+        const spRes = await fetch(`https://${spDomain}/admin/api/2024-01/products.json?limit=250`, { headers: spHeaders });
+        if (spRes.ok) {
+          const { products: spProducts } = await spRes.json();
+          for (const p of (spProducts || [])) {
+            for (const v of (p.variants || [])) {
+              const stock = v.inventory_quantity || 0;
+              const sku = v.sku || p.title;
+              if (stock <= reorderThreshold) {
+                // Find supplier for this product
+                const supplierEntries = supplierMap[sku] || supplierMap[p.title] || [];
+                const primarySupplier = supplierEntries.find((s: any) => s.is_primary) || supplierEntries[0];
+                if (primarySupplier) {
+                  const moq = primarySupplier.minimum_order_quantity || 1;
+                  const reorderQty = Math.max(moq, reorderThreshold * 3 - stock); // order enough to get ~3x threshold
+                  lowStockItems.push({
+                    product_name: p.title,
+                    sku,
+                    current_stock: stock,
+                    supplier: primarySupplier,
+                    reorder_qty: reorderQty,
+                    cost_estimate: parseFloat((reorderQty * (primarySupplier.cost_per_unit || 0)).toFixed(2)),
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (lowStockItems.length === 0) {
+        return {
+          message: `No products below the ${reorderThreshold}-unit threshold with linked suppliers found. Stock levels look good!`,
+          needs_reorder: [],
+        };
+      }
+
+      // If just suggesting, return the list
+      if (!createDrafts) {
+        const suggestions = lowStockItems.map(i =>
+          `• **${i.product_name}** (SKU: ${i.sku}): ${i.current_stock} units left → order ${i.reorder_qty} from ${i.supplier.suppliers?.name || 'supplier'} (~$${i.cost_estimate})`
+        ).join('\n');
+        return {
+          message: `${lowStockItems.length} product${lowStockItems.length !== 1 ? 's' : ''} need reordering:\n\n${suggestions}\n\nUse create_purchase_order to create draft POs, or run check_reorder_needs with create_draft_pos:true to auto-generate them all.`,
+          needs_reorder: lowStockItems,
+        };
+      }
+
+      // Auto-create draft POs grouped by supplier
+      const posBySupplier: Record<string, { supplier: any; items: typeof lowStockItems }> = {};
+      for (const item of lowStockItems) {
+        const suppId = item.supplier.supplier_id || item.supplier.id;
+        if (!posBySupplier[suppId]) {
+          posBySupplier[suppId] = { supplier: item.supplier, items: [] };
+        }
+        posBySupplier[suppId].items.push(item);
+      }
+
+      const createdPOs: string[] = [];
+      for (const [suppId, poData] of Object.entries(posBySupplier)) {
+        // Generate PO number using Supabase function
+        const { data: poNumData } = await supabaseClient.rpc('generate_po_number', { p_user_id: userId });
+        const poNumber = poNumData || `PO-${Date.now()}`;
+
+        const { data: newPO, error: poErr } = await supabaseClient
+          .from('purchase_orders')
+          .insert({
+            user_id: userId,
+            po_number: poNumber,
+            supplier_id: suppId,
+            status: 'draft',
+            notes: `Auto-generated by Orion — ${poData.items.length} low-stock product${poData.items.length !== 1 ? 's' : ''}`,
+            expected_delivery_date: new Date(Date.now() + (poData.supplier.suppliers?.lead_time_days || 7) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+          })
+          .select()
+          .single();
+
+        if (poErr || !newPO) continue;
+
+        // Insert PO items
+        const poItems = poData.items.map(i => ({
+          po_id: newPO.id,
+          product_id: i.sku,
+          product_name: i.product_name,
+          sku: i.sku,
+          quantity_ordered: i.reorder_qty,
+          cost_per_unit: i.supplier.cost_per_unit || 0,
+        }));
+        await supabaseClient.from('purchase_order_items').insert(poItems);
+
+        createdPOs.push(`${poNumber} — ${poData.supplier.suppliers?.name || 'Supplier'}: ${poData.items.length} items ($${poData.items.reduce((s, i) => s + i.cost_estimate, 0).toFixed(2)})`);
+      }
+
+      return {
+        message: `Created ${createdPOs.length} draft purchase order${createdPOs.length !== 1 ? 's' : ''}:\n\n${createdPOs.map(p => `• ${p}`).join('\n')}\n\nReview them in the Suppliers section and change status to "sent" when ready to order.`,
+        created_pos: createdPOs,
+        needs_reorder: lowStockItems,
+      };
+    }
+
+    case 'create_purchase_order': {
+      // Creates a single draft purchase order.
+      // action.supplier_name or action.supplier_id  — identifies the supplier
+      // action.items — [{ product_name, sku, quantity, cost_per_unit }]
+      // action.notes, action.expected_delivery_date, action.payment_terms
+
+      if (!action.items || action.items.length === 0) throw new Error('items array is required for create_purchase_order.');
+
+      // Resolve supplier
+      let supplierId = action.supplier_id;
+      if (!supplierId && action.supplier_name) {
+        const { data: supplierSearch } = await supabaseClient
+          .from('suppliers')
+          .select('id,name')
+          .eq('user_id', userId)
+          .ilike('name', `%${action.supplier_name}%`)
+          .limit(1);
+        if (supplierSearch && supplierSearch.length > 0) supplierId = supplierSearch[0].id;
+        if (!supplierId) throw new Error(`Supplier "${action.supplier_name}" not found. Add them in the Suppliers section first.`);
+      }
+      if (!supplierId) throw new Error('supplier_id or supplier_name is required for create_purchase_order.');
+
+      const { data: poNumData } = await supabaseClient.rpc('generate_po_number', { p_user_id: userId });
+      const poNumber = poNumData || `PO-${Date.now()}`;
+
+      const { data: newPO, error: poErr } = await supabaseClient
+        .from('purchase_orders')
+        .insert({
+          user_id: userId,
+          po_number: poNumber,
+          supplier_id: supplierId,
+          status: 'draft',
+          notes: action.notes || '',
+          payment_terms: action.payment_terms || '',
+          ...(action.expected_delivery_date ? { expected_delivery_date: action.expected_delivery_date } : {}),
+        })
+        .select()
+        .single();
+
+      if (poErr || !newPO) throw new Error(`Failed to create purchase order: ${poErr?.message || 'Unknown error'}`);
+
+      const poItems = (action.items || []).map((i: any) => ({
+        po_id: newPO.id,
+        product_id: i.sku || i.product_name,
+        product_name: i.product_name,
+        sku: i.sku || null,
+        quantity_ordered: Number(i.quantity) || 1,
+        cost_per_unit: parseFloat(i.cost_per_unit) || 0,
+      }));
+
+      await supabaseClient.from('purchase_order_items').insert(poItems);
+
+      const totalCost = poItems.reduce((s: number, i: any) => s + i.quantity_ordered * i.cost_per_unit, 0);
+      return {
+        message: `Created draft purchase order **${poNumber}** for ${poItems.length} item${poItems.length !== 1 ? 's' : ''} (est. $${totalCost.toFixed(2)}). Review it in the Suppliers section and mark as "sent" when ready to place the order.`,
+        po_number: poNumber,
+        po_id: newPO.id,
+        total_cost: totalCost,
+      };
+    }
+
+    case 'get_purchase_orders': {
+      // Retrieves purchase orders with optional status filter.
+      // action.status — 'draft'|'sent'|'confirmed'|'received'|'cancelled' (omit for all)
+      // action.limit  — max results (default: 20)
+
+      let poQuery = supabaseClient
+        .from('purchase_orders')
+        .select('*, suppliers(name,email,lead_time_days), purchase_order_items(*)')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(action.limit || 20);
+
+      if (action.status) {
+        poQuery = poQuery.eq('status', action.status);
+      }
+
+      const { data: pos, error: posErr } = await poQuery;
+      if (posErr) throw new Error(`Failed to fetch purchase orders: ${posErr.message}`);
+
+      const poList = (pos || []).map((po: any) => ({
+        po_number: po.po_number,
+        supplier: po.suppliers?.name || 'Unknown',
+        status: po.status,
+        total_cost: po.total_cost,
+        expected_delivery: po.expected_delivery_date,
+        items_count: po.purchase_order_items?.length || 0,
+        created_at: po.created_at,
+      }));
+
+      return {
+        purchase_orders: poList,
+        total: poList.length,
+        message: `Found ${poList.length} purchase order${poList.length !== 1 ? 's' : ''}${action.status ? ` with status "${action.status}"` : ''}.`,
+      };
+    }
+
+    case 'update_purchase_order_status': {
+      // Updates the status of a purchase order.
+      // action.po_number or action.po_id — identifies the PO
+      // action.status — 'sent'|'confirmed'|'received'|'cancelled'
+
+      if (!action.status) throw new Error('status is required for update_purchase_order_status.');
+
+      let poId = action.po_id;
+      if (!poId && action.po_number) {
+        const { data: poSearch } = await supabaseClient
+          .from('purchase_orders')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('po_number', action.po_number)
+          .single();
+        if (poSearch) poId = poSearch.id;
+        if (!poId) throw new Error(`Purchase order "${action.po_number}" not found.`);
+      }
+      if (!poId) throw new Error('po_id or po_number is required for update_purchase_order_status.');
+
+      const statusTimestamps: Record<string, string> = {
+        sent: 'sent_at',
+        confirmed: 'confirmed_at',
+        received: 'received_at',
+        cancelled: 'cancelled_at',
+      };
+      const tsField = statusTimestamps[action.status];
+      const updateBody: any = { status: action.status };
+      if (tsField) updateBody[tsField] = new Date().toISOString();
+
+      const { error: updateErr } = await supabaseClient
+        .from('purchase_orders')
+        .update(updateBody)
+        .eq('id', poId)
+        .eq('user_id', userId);
+
+      if (updateErr) throw new Error(`Failed to update PO status: ${updateErr.message}`);
+      return { message: `Purchase order ${action.po_number || poId} status updated to "${action.status}".` };
+    }
+
     default:
       throw new Error(`Unknown action type: ${action.type}`);
   }
@@ -3228,6 +5251,33 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
   const totalRevenue = orders.reduce((sum: number, o: any) => sum + (parseFloat(o.total_price) || 0), 0);
   const avgOrderValue = orders.length > 0 ? totalRevenue / orders.length : 0;
 
+  // 30-day revenue snapshot from the orders table (gives Orion grounded recent metrics)
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const sevenDaysAgo  = new Date(Date.now() -  7 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: last30Orders } = await supabaseClient
+    .from('orders').select('total_price,status,platform_type,order_date')
+    .eq('user_id', userId).gte('order_date', thirtyDaysAgo)
+    .not('status', 'in', '(cancelled,refunded)');
+  const { data: last7Orders } = await supabaseClient
+    .from('orders').select('total_price,platform_type')
+    .eq('user_id', userId).gte('order_date', sevenDaysAgo)
+    .not('status', 'in', '(cancelled,refunded)');
+
+  const rev30 = (last30Orders || []).reduce((s: number, o: any) => s + parseFloat(o.total_price || 0), 0);
+  const rev7  = (last7Orders  || []).reduce((s: number, o: any) => s + parseFloat(o.total_price || 0), 0);
+  const cnt30 = (last30Orders || []).length;
+  const cnt7  = (last7Orders  || []).length;
+
+  // Revenue by platform (last 30 days)
+  const platformRevMap: Record<string, number> = {};
+  for (const o of (last30Orders || [])) {
+    const p = o.platform_type || 'unknown';
+    platformRevMap[p] = (platformRevMap[p] || 0) + parseFloat(o.total_price || 0);
+  }
+  const platformRevBreakdown = Object.entries(platformRevMap)
+    .sort((a, b) => b[1] - a[1])
+    .map(([platform, revenue]) => `${platform}: $${revenue.toFixed(2)}`).join(', ');
+
   const lowStockProducts = products.filter((p: any) => {
     const qty = p.inventory_quantity ?? p.stock_quantity ?? p.quantity ?? null;
     return qty !== null && qty <= 5;
@@ -3245,6 +5295,11 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
       total_revenue: totalRevenue,
       avg_order_value: avgOrderValue,
       active_platforms: (platforms || []).length,
+      revenue_last_30d: rev30,
+      revenue_last_7d: rev7,
+      orders_last_30d: cnt30,
+      orders_last_7d: cnt7,
+      revenue_by_platform_30d: platformRevBreakdown,
     },
   };
 }
@@ -3342,9 +5397,13 @@ async function chatWithClaude(
 - You CAN: Read and analyze store data (products, orders, inventory, revenue) from the data provided below
 - You CAN: Give advice, spot trends, flag issues, answer questions about their business
 - You CAN: Execute store actions on Shopify — create products, update inventory quantities, update prices, update product titles/SEO, update product descriptions, update SEO meta title + meta description, update URL handles, update tags, add images to products, update image alt text, set/update product metafields, set product status (active/draft/archived)
-- You CAN: Execute store actions on eBay — create listings, update inventory quantities, update prices, update listing titles, update listing descriptions, update listing images, end listings (remove from eBay), relist ended listings
+- You CAN: Execute store actions on eBay — create listings, update inventory quantities, update prices, update listing titles, update listing descriptions, update listing images, end listings (remove from eBay), relist ended listings, update item specifics
+- You CAN: Execute store actions on TikTok Shop — create products, update price/inventory/title/description, deactivate/reactivate listings
+- You CAN: Execute store actions on WooCommerce, Ecwid, Magento, PrestaShop, Wish, Walmart, Etsy — full product management on all connected platforms
+- You CAN: Manage orders across all platforms — sync orders, mark as fulfilled with tracking, cancel orders, process refunds
 - You CANNOT: Log into any platform or request credentials — NEVER ask for passwords, API keys, or admin access. You already have the integration through Tandril.
-- You CANNOT: Process payments, refund orders, delete products, or fulfill orders
+- You CANNOT: Process credit card payments or initiate charges outside of the platform's own payment system
+- ⚠️ For partial refunds (specific line items or amounts), direct the user to their platform dashboard — only full-order refunds are supported via action blocks.
 
 **How to execute a store action:**
 When the user asks you to create a product, add inventory, change a price, rename a title, or add an image, respond conversationally AND append a single action block on its own line at the very end of your message.
@@ -3378,6 +5437,14 @@ When the user asks you to create a product, add inventory, change a price, renam
   • ebay_end_listing             ← remove a listing from eBay (keeps inventory, can relist)
   • ebay_relist                  ← re-publish a previously ended eBay listing
   • ebay_update_item_specifics   ← update item specifics/attributes (Brand, Size, Material, etc.) for eBay SEO and buyer filtering
+  TikTok Shop actions:
+  • tiktok_create_product    — { type, title, description, price, quantity?, sku?, category_id, images: ["url",...] }
+  • tiktok_update_price      — { type, product_name, sku, price }
+  • tiktok_update_inventory  — { type, product_name, sku, quantity }
+  • tiktok_update_title      — { type, product_name, sku, new_title }
+  • tiktok_update_description— { type, product_name, sku, description }
+  • tiktok_end_listing       — { type, product_name, sku }  (deactivates — removes from storefront)
+  • tiktok_renew_listing     — { type, product_name, sku }  (reactivates)
   WooCommerce actions:
   • woo_create_product
   • woo_bulk_create_products
@@ -3438,6 +5505,52 @@ When the user asks you to create a product, add inventory, change a price, renam
   • etsy_renew_listing      — { type, product_name, listing_id? }  (sets state back to active)
   • etsy_create_listing     — { type, title, description, price, quantity?, sku?, tags?, who_made?, when_made?, taxonomy_id?, state? }
   • etsy_bulk_create_listings — { type, listings: [{title,description,price,quantity?,sku?,tags?,who_made?,when_made?,taxonomy_id?,state?},...] }
+  Analytics actions:
+  • query_analytics — { type, analytics_type, period?, since?, until?, platform_type?, limit?, sort_by? }
+    analytics_type values:
+      revenue_summary    — revenue, order count, AOV, vs prior period
+      top_products       — top N products by revenue or units sold (sort_by: "units" | "revenue")
+      platform_breakdown — revenue/orders/share per platform
+      order_trends       — day-by-day revenue + order count (use for charts / trend questions)
+      refund_rate        — refund count, refund rate %, refunded revenue
+    period values: today | 7d | 30d | 90d | 1y  (or use since/until ISO strings for custom)
+  Order management actions (cross-platform):
+  • sync_orders     — { type } — pulls recent orders from ALL connected platforms into local DB
+  • get_orders      — { type, status?, platform_type?, fulfillment_status?, since?, limit? } — query stored orders
+  • fulfill_order   — { type, platform_type, platform_order_id, tracking_number, tracking_company?, carrier_code? }
+  • cancel_order    — { type, platform_type, platform_order_id, reason? }
+  • refund_order    — { type, platform_type, platform_order_id, reason? } — full refund only
+  Promotions & Discounts:
+  • shopify_create_discount — { type, code, discount_type: 'percentage'|'fixed_amount'|'free_shipping', value, min_subtotal?, usage_limit?, starts_at?, ends_at? }
+  • shopify_delete_discount — { type, price_rule_id? | code? }
+  • etsy_create_sale        — { type, listing_id?|product_name?|sku?, sale_price? | discount_percent? }
+  • etsy_end_sale           — { type, listing_id?|product_name?|sku?, regular_price }
+  • ebay_create_promotion   — { type, name, discount_type: 'PERCENT_OFF'|'AMOUNT_OFF', discount_value, listing_ids?: [...], starts_at?, ends_at? }
+  • ebay_end_promotion      — { type, promotion_id }
+  • woo_create_coupon       — { type, code, discount_type: 'percent'|'fixed_cart'|'fixed_product', amount, min_amount?, usage_limit?, expires_at?, description? }
+  • woo_delete_coupon       — { type, coupon_id? | code? }
+  Cross-platform listing:
+  • cross_platform_create   — { type, title, price, description?, sku?, quantity?, tags?, images?, product_type?,
+                               platforms?: ["shopify","etsy","ebay",...],   ← omit to target ALL connected platforms
+                               etsy_overrides?: { who_made?, when_made?, taxonomy_id?, state? },
+                               ebay_overrides?: { condition_id?, category_id?, marketplace_id? } }
+                             Supported platforms: shopify, etsy, ebay, woocommerce, ecwid, magento, prestashop, tiktok_shop
+  Bulk AI content generation:
+  • bulk_ai_content — { type, updates: [{product_name, sku, platform_type?, title?, description?, tags?, seo_title?, seo_description?, url_handle?, image_alt?}, ...] }
+                    Max 50 products per batch. Each product update only needs the fields being changed.
+                    Applies AI-generated content to many products in one confirmed action (title/description/tags/SEO).
+  Customer messages:
+  • get_messages  — { type, platform_type?: 'etsy'|'ebay'|'all', limit?: 20 }
+                  Returns conversations with from, subject, preview, unread, conversation_id.
+  • send_message  — { type, platform_type: 'etsy', conversation_id, body }
+                  Sends a reply to an Etsy conversation (only Etsy supports reply API in v3).
+  Auto-reorder / Purchase Orders:
+  • check_reorder_needs         — { type, low_stock_threshold?: 10, create_draft_pos?: false }
+                                Scans inventory for low-stock products with linked suppliers.
+                                Set create_draft_pos:true to automatically generate draft POs.
+  • create_purchase_order       — { type, supplier_name?|supplier_id?, items:[{product_name,sku?,quantity,cost_per_unit},...], notes?, expected_delivery_date?, payment_terms? }
+  • get_purchase_orders         — { type, status?: 'draft'|'sent'|'confirmed'|'received'|'cancelled', limit?: 20 }
+  • update_purchase_order_status — { type, po_number?|po_id?, status: 'sent'|'confirmed'|'received'|'cancelled' }
 ❌ FORBIDDEN (will always fail): update_product, update_seo, bulk_update, add_image, set_image, woo_update_product, or any other type not in the list above.
 
 Platform action routing:
@@ -3449,6 +5562,7 @@ Platform action routing:
 - Use wish_* actions for products with platform_type 'wish'
 - Use walmart_* actions for products with platform_type 'walmart'
 - Use etsy_* actions for products with platform_type 'etsy'
+- Use tiktok_* actions for products with platform_type 'tiktok_shop'
 - For multi_action and batch_update, sub-actions should use the correct prefix for the product's platform
 - ⚠️ CRITICAL: eBay has NO "draft" or "archived" status. For eBay, the words "deactivate", "draft", "hide", "end", "mark as sold", "remove", "take down" all map to ebay_end_listing. NEVER use update_status on an eBay product.
 - ⚠️ CRITICAL: Etsy has NO "draft" status. For Etsy, "deactivate", "remove", "hide", "take down" map to etsy_end_listing; "reactivate" or "relist" maps to etsy_renew_listing. NEVER use update_status on an Etsy product.
@@ -3630,6 +5744,22 @@ To update Walmart title or description (SKU required — submitted as a feed, vi
 To retire (remove) a Walmart listing (SKU required):
 [ORION_ACTION:{"type":"walmart_end_listing","product_name":"Product Name","sku":"SKU-001"}]
 
+— TikTok Shop Actions —
+
+To update TikTok Shop price, inventory, title, or description (product_name or sku required):
+[ORION_ACTION:{"type":"tiktok_update_price","product_name":"Ceramic Mug","sku":"MUG-001","price":24.99}]
+[ORION_ACTION:{"type":"tiktok_update_inventory","product_name":"Ceramic Mug","sku":"MUG-001","quantity":20}]
+[ORION_ACTION:{"type":"tiktok_update_title","product_name":"Ceramic Mug","sku":"MUG-001","new_title":"Handmade Ceramic Coffee Mug - 12oz - Speckled Glaze"}]
+[ORION_ACTION:{"type":"tiktok_update_description","product_name":"Ceramic Mug","sku":"MUG-001","description":"Beautifully handcrafted ceramic mug. Holds 12oz. Microwave safe. Each piece is unique."}]
+
+To deactivate or reactivate a TikTok Shop listing:
+[ORION_ACTION:{"type":"tiktok_end_listing","product_name":"Ceramic Mug","sku":"MUG-001"}]
+[ORION_ACTION:{"type":"tiktok_renew_listing","product_name":"Ceramic Mug","sku":"MUG-001"}]
+
+To create a new TikTok Shop product (category_id and at least one image URL required):
+Note: category_id is required by TikTok. Common IDs: 601079 = Clothing, 601105 = Shoes, 601191 = Home & Living, 601145 = Beauty & Personal Care, 601165 = Sports & Outdoors, 601217 = Electronics. If unsure, ask the user.
+[ORION_ACTION:{"type":"tiktok_create_product","title":"Handmade Ceramic Mug","description":"Beautiful handcrafted ceramic mug, 12oz, microwave safe.","price":24.99,"quantity":10,"sku":"MUG-001","category_id":"601191","images":["https://your-image-url.jpg"]}]
+
 — Etsy Shop Actions —
 
 To update an Etsy listing's price, inventory, title, description, or tags:
@@ -3649,6 +5779,223 @@ Note: who_made options: "i_did" | "someone_else" | "collective". when_made optio
 
 To bulk-create multiple Etsy listings at once (e.g. from a CSV upload — single confirmation for the whole batch):
 [ORION_ACTION:{"type":"etsy_bulk_create_listings","listings":[{"title":"Ceramic Mug - Blue","description":"Handmade blue ceramic mug, 12oz.","price":28.00,"quantity":5,"sku":"MUG-BLUE-001","tags":["ceramic mug","handmade","blue pottery"],"who_made":"i_did","when_made":"made_to_order","taxonomy_id":520,"state":"draft"},{"title":"Ceramic Mug - Green","description":"Handmade green ceramic mug, 12oz.","price":28.00,"quantity":5,"sku":"MUG-GREEN-001","tags":["ceramic mug","handmade","green pottery"],"who_made":"i_did","when_made":"made_to_order","taxonomy_id":520,"state":"draft"}]}]
+
+— Analytics Actions —
+
+Use query_analytics whenever the user asks about revenue, sales performance, top products, trends, or refunds.
+IMPORTANT: Always run query_analytics to get fresh data before answering analytics questions — do NOT guess from the store overview above.
+
+Revenue summary (with period-over-period comparison):
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"revenue_summary","period":"30d"}]
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"revenue_summary","period":"7d"}]
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"revenue_summary","period":"90d"}]
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"revenue_summary","platform_type":"etsy","period":"30d"}]
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"revenue_summary","since":"2026-04-01","until":"2026-04-15"}]
+
+Top products by revenue or units sold:
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"top_products","period":"30d","limit":10}]
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"top_products","period":"30d","sort_by":"units","limit":5}]
+
+Revenue by platform:
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"platform_breakdown","period":"30d"}]
+
+Daily sales trends (for spotting patterns, slow days, best days):
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"order_trends","period":"30d"}]
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"order_trends","period":"7d"}]
+
+Refund rate:
+[ORION_ACTION:{"type":"query_analytics","analytics_type":"refund_rate","period":"30d"}]
+
+— Order Management Actions —
+
+To sync all orders from every connected platform into Orion's local database:
+[ORION_ACTION:{"type":"sync_orders"}]
+
+To query orders (optionally filtered):
+[ORION_ACTION:{"type":"get_orders","limit":25}]
+[ORION_ACTION:{"type":"get_orders","status":"processing","limit":50}]
+[ORION_ACTION:{"type":"get_orders","fulfillment_status":"unfulfilled","limit":25}]
+[ORION_ACTION:{"type":"get_orders","platform_type":"shopify","since":"2026-04-01T00:00:00Z","limit":100}]
+
+To mark an order as shipped (fulfilled) with tracking — works on Shopify, Etsy, eBay, TikTok Shop, WooCommerce:
+[ORION_ACTION:{"type":"fulfill_order","platform_type":"shopify","platform_order_id":"5678901234","tracking_number":"1Z999AA10123456784","tracking_company":"UPS"}]
+[ORION_ACTION:{"type":"fulfill_order","platform_type":"etsy","platform_order_id":"3456789012","tracking_number":"9400111899223397913337","tracking_company":"USPS"}]
+[ORION_ACTION:{"type":"fulfill_order","platform_type":"ebay","platform_order_id":"12-34567-89012","tracking_number":"794644792798","tracking_company":"FedEx","carrier_code":"FedEx"}]
+
+To cancel an order:
+[ORION_ACTION:{"type":"cancel_order","platform_type":"shopify","platform_order_id":"5678901234","reason":"customer"}]
+[ORION_ACTION:{"type":"cancel_order","platform_type":"woocommerce","platform_order_id":"1042"}]
+
+To issue a full refund on an order:
+[ORION_ACTION:{"type":"refund_order","platform_type":"shopify","platform_order_id":"5678901234","reason":"Item arrived damaged"}]
+[ORION_ACTION:{"type":"refund_order","platform_type":"woocommerce","platform_order_id":"1042","reason":"Customer request"}]
+
+⚠️ For partial refunds (specific items or amounts), tell the user to process them in their platform dashboard — partial refunds require line-item level detail that varies per platform.
+⚠️ Always run sync_orders first if the user asks about their current orders and the order data in context looks stale or empty.
+
+— Promotions & Discounts —
+
+Use these actions to create discount codes, run sales, and launch promotions across platforms.
+
+Shopify — create a percentage-off discount code:
+[ORION_ACTION:{"type":"shopify_create_discount","code":"SUMMER20","discount_type":"percentage","value":20}]
+
+Shopify — fixed $5 off coupon with $30 minimum order and 100-use limit:
+[ORION_ACTION:{"type":"shopify_create_discount","code":"SAVE5","discount_type":"fixed_amount","value":5,"min_subtotal":30,"usage_limit":100}]
+
+Shopify — free shipping code (no minimum):
+[ORION_ACTION:{"type":"shopify_create_discount","code":"FREESHIP","discount_type":"free_shipping"}]
+
+Shopify — discount with expiry date:
+[ORION_ACTION:{"type":"shopify_create_discount","code":"FLASH15","discount_type":"percentage","value":15,"ends_at":"2026-04-20T23:59:00Z"}]
+
+Shopify — delete/deactivate a discount code:
+[ORION_ACTION:{"type":"shopify_delete_discount","code":"SUMMER20"}]
+
+Etsy — put a specific listing on sale (30% off):
+[ORION_ACTION:{"type":"etsy_create_sale","product_name":"Handmade Ceramic Mug","discount_percent":30}]
+
+Etsy — set a listing to an explicit sale price:
+[ORION_ACTION:{"type":"etsy_create_sale","listing_id":"1234567890","sale_price":19.99}]
+
+Etsy — end a sale and restore the original price:
+[ORION_ACTION:{"type":"etsy_end_sale","product_name":"Handmade Ceramic Mug","regular_price":28.00}]
+
+eBay — create a store-wide 15% markdown promotion:
+[ORION_ACTION:{"type":"ebay_create_promotion","name":"Spring Sale 15% Off Everything","discount_type":"PERCENT_OFF","discount_value":15,"ends_at":"2026-05-01T00:00:00Z"}]
+
+eBay — create a promotion on specific listings:
+[ORION_ACTION:{"type":"ebay_create_promotion","name":"Flash Deal","discount_type":"PERCENT_OFF","discount_value":20,"listing_ids":["123456789012","234567890123"],"ends_at":"2026-04-18T23:59:00Z"}]
+
+eBay — end a promotion:
+[ORION_ACTION:{"type":"ebay_end_promotion","promotion_id":"5xxxxxxxxxxxxxxxx"}]
+
+WooCommerce — create a 20% off coupon:
+[ORION_ACTION:{"type":"woo_create_coupon","code":"WOO20","discount_type":"percent","amount":"20"}]
+
+WooCommerce — create a fixed $10 off coupon expiring April 30:
+[ORION_ACTION:{"type":"woo_create_coupon","code":"TEN OFF","discount_type":"fixed_cart","amount":"10","expires_at":"2026-04-30"}]
+
+WooCommerce — delete a coupon:
+[ORION_ACTION:{"type":"woo_delete_coupon","code":"WOO20"}]
+
+⚠️ Etsy does NOT have a native sale/promotion API in v3 — etsy_create_sale works by patching the listing price directly. Always get the current price first if the user doesn't provide it, so you can restore it with etsy_end_sale.
+⚠️ eBay promotions require the Promotions Manager (available to eBay Store subscribers). If creation fails, suggest the user check their eBay Store subscription.
+⚠️ For Shopify discount codes, discount_type must be exactly "percentage", "fixed_amount", or "free_shipping". value is always positive.
+
+— Cross-Platform Listing —
+
+Use cross_platform_create to list a product on ALL connected platforms with a single confirmed action.
+Orion will dispatch the correct native create action for each platform automatically.
+
+List on ALL connected platforms (Shopify, Etsy, eBay, WooCommerce, etc.):
+[ORION_ACTION:{"type":"cross_platform_create","title":"Handmade Leather Wallet","description":"Premium full-grain leather bifold wallet. Slim profile, 6 card slots, ID window. Hand-stitched and built to last a lifetime. Available in brown and black.","price":45.00,"sku":"LW-BRN-001","quantity":25,"tags":["leather wallet","handmade","bifold","gift for him","minimalist wallet"]}]
+
+List on specific platforms only (e.g. Shopify + Etsy):
+[ORION_ACTION:{"type":"cross_platform_create","title":"Vintage Brass Compass","description":"Fully functional solid brass nautical compass with engraved rose. Perfect for outdoor adventure or as a gift. Comes in a gift box.","price":32.00,"sku":"COMP-BRASS-001","quantity":15,"platforms":["shopify","etsy"],"etsy_overrides":{"who_made":"i_did","when_made":"2020_2024","taxonomy_id":568,"state":"active"}}]
+
+List with eBay-specific overrides:
+[ORION_ACTION:{"type":"cross_platform_create","title":"Sterling Silver Ring Size 7","price":65.00,"sku":"RING-SS-7","quantity":3,"platforms":["shopify","etsy","ebay"],"ebay_overrides":{"condition_id":"1000","category_id":"67726"},"etsy_overrides":{"who_made":"i_did","when_made":"made_to_order","taxonomy_id":568}}]
+
+⚠️ Always collect title, price, and a description before generating cross_platform_create — these 3 fields are required.
+⚠️ If the user doesn't specify platforms, include ALL connected platforms. Orion will gracefully skip any platform it can't create on.
+⚠️ Etsy listings created via cross_platform_create default to draft state unless etsy_overrides.state is set to "active".
+⚠️ eBay cross-platform listings require condition_id and ideally category_id in ebay_overrides — ask the user if unknown.
+
+— Bulk AI Content Generation —
+
+Use bulk_ai_content to rewrite titles, descriptions, tags, and SEO fields across many products in one confirmed batch.
+YOU generate the AI-optimized content; this action applies it all at once so the user confirms once instead of product-by-product.
+
+Rewrite titles + descriptions for a batch of Shopify products (up to 50):
+[ORION_ACTION:{"type":"bulk_ai_content","updates":[{"product_name":"Basic White Tee","sku":"BWT-001","platform_type":"shopify","title":"Classic Everyday White T-Shirt — 100% Cotton Crew Neck","description":"The perfect everyday essential. Our Classic White T-Shirt is made from 100% ring-spun cotton for ultra-soft comfort that only gets better with every wash. Relaxed crew neck, reinforced stitching, and a timeless fit that works for any occasion — from beach days to brunches.","tags":["white tee","cotton t-shirt","crew neck","everyday basics","casual shirt"],"seo_title":"Classic White Cotton T-Shirt | Everyday Essential","seo_description":"Ultra-soft 100% cotton white tee — relaxed fit, crew neck, built to last. Free shipping on orders over $35."},{"product_name":"Blue Denim Shirt","sku":"BDS-002","platform_type":"shopify","title":"Casual Chambray Denim Shirt — Lightweight Button-Down","description":"A wardrobe staple reinvented in lightweight chambray denim. This button-down shirt breathes easy in warm weather yet layers perfectly when temperatures drop. Classic chest pockets, a relaxed fit, and a washed finish that looks broken in from day one.","tags":["denim shirt","chambray","button-down","casual","layering shirt"],"seo_title":"Lightweight Chambray Denim Shirt | Casual Button-Down","seo_description":"Breathable chambray denim button-down — relaxed fit, classic style, perfect year-round. Shop now."}]}]
+
+Rewrite Etsy tags + titles only (no description):
+[ORION_ACTION:{"type":"bulk_ai_content","updates":[{"product_name":"Handmade Ceramic Mug","listing_id":"1234567890","platform_type":"etsy","title":"Handmade Stoneware Coffee Mug — Speckled Glaze 12oz","tags":["ceramic mug","handmade pottery","coffee lover gift","stoneware mug","kitchen gift","pottery mug","artisan mug","unique mug","housewarming gift","coffee mug"]},{"product_name":"Macrame Wall Hanging","listing_id":"9876543210","platform_type":"etsy","title":"Bohemian Macrame Wall Hanging — Handwoven Natural Cotton","tags":["macrame wall hanging","boho decor","wall art","woven tapestry","natural cotton","handmade decor","bohemian home","fiber art","neutral wall art","minimalist decor"]}]}]
+
+Update only image alt text for SEO (works on Shopify):
+[ORION_ACTION:{"type":"bulk_ai_content","updates":[{"product_name":"Leather Wallet","sku":"LW-BRN-001","platform_type":"shopify","image_alt":"Brown full-grain leather bifold wallet open showing card slots"},{"product_name":"Silver Ring Size 7","sku":"RING-SS-7","platform_type":"shopify","image_alt":"Sterling silver band ring size 7 on white background"}]}]
+
+**Bulk Content Generation Workflow:**
+When the user asks to "rewrite my catalog", "SEO optimize everything", or "improve all my product listings", follow this workflow:
+1. Review the product list in the store context above to understand titles, SKUs, and platforms
+2. Generate AI-optimized content for each product (title, description, tags/SEO as relevant for the platform)
+3. Package ALL content into a SINGLE bulk_ai_content action block — one confirmation, all applied
+4. Process up to 25 products per batch. If the catalog has more, tell the user "I'll do the first 25 now, then continue in the next batch."
+5. After the user confirms, proceed with the next batch if needed
+
+⚠️ bulk_ai_content platform_type must match the product's actual platform. Default to 'shopify' if platform_type is unknown.
+⚠️ Etsy: tags only (no seo_title/seo_description). Max 13 tags, lowercase, no special chars.
+⚠️ For non-Shopify platforms, seo_title, seo_description, and url_handle are ignored (Shopify-only fields).
+⚠️ Max 50 products per bulk_ai_content action. For catalogs over 50 products, split into multiple batches.
+
+— Customer Messages —
+
+Use get_messages to fetch recent buyer questions/messages, then use send_message to reply on Etsy.
+
+Fetch all unread messages from all platforms:
+[ORION_ACTION:{"type":"get_messages"}]
+
+Fetch Etsy messages only:
+[ORION_ACTION:{"type":"get_messages","platform_type":"etsy","limit":20}]
+
+Reply to an Etsy buyer conversation:
+[ORION_ACTION:{"type":"send_message","platform_type":"etsy","conversation_id":"123456789","body":"Hi! Thank you so much for your message. Your order is being carefully handmade and will ship within 3-5 business days. I'll send tracking as soon as it's on its way. Please let me know if you have any other questions!"}]
+
+**Customer Message Workflow:**
+When the user asks "do I have any messages?", "check my Etsy messages", or "what are buyers asking?":
+1. Run get_messages first to fetch and display current messages
+2. For each unanswered message, show the buyer's name, subject, and preview
+3. Ask the user how they want to reply, or offer to draft a reply based on context
+4. Once the user approves a reply, use send_message to send it
+
+**Drafting replies:**
+When asked to draft or send a message reply, write a warm, professional response in the seller's voice.
+Reference the specific product/question if visible in the message preview.
+Always give the user a chance to review the draft before using send_message.
+
+⚠️ eBay replies must be sent through the eBay My Messages portal — the modern eBay API does not support direct message replies via OAuth.
+⚠️ Etsy's conversation API returns the most recent message. Older message history requires opening the conversation in the Etsy dashboard.
+⚠️ Never send a message without the user reviewing it first — always show the draft and ask for confirmation.
+
+— Auto-Reorder & Purchase Orders —
+
+Use check_reorder_needs to scan inventory and surface low-stock products that need reordering.
+Orion can suggest reorders or automatically create draft POs grouped by supplier.
+
+Check which products need reordering (suggest only — no POs created):
+[ORION_ACTION:{"type":"check_reorder_needs","low_stock_threshold":10}]
+
+Check AND auto-create draft purchase orders for all low-stock items:
+[ORION_ACTION:{"type":"check_reorder_needs","low_stock_threshold":5,"create_draft_pos":true}]
+
+Create a manual draft PO for a specific supplier:
+[ORION_ACTION:{"type":"create_purchase_order","supplier_name":"ABC Wholesale","items":[{"product_name":"Classic White Tee","sku":"BWT-001","quantity":50,"cost_per_unit":8.50},{"product_name":"Blue Denim Shirt","sku":"BDS-002","quantity":30,"cost_per_unit":14.00}],"notes":"Urgent restock — summer collection","payment_terms":"Net 30"}]
+
+View open purchase orders:
+[ORION_ACTION:{"type":"get_purchase_orders"}]
+[ORION_ACTION:{"type":"get_purchase_orders","status":"draft"}]
+[ORION_ACTION:{"type":"get_purchase_orders","status":"sent"}]
+
+Mark a PO as sent (after emailing/submitting it to the supplier):
+[ORION_ACTION:{"type":"update_purchase_order_status","po_number":"PO-2026-001","status":"sent"}]
+
+Mark a PO as received (stock arrived):
+[ORION_ACTION:{"type":"update_purchase_order_status","po_number":"PO-2026-001","status":"received"}]
+
+**Auto-Reorder Workflow:**
+When the user asks "what do I need to reorder?", "which products are running low?", or "set up auto-reorders":
+1. Run check_reorder_needs to scan inventory (default threshold: 10 units, customize if the user specifies)
+2. Present the list of low-stock items with supplier and cost estimate
+3. Ask: "Want me to create draft purchase orders for all of these?"
+4. If yes, re-run with create_draft_pos:true (or use create_purchase_order for manual POs)
+5. After POs are created, remind the user to review them in the Suppliers section and mark as "sent" when submitted
+
+⚠️ check_reorder_needs only works for products that have supplier relationships set up in the Suppliers tab.
+   If the user hasn't added suppliers yet, direct them to the Suppliers section to add them first.
+⚠️ POs are created as "draft" — Orion never sends them to suppliers automatically. The user must review and send.
+⚠️ Low-stock threshold defaults to 10. If the user has custom reorder points, use those instead.
+⚠️ check_reorder_needs currently checks Shopify inventory. Other platforms are checked through the product list in context.
 
 To make MULTIPLE changes to ONE product (title + metafield + alt text, etc.) — one confirmation card, all run together:
 [ORION_ACTION:{"type":"multi_action","product_name":"Tie Dye T-Shirt","sku":"TDT-001","description":"Update title, SEO alt text, and material metafield","actions":[{"type":"update_title","new_title":"Vibrant Handmade Tie Dye T-Shirt"},{"type":"update_image_alt","alt_text":"Colorful handmade tie dye t-shirt on white background"},{"type":"update_metafield","metafield_key":"material","metafield_value":"100% Cotton","metafield_type":"single_line_text_field"}]}]
@@ -3705,9 +6052,11 @@ Action grouping — choose the most efficient approach:
 **Store Overview:**
 - Active Platforms: ${storeContext.platforms.map((p: any) => p.platform_type).join(', ') || 'None connected yet'}
 - Total Products: ${storeContext.total_products} (showing ${storeContext.products.length} below)
-- Total Orders: ${storeContext.total_orders} (showing last ${storeContext.orders.length} below)
-- Total Revenue (recent): $${storeContext.metrics.total_revenue.toFixed(2)}
-- Average Order Value: $${storeContext.metrics.avg_order_value.toFixed(2)}
+- Total Orders on file: ${storeContext.total_orders}
+- Revenue last 7 days: $${(storeContext.metrics.revenue_last_7d || 0).toFixed(2)} (${storeContext.metrics.orders_last_7d || 0} orders)
+- Revenue last 30 days: $${(storeContext.metrics.revenue_last_30d || 0).toFixed(2)} (${storeContext.metrics.orders_last_30d || 0} orders)
+- Average Order Value (last 30d): $${storeContext.metrics.orders_last_30d > 0 ? (storeContext.metrics.revenue_last_30d / storeContext.metrics.orders_last_30d).toFixed(2) : '0.00'}
+${storeContext.metrics.revenue_by_platform_30d ? `- Revenue by platform (last 30d): ${storeContext.metrics.revenue_by_platform_30d}` : ''}
 ${lowStockSection}${ebayErrorSection}${memorySection}
 ${mode !== 'demo/test' ? `**Product Inventory (${storeContext.products.length} of ${storeContext.total_products} products):**
 ${formatProducts(storeContext.products)}
