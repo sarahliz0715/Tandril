@@ -80,7 +80,7 @@ export default function BulkUploadPage() {
     loadData(); // Refresh the list
   }, [loadData]);
 
-  // Download sample CSV template
+  // Download generic CSV template
   const handleDownloadTemplate = useCallback(() => {
     const csvContent = [
       ['SKU', 'Product Name', 'Description', 'Category', 'Base Price', 'Total Stock', 'Reorder Point', 'Image URL'].join(','),
@@ -97,8 +97,27 @@ export default function BulkUploadPage() {
     a.click();
     document.body.removeChild(a);
     window.URL.revokeObjectURL(url);
-    
     toast.success("Template downloaded");
+  }, []);
+
+  // Download Etsy-specific CSV template (includes required Etsy listing fields)
+  const handleDownloadEtsyTemplate = useCallback(() => {
+    const csvContent = [
+      ['SKU', 'Product Name', 'Description', 'Base Price', 'Total Stock', 'Tags (comma-separated)', 'Who Made', 'When Made', 'Taxonomy ID', 'Image URL'].join(','),
+      ['ETSY-001', 'Handmade Ceramic Mug', '"Beautifully handcrafted ceramic mug, 12oz, microwave safe."', '28.99', '5', '"ceramic mug,handmade pottery,coffee lover gift"', 'i_did', 'made_to_order', '520', 'https://example.com/mug.jpg'].join(','),
+      ['ETSY-002', 'Hand-knit Wool Scarf', '"Cozy hand-knit wool scarf, 60 inches long, multiple colors available."', '45.00', '3', '"wool scarf,hand knit,winter accessory,gift"', 'i_did', 'made_to_order', '68', 'https://example.com/scarf.jpg'].join(',')
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'etsy-listings-template.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    toast.success("Etsy template downloaded");
   }, []);
 
   if (isLoading) {
@@ -149,10 +168,14 @@ export default function BulkUploadPage() {
             Download our CSV template to see the correct format
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex flex-wrap gap-3">
           <Button variant="outline" onClick={handleDownloadTemplate}>
             <Download className="w-4 h-4 mr-2" />
-            Download Template
+            Generic Template
+          </Button>
+          <Button variant="outline" onClick={handleDownloadEtsyTemplate}>
+            <Download className="w-4 h-4 mr-2" />
+            Etsy Listings Template
           </Button>
         </CardContent>
       </Card>

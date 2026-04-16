@@ -83,6 +83,7 @@ function summarizeOrionAction(action: any): string {
     case 'ebay_update_image':           return `Updated eBay images for "${name}"`;
     case 'ebay_end_listing':            return `Ended eBay listing for "${name}"`;
     case 'ebay_relist':                 return `Relisted "${name}" on eBay`;
+    case 'ebay_update_item_specifics':  return `Updated eBay item specifics for "${name}"`;
     case 'ebay_create_listing':         return `Created eBay listing: "${action.title || name}"`;
     case 'update_price':        return `Updated price for "${name}" → $${action.price}`;
     case 'update_title':        return `Updated title of "${name}" → "${action.new_title}"`;
@@ -120,6 +121,39 @@ function summarizeOrionAction(action: any): string {
     case 'wish_update_price':         return `Updated Wish price for "${name}" → $${action.price}`;
     case 'walmart_update_inventory':  return `Updated Walmart inventory for "${name}" → ${action.quantity} units`;
     case 'walmart_update_price':      return `Updated Walmart price for "${name}" → $${action.price}`;
+    case 'etsy_update_price':         return `Updated Etsy listing "${name}" price → $${action.price}`;
+    case 'etsy_update_inventory':     return `Updated Etsy listing "${name}" quantity → ${action.quantity} units`;
+    case 'etsy_update_title':         return `Updated Etsy listing "${name}" title`;
+    case 'etsy_update_description':   return `Updated Etsy listing "${name}" description`;
+    case 'etsy_update_tags':          return `Updated Etsy listing "${name}" tags`;
+    case 'etsy_end_listing':          return `Deactivated Etsy listing "${name}"`;
+    case 'etsy_renew_listing':        return `Reactivated Etsy listing "${name}"`;
+    case 'etsy_create_listing':       return `Created Etsy listing: "${action.title || name}"`;
+    case 'etsy_bulk_create_listings': return `Bulk created ${Array.isArray(action.listings) ? action.listings.length : '?'} Etsy listing(s)`;
+    case 'woo_update_price':          return `Updated WooCommerce price for "${name}" → $${action.price}`;
+    case 'woo_update_inventory':      return `Updated WooCommerce inventory for "${name}" → ${action.quantity} units`;
+    case 'woo_update_title':          return `Updated WooCommerce title for "${name}"`;
+    case 'woo_update_description':    return `Updated WooCommerce description for "${name}"`;
+    case 'woo_update_tags':           return `Updated WooCommerce tags for "${name}"`;
+    case 'woo_end_listing':           return `Deactivated WooCommerce product "${name}"`;
+    case 'woo_renew_listing':         return `Reactivated WooCommerce product "${name}"`;
+    case 'ecwid_update_tags':         return `Updated Ecwid keywords for "${name}"`;
+    case 'ecwid_end_listing':         return `Disabled Ecwid product "${name}"`;
+    case 'ecwid_renew_listing':       return `Enabled Ecwid product "${name}"`;
+    case 'magento_end_listing':       return `Disabled Magento product "${name}"`;
+    case 'magento_renew_listing':     return `Enabled Magento product "${name}"`;
+    case 'prestashop_update_description': return `Updated PrestaShop description for "${name}"`;
+    case 'prestashop_end_listing':    return `Disabled PrestaShop product "${name}"`;
+    case 'prestashop_renew_listing':  return `Enabled PrestaShop product "${name}"`;
+    case 'prestashop_update_tags':    return `Updated tags for "${name}" on PrestaShop`;
+    case 'wish_update_title':         return `Updated Wish title for SKU "${action.sku || name}"`;
+    case 'wish_update_description':   return `Updated Wish description for SKU "${action.sku || name}"`;
+    case 'wish_update_tags':          return `Updated Wish tags for SKU "${action.sku || name}"`;
+    case 'wish_end_listing':          return `Disabled Wish product SKU "${action.sku || name}"`;
+    case 'wish_renew_listing':        return `Enabled Wish product SKU "${action.sku || name}"`;
+    case 'walmart_update_title':      return `Updated Walmart title for SKU "${action.sku || name}"`;
+    case 'walmart_update_description':return `Updated Walmart description for SKU "${action.sku || name}"`;
+    case 'walmart_end_listing':       return `Retired Walmart listing SKU "${action.sku || name}"`;
     default:                          return `Orion action: ${action.type} on "${name}"`;
   }
 }
@@ -1247,6 +1281,39 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: `Relisted "${action.product_name || sku}" on eBay successfully.` };
     }
 
+    case 'ebay_update_item_specifics': {
+      // Updates product.aspects (item specifics) on an eBay inventory item.
+      // action.item_specifics: { "Brand": ["Nike"], "Size": ["M", "L"] }
+      // action.replace_all: true → replaces all aspects; false/omitted → merges with existing
+      const { apiBase, headers: ebayHeaders } = await getEbayClientForActions(supabaseClient, userId);
+      const sku = action.sku;
+      if (!sku) throw new Error('sku is required for ebay_update_item_specifics.');
+
+      const getRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, { headers: ebayHeaders });
+      if (!getRes.ok) throw new Error(`eBay inventory item not found for SKU "${sku}": ${await getRes.text()}`);
+      const currentItem = await getRes.json();
+
+      const existingAspects: Record<string, string[]> = currentItem.product?.aspects || {};
+      const incoming: Record<string, unknown> = action.item_specifics || {};
+      const merged = action.replace_all ? incoming : { ...existingAspects, ...incoming };
+
+      // eBay requires every aspect value to be a string[]
+      const normalized: Record<string, string[]> = {};
+      for (const [k, v] of Object.entries(merged)) {
+        normalized[k] = Array.isArray(v) ? (v as unknown[]).map(String) : [String(v)];
+      }
+
+      const putRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, {
+        method: 'PUT',
+        headers: ebayHeaders,
+        body: JSON.stringify({ ...currentItem, product: { ...currentItem.product, aspects: normalized } }),
+      });
+      if (!putRes.ok) throw new Error(`eBay item specifics update failed: ${await putRes.text()}`);
+
+      const updatedKeys = Object.keys(normalized).join(', ');
+      return { message: `Updated eBay item specifics for "${action.product_name || sku}": ${updatedKeys}` };
+    }
+
     case 'ebay_create_listing': {
       // Creates an eBay managed-inventory listing end-to-end:
       // 1. PUT inventory item (title, description, images, quantity, condition)
@@ -1466,6 +1533,83 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: summary, success_count: successCount, fail_count: failCount };
     }
 
+    // ── WooCommerce update actions ────────────────────────────────────────────
+
+    case 'woo_update_price':
+    case 'woo_update_inventory':
+    case 'woo_update_title':
+    case 'woo_update_description':
+    case 'woo_update_tags':
+    case 'woo_end_listing':
+    case 'woo_renew_listing': {
+      const { data: wooUPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'woocommerce').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!wooUPlats || wooUPlats.length === 0) throw new Error('No connected WooCommerce store found.');
+      const wooU = wooUPlats[0];
+      const { consumer_key, consumer_secret } = wooU.credentials;
+      const wooUBase = `${wooU.store_url}/wp-json/wc/v3`;
+      const wooUHeaders = {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${btoa(`${consumer_key}:${consumer_secret}`)}`,
+      };
+
+      // Resolve product ID by SKU first, then name search
+      let wooProductId: number | null = null;
+      let wooProductName = action.product_name || action.title || '';
+      if (action.sku && action.sku !== 'N/A') {
+        const skuRes = await fetch(`${wooUBase}/products?sku=${encodeURIComponent(action.sku)}&per_page=1`, { headers: wooUHeaders });
+        if (skuRes.ok) {
+          const skuData = await skuRes.json();
+          if (Array.isArray(skuData) && skuData.length > 0) { wooProductId = skuData[0].id; wooProductName = skuData[0].name; }
+        }
+      }
+      if (!wooProductId && action.product_name) {
+        const nameRes = await fetch(`${wooUBase}/products?search=${encodeURIComponent(action.product_name)}&per_page=5`, { headers: wooUHeaders });
+        if (nameRes.ok) {
+          const nameData: any[] = await nameRes.json();
+          const match = nameData.find((p: any) => p.name.toLowerCase().includes(action.product_name.toLowerCase()));
+          if (match) { wooProductId = match.id; wooProductName = match.name; }
+        }
+      }
+      if (!wooProductId) throw new Error(`Product "${action.product_name || action.sku}" not found in WooCommerce.`);
+
+      let wooBody: Record<string, any> = {};
+      if (action.type === 'woo_update_price') {
+        wooBody = { regular_price: String(Number(action.price).toFixed(2)) };
+      } else if (action.type === 'woo_update_inventory') {
+        wooBody = { manage_stock: true, stock_quantity: Number(action.quantity) };
+      } else if (action.type === 'woo_update_title') {
+        wooBody = { name: action.new_title };
+      } else if (action.type === 'woo_update_description') {
+        wooBody = { description: action.description };
+      } else if (action.type === 'woo_update_tags') {
+        const tagList: string[] = Array.isArray(action.tags)
+          ? action.tags
+          : String(action.tags || '').split(',').map((t: string) => t.trim()).filter(Boolean);
+        wooBody = { tags: tagList.map((t: string) => ({ name: t })) };
+      } else if (action.type === 'woo_end_listing') {
+        wooBody = { status: 'draft' };
+      } else if (action.type === 'woo_renew_listing') {
+        wooBody = { status: 'publish' };
+      }
+
+      const wooUpdateRes = await fetch(`${wooUBase}/products/${wooProductId}`, {
+        method: 'PUT', headers: wooUHeaders, body: JSON.stringify(wooBody),
+      });
+      if (!wooUpdateRes.ok) throw new Error(`WooCommerce update failed: ${await wooUpdateRes.text()}`);
+
+      const wooMsgs: Record<string, string> = {
+        woo_update_price:       `Updated WooCommerce price for "${wooProductName}" → $${action.price}`,
+        woo_update_inventory:   `Updated WooCommerce inventory for "${wooProductName}" → ${action.quantity} units`,
+        woo_update_title:       `Updated WooCommerce title for "${wooProductName}" → "${action.new_title}"`,
+        woo_update_description: `Updated WooCommerce description for "${wooProductName}"`,
+        woo_update_tags:        `Updated WooCommerce tags for "${wooProductName}"`,
+        woo_end_listing:        `Deactivated WooCommerce product "${wooProductName}" (set to draft)`,
+        woo_renew_listing:      `Reactivated WooCommerce product "${wooProductName}" (published)`,
+      };
+      return { message: wooMsgs[action.type] || 'WooCommerce update complete' };
+    }
+
     // ── multi_action: multiple changes on ONE product in one confirmation ──────
     case 'multi_action': {
       const subActions: any[] = action.actions || [];
@@ -1650,6 +1794,50 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: `Created Ecwid product: "${action.title}"` };
     }
 
+    case 'ecwid_update_tags':
+    case 'ecwid_end_listing':
+    case 'ecwid_renew_listing': {
+      const { data: ecwidXPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'ecwid').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!ecwidXPlats || ecwidXPlats.length === 0) throw new Error('No connected Ecwid store found.');
+      const ecwidX = ecwidXPlats[0];
+      const { store_id: ecwidXStoreId, access_token: ecwidXTok } = ecwidX.credentials;
+      const ecwidXBase = `https://app.ecwid.com/api/v3/${ecwidXStoreId}`;
+      const ecwidXHeaders = { 'Authorization': `Bearer ${ecwidXTok}`, 'Content-Type': 'application/json' };
+
+      const ecwidXQuery = action.sku && action.sku !== 'N/A'
+        ? `sku=${encodeURIComponent(action.sku)}`
+        : `keyword=${encodeURIComponent(action.product_name || '')}`;
+      const ecwidXSearch = await fetch(`${ecwidXBase}/products?${ecwidXQuery}&limit=5`, { headers: ecwidXHeaders });
+      if (!ecwidXSearch.ok) throw new Error(`Ecwid product search failed: ${await ecwidXSearch.text()}`);
+      const ecwidXFound = ((await ecwidXSearch.json()).items || [])[0];
+      if (!ecwidXFound) throw new Error(`Product "${action.product_name || action.sku}" not found in Ecwid.`);
+
+      let ecwidXBody: Record<string, any> = {};
+      if (action.type === 'ecwid_update_tags') {
+        // Ecwid uses a space-separated `keywords` field for search tags
+        const kw = Array.isArray(action.tags)
+          ? action.tags.join(' ')
+          : String(action.tags || '').split(',').map((t: string) => t.trim()).join(' ');
+        ecwidXBody = { keywords: kw };
+      } else if (action.type === 'ecwid_end_listing') {
+        ecwidXBody = { enabled: false };
+      } else if (action.type === 'ecwid_renew_listing') {
+        ecwidXBody = { enabled: true };
+      }
+
+      const ecwidXUpdate = await fetch(`${ecwidXBase}/products/${ecwidXFound.id}`, {
+        method: 'PUT', headers: ecwidXHeaders, body: JSON.stringify(ecwidXBody),
+      });
+      if (!ecwidXUpdate.ok) throw new Error(`Ecwid update failed: ${await ecwidXUpdate.text()}`);
+      const ecwidXMsgs: Record<string, string> = {
+        ecwid_update_tags:  `Updated Ecwid search keywords for "${ecwidXFound.name}"`,
+        ecwid_end_listing:  `Disabled Ecwid product "${ecwidXFound.name}"`,
+        ecwid_renew_listing:`Enabled Ecwid product "${ecwidXFound.name}"`,
+      };
+      return { message: ecwidXMsgs[action.type] || 'Ecwid update complete' };
+    }
+
     // ── Magento write actions ─────────────────────────────────────────────────
 
     case 'magento_update_inventory':
@@ -1741,11 +1929,35 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: `Created Magento product: "${action.title}"` };
     }
 
+    case 'magento_end_listing':
+    case 'magento_renew_listing': {
+      const { data: magentoXPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'magento').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!magentoXPlats || magentoXPlats.length === 0) throw new Error('No connected Magento store found.');
+      const magentoX = magentoXPlats[0];
+      const magentoXBase = magentoX.store_url.replace(/\/$/, '');
+      const magentoXHeaders = { 'Authorization': `Bearer ${magentoX.credentials.access_token}`, 'Content-Type': 'application/json' };
+      const magentoXSku = action.sku && action.sku !== 'N/A' ? action.sku : null;
+      if (!magentoXSku) throw new Error('SKU is required for Magento actions.');
+      const newStatus = action.type === 'magento_end_listing' ? 2 : 1; // 1=enabled, 2=disabled
+      const magentoXRes = await fetch(`${magentoXBase}/rest/V1/products/${encodeURIComponent(magentoXSku)}`, {
+        method: 'PUT', headers: magentoXHeaders,
+        body: JSON.stringify({ product: { sku: magentoXSku, status: newStatus } }),
+      });
+      if (!magentoXRes.ok) throw new Error(`Magento status update failed: ${await magentoXRes.text()}`);
+      return { message: action.type === 'magento_end_listing'
+        ? `Disabled Magento product "${action.product_name || magentoXSku}"`
+        : `Enabled Magento product "${action.product_name || magentoXSku}"` };
+    }
+
     // ── PrestaShop write actions ──────────────────────────────────────────────
 
     case 'prestashop_update_inventory':
     case 'prestashop_update_price':
-    case 'prestashop_update_title': {
+    case 'prestashop_update_title':
+    case 'prestashop_update_description':
+    case 'prestashop_end_listing':
+    case 'prestashop_renew_listing': {
       const { data: psPlats } = await supabaseClient.from('platforms').select('*')
         .eq('user_id', userId).eq('platform_type', 'prestashop').or('is_active.eq.true,status.eq.connected').limit(1);
       if (!psPlats || psPlats.length === 0) throw new Error('No connected PrestaShop store found.');
@@ -1787,8 +1999,18 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         productXml = productXml.replace(/<price>[^<]*<\/price>/, `<price>${Number(action.price).toFixed(6)}</price>`);
       }
       if (action.type === 'prestashop_update_title') {
-        // Update the name in the default language
         productXml = productXml.replace(/(<name>[\s\S]*?<language[^>]*>)[\s\S]*?(<\/language>)/, `$1<![CDATA[${action.new_title}]]>$2`);
+      }
+      if (action.type === 'prestashop_update_description') {
+        productXml = productXml.replace(/(<description>[\s\S]*?<language[^>]*>)[\s\S]*?(<\/language>)/, `$1<![CDATA[${action.description}]]>$2`);
+      }
+      if (action.type === 'prestashop_end_listing') {
+        productXml = productXml.replace(/<active><!\[CDATA\[.*?\]\]><\/active>/, '<active><![CDATA[0]]></active>');
+        productXml = productXml.replace(/<active>[^<]*<\/active>/, '<active>0</active>');
+      }
+      if (action.type === 'prestashop_renew_listing') {
+        productXml = productXml.replace(/<active><!\[CDATA\[.*?\]\]><\/active>/, '<active><![CDATA[1]]></active>');
+        productXml = productXml.replace(/<active>[^<]*<\/active>/, '<active>1</active>');
       }
 
       const putRes = await fetch(`${psBase}/api/products/${psProductId}`, {
@@ -1822,8 +2044,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       }
 
       const labels: Record<string, string> = {
-        prestashop_update_price: `Updated PrestaShop price for "${action.product_name || action.sku}" to $${action.price}`,
-        prestashop_update_title: `Updated PrestaShop title for "${action.product_name || action.sku}" → "${action.new_title}"`,
+        prestashop_update_price:       `Updated PrestaShop price for "${action.product_name || action.sku}" to $${action.price}`,
+        prestashop_update_title:       `Updated PrestaShop title for "${action.product_name || action.sku}" → "${action.new_title}"`,
+        prestashop_update_description: `Updated PrestaShop description for "${action.product_name || action.sku}"`,
+        prestashop_end_listing:        `Disabled PrestaShop product "${action.product_name || action.sku}"`,
+        prestashop_renew_listing:      `Enabled PrestaShop product "${action.product_name || action.sku}"`,
       };
       return { message: labels[action.type] || 'PrestaShop update complete' };
     }
@@ -1859,6 +2084,105 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: `Created PrestaShop product: "${action.title}"` };
     }
 
+    case 'prestashop_update_tags': {
+      // PrestaShop tags are a separate entity type.  For each tag name we:
+      //   1. Search /api/tags for an existing record with that name + language
+      //   2. Create a new tag record if none found
+      //   3. Collect all resolved tag IDs
+      //   4. GET the product XML and replace (or insert) the <tags> block inside <associations>
+      //   5. PUT the updated product XML back
+      const { data: psTPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'prestashop').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!psTPlats || psTPlats.length === 0) throw new Error('No connected PrestaShop store found.');
+      const psT = psTPlats[0];
+      const psTBase = psT.store_url.replace(/\/$/, '');
+      const psTEncoded = btoa(`${psT.credentials.api_key}:`);
+      const psTJsonH = { 'Authorization': `Basic ${psTEncoded}`, 'Content-Type': 'application/json' };
+
+      // 1. Resolve product ID
+      const psTRef = action.sku && action.sku !== 'N/A' ? action.sku : '';
+      let psTProductId: string | null = null;
+
+      if (psTRef) {
+        const sRes = await fetch(`${psTBase}/api/products?output_format=JSON&filter[reference]=${encodeURIComponent(psTRef)}&display=[id]`, { headers: psTJsonH });
+        if (sRes.ok) { const sd = await sRes.json(); psTProductId = sd?.products?.[0]?.id?.toString() || null; }
+      }
+      if (!psTProductId && action.product_name) {
+        const sRes = await fetch(`${psTBase}/api/products?output_format=JSON&filter[name]=%25${encodeURIComponent(action.product_name)}%25&display=[id]`, { headers: psTJsonH });
+        if (sRes.ok) { const sd = await sRes.json(); psTProductId = sd?.products?.[0]?.id?.toString() || null; }
+      }
+      if (!psTProductId) throw new Error(`Product "${action.product_name || action.sku}" not found in PrestaShop.`);
+
+      // 2. Resolve / create each tag
+      const langId = action.lang_id || 1;
+      const tagIds: number[] = [];
+      for (const rawTag of (action.tags || [])) {
+        const tagName = String(rawTag).trim();
+        if (!tagName) continue;
+
+        // Search for existing tag
+        const searchRes = await fetch(
+          `${psTBase}/api/tags?output_format=JSON&filter[name]=${encodeURIComponent(tagName)}&filter[id_lang]=${langId}&display=[id]`,
+          { headers: psTJsonH }
+        );
+        let tagId: number | null = null;
+        if (searchRes.ok) {
+          const td = await searchRes.json();
+          tagId = td?.tags?.[0]?.id || null;
+        }
+
+        if (!tagId) {
+          // Create the tag via XML (PrestaShop tags endpoint requires XML)
+          const tagXml = `<?xml version="1.0" encoding="UTF-8"?><prestashop xmlns:xlink="http://www.w3.org/1999/xlink"><tag><id_lang>${langId}</id_lang><name><![CDATA[${tagName}]]></name></tag></prestashop>`;
+          const createRes = await fetch(`${psTBase}/api/tags`, {
+            method: 'POST',
+            headers: { 'Authorization': `Basic ${psTEncoded}`, 'Content-Type': 'application/xml' },
+            body: tagXml,
+          });
+          if (createRes.ok) {
+            const xml = await createRes.text();
+            const m = xml.match(/<id>(\d+)<\/id>/);
+            if (m) tagId = parseInt(m[1], 10);
+          } else {
+            console.error(`[prestashop_update_tags] Tag create failed for "${tagName}": ${await createRes.text()}`);
+          }
+        }
+        if (tagId) tagIds.push(tagId);
+      }
+      if (tagIds.length === 0) throw new Error('No valid tags could be resolved for PrestaShop.');
+
+      // 3. GET product XML and splice in the new <tags> block
+      const prodRes = await fetch(`${psTBase}/api/products/${psTProductId}`, {
+        headers: { 'Authorization': `Basic ${psTEncoded}`, 'Accept': 'application/xml' },
+      });
+      if (!prodRes.ok) throw new Error(`PrestaShop product fetch failed: ${await prodRes.text()}`);
+      let prodXml = await prodRes.text();
+
+      const tagNodes = tagIds.map(id => `<tag><id>${id}</id></tag>`).join('');
+      const newTagsBlock = `<tags nodeType="tag" api="tags">${tagNodes}</tags>`;
+
+      if (/<tags[^>]*>[\s\S]*?<\/tags>/.test(prodXml)) {
+        prodXml = prodXml.replace(/<tags[^>]*>[\s\S]*?<\/tags>/, newTagsBlock);
+      } else {
+        // Insert before </associations>; if no associations block, append before </product>
+        if (prodXml.includes('</associations>')) {
+          prodXml = prodXml.replace('</associations>', `${newTagsBlock}</associations>`);
+        } else {
+          prodXml = prodXml.replace('</product>', `<associations>${newTagsBlock}</associations></product>`);
+        }
+      }
+
+      // 4. PUT updated product
+      const putRes = await fetch(`${psTBase}/api/products/${psTProductId}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Basic ${psTEncoded}`, 'Content-Type': 'application/xml' },
+        body: prodXml,
+      });
+      if (!putRes.ok) throw new Error(`PrestaShop tag update failed: ${await putRes.text()}`);
+
+      return { message: `Updated tags for "${action.product_name || action.sku}" on PrestaShop: ${(action.tags || []).join(', ')}` };
+    }
+
     // ── Wish write actions ────────────────────────────────────────────────────
 
     case 'wish_update_inventory':
@@ -1889,6 +2213,46 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         return { message: `Updated Wish price for SKU "${action.sku}" to $${action.price}` };
       }
       break;
+    }
+
+    case 'wish_update_title':
+    case 'wish_update_description':
+    case 'wish_update_tags':
+    case 'wish_end_listing':
+    case 'wish_renew_listing': {
+      const { data: wishXPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'wish').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!wishXPlats || wishXPlats.length === 0) throw new Error('No connected Wish store found.');
+      const wishXToken = wishXPlats[0].credentials.access_token;
+      if (!action.sku || action.sku === 'N/A') throw new Error('SKU (parent_sku) is required for Wish actions.');
+
+      const wishXParams = new URLSearchParams({ access_token: wishXToken, parent_sku: action.sku });
+      if (action.type === 'wish_update_title') {
+        wishXParams.set('name', action.new_title);
+      } else if (action.type === 'wish_update_description') {
+        wishXParams.set('description', action.description);
+      } else if (action.type === 'wish_update_tags') {
+        const tagStr = Array.isArray(action.tags) ? action.tags.join(',') : String(action.tags || '');
+        wishXParams.set('tags', tagStr);
+      } else if (action.type === 'wish_end_listing') {
+        wishXParams.set('enabled', 'false');
+      } else if (action.type === 'wish_renew_listing') {
+        wishXParams.set('enabled', 'true');
+      }
+
+      const wishXRes = await fetch(`https://merchant.wish.com/api/v3/product/update?${wishXParams}`, { method: 'POST' });
+      if (!wishXRes.ok) throw new Error(`Wish update failed: ${await wishXRes.text()}`);
+      const wishXData = await wishXRes.json();
+      if (wishXData.code !== 0) throw new Error(wishXData.message || 'Wish API error');
+
+      const wishXMsgs: Record<string, string> = {
+        wish_update_title:       `Updated Wish title for SKU "${action.sku}"`,
+        wish_update_description: `Updated Wish description for SKU "${action.sku}"`,
+        wish_update_tags:        `Updated Wish tags for SKU "${action.sku}"`,
+        wish_end_listing:        `Disabled Wish product SKU "${action.sku}"`,
+        wish_renew_listing:      `Enabled Wish product SKU "${action.sku}"`,
+      };
+      return { message: wishXMsgs[action.type] || 'Wish update complete' };
     }
 
     // ── Walmart write actions ─────────────────────────────────────────────────
@@ -1947,6 +2311,332 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         return { message: `Updated Walmart price for SKU "${sku}" to $${action.price}` };
       }
       break;
+    }
+
+    case 'walmart_update_title':
+    case 'walmart_update_description':
+    case 'walmart_end_listing': {
+      const { data: walmartXPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'walmart').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!walmartXPlats || walmartXPlats.length === 0) throw new Error('No connected Walmart store found.');
+      const walmartX = walmartXPlats[0];
+      const { client_id: wXClientId, client_secret: wXClientSecret } = walmartX.credentials;
+      const wXTokenRes = await fetch('https://marketplace.walmartapis.com/v3/token', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${btoa(`${wXClientId}:${wXClientSecret}`)}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'WM_SVC.NAME': 'Walmart Marketplace',
+          'WM_QOS.CORRELATION_ID': crypto.randomUUID(),
+          'Accept': 'application/json',
+        },
+        body: 'grant_type=client_credentials',
+      });
+      if (!wXTokenRes.ok) throw new Error(`Could not authenticate with Walmart: ${await wXTokenRes.text()}`);
+      const wXToken = (await wXTokenRes.json()).access_token;
+      const wXSku = action.sku && action.sku !== 'N/A' ? action.sku : null;
+      if (!wXSku) throw new Error('SKU is required for Walmart actions.');
+
+      const wXHeaders: Record<string, string> = {
+        'Authorization': `Bearer ${wXToken}`,
+        'WM_SVC.NAME': 'Walmart Marketplace',
+        'WM_QOS.CORRELATION_ID': crypto.randomUUID(),
+        'Accept': 'application/json',
+        'Content-Type': 'application/xml',
+      };
+
+      if (action.type === 'walmart_end_listing') {
+        // Retire the item — removes it from Walmart storefront
+        const retireRes = await fetch(`https://marketplace.walmartapis.com/v3/items/retirement`, {
+          method: 'PUT',
+          headers: { ...wXHeaders, 'Content-Type': 'application/xml' },
+          body: `<?xml version="1.0" encoding="UTF-8"?><ItemRetirement xmlns="http://walmart.com/"><sku>${wXSku}</sku></ItemRetirement>`,
+        });
+        if (!retireRes.ok) throw new Error(`Walmart retire failed: ${await retireRes.text()}`);
+        return { message: `Retired Walmart listing SKU "${wXSku}"` };
+      }
+
+      // Title and description updates use the MP Items maintenance feed
+      const productName = action.type === 'walmart_update_title' ? action.new_title : action.product_name || wXSku;
+      const shortDesc = action.type === 'walmart_update_description' ? action.description : '';
+      const itemXml = `<?xml version="1.0" encoding="UTF-8"?><MPItemFeed xmlns="http://walmart.com/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><MPItem><sku>${wXSku}</sku><productIdentifiers><productIdentifier><productIdType>SKU</productIdType><productId>${wXSku}</productId></productIdentifier></productIdentifiers>${action.type === 'walmart_update_title' ? `<productName>${productName}</productName>` : ''}${action.type === 'walmart_update_description' ? `<shortDescription>${shortDesc}</shortDescription>` : ''}</MPItem></MPItemFeed>`;
+      const wXUpdateRes = await fetch('https://marketplace.walmartapis.com/v3/feeds?feedType=MP_ITEM', {
+        method: 'POST', headers: { ...wXHeaders, 'Content-Type': 'application/xml' }, body: itemXml,
+      });
+      if (!wXUpdateRes.ok) throw new Error(`Walmart item update failed: ${await wXUpdateRes.text()}`);
+      return { message: action.type === 'walmart_update_title'
+        ? `Submitted Walmart title update for SKU "${wXSku}" (feed processing may take a few minutes)`
+        : `Submitted Walmart description update for SKU "${wXSku}" (feed processing may take a few minutes)` };
+    }
+
+    case 'etsy_update_price':
+    case 'etsy_update_inventory':
+    case 'etsy_update_title':
+    case 'etsy_update_description':
+    case 'etsy_update_tags':
+    case 'etsy_end_listing':
+    case 'etsy_renew_listing': {
+      const { data: etsyPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!etsyPlats || etsyPlats.length === 0) throw new Error('No connected Etsy shop found.');
+      const etsyPlat = etsyPlats[0];
+      const etsyTok = etsyPlat.credentials?.access_token;
+      const etsyShopId = etsyPlat.metadata?.shop_id;
+      const etsyClientId = Deno.env.get('ETSY_CLIENT_ID');
+      if (!etsyTok || !etsyShopId || !etsyClientId) throw new Error('Etsy credentials or shop_id missing.');
+
+      // Resolve listing_id: prefer direct listing_id, fall back to searching by title/sku
+      let listingId = action.listing_id;
+      if (!listingId && (action.product_name || action.sku)) {
+        const searchRes = await fetch(
+          `https://openapi.etsy.com/v3/application/shops/${etsyShopId}/listings?limit=100&state=active`,
+          { headers: { 'x-api-key': etsyClientId, 'Authorization': `Bearer ${etsyTok}` } }
+        );
+        if (searchRes.ok) {
+          const searchData = await searchRes.json();
+          const found = (searchData.results || []).find((l: any) =>
+            (action.product_name && l.title?.toLowerCase().includes(action.product_name.toLowerCase())) ||
+            (action.sku && l.sku?.includes(action.sku))
+          );
+          if (found) listingId = found.listing_id;
+        }
+        if (!listingId) throw new Error(`Could not find Etsy listing matching "${action.product_name || action.sku}".`);
+      }
+      if (!listingId) throw new Error('listing_id or product_name/sku required for Etsy actions.');
+
+      const etsyHeaders: Record<string, string> = {
+        'x-api-key': etsyClientId,
+        'Authorization': `Bearer ${etsyTok}`,
+        'Content-Type': 'application/json',
+      };
+
+      if (action.type === 'etsy_update_price') {
+        // Etsy price is stored in listing as a float (not subunits)
+        const updateRes = await fetch(
+          `https://openapi.etsy.com/v3/application/shops/${etsyShopId}/listings/${listingId}`,
+          { method: 'PATCH', headers: etsyHeaders, body: JSON.stringify({ price: Number(action.price) }) }
+        );
+        if (!updateRes.ok) throw new Error(`Etsy price update failed: ${await updateRes.text()}`);
+        return { message: `Updated Etsy listing #${listingId} price to $${action.price}` };
+      }
+
+      if (action.type === 'etsy_update_inventory') {
+        // Etsy uses a separate inventory endpoint for quantity
+        const invRes = await fetch(
+          `https://openapi.etsy.com/v3/application/listings/${listingId}/inventory`,
+          { headers: etsyHeaders }
+        );
+        if (!invRes.ok) throw new Error(`Could not fetch Etsy listing inventory: ${await invRes.text()}`);
+        const invData = await invRes.json();
+        // Update each product offering quantity
+        const offerings = (invData.products || []).map((prod: any) => ({
+          ...prod,
+          offerings: (prod.offerings || []).map((o: any) => ({ ...o, quantity: Number(action.quantity) })),
+        }));
+        const updateRes = await fetch(
+          `https://openapi.etsy.com/v3/application/listings/${listingId}/inventory`,
+          { method: 'PUT', headers: etsyHeaders, body: JSON.stringify({ products: offerings }) }
+        );
+        if (!updateRes.ok) throw new Error(`Etsy inventory update failed: ${await updateRes.text()}`);
+        return { message: `Updated Etsy listing #${listingId} quantity to ${action.quantity} units` };
+      }
+
+      if (action.type === 'etsy_update_title') {
+        const updateRes = await fetch(
+          `https://openapi.etsy.com/v3/application/shops/${etsyShopId}/listings/${listingId}`,
+          { method: 'PATCH', headers: etsyHeaders, body: JSON.stringify({ title: action.title }) }
+        );
+        if (!updateRes.ok) throw new Error(`Etsy title update failed: ${await updateRes.text()}`);
+        return { message: `Updated Etsy listing #${listingId} title to "${action.title}"` };
+      }
+
+      if (action.type === 'etsy_update_description') {
+        const updateRes = await fetch(
+          `https://openapi.etsy.com/v3/application/shops/${etsyShopId}/listings/${listingId}`,
+          { method: 'PATCH', headers: etsyHeaders, body: JSON.stringify({ description: action.description }) }
+        );
+        if (!updateRes.ok) throw new Error(`Etsy description update failed: ${await updateRes.text()}`);
+        return { message: `Updated Etsy listing #${listingId} description` };
+      }
+
+      if (action.type === 'etsy_update_tags') {
+        // Etsy allows up to 13 tags; tags must be lowercase, no special chars
+        const tags: string[] = Array.isArray(action.tags)
+          ? action.tags.slice(0, 13)
+          : String(action.tags).split(',').map((t: string) => t.trim().toLowerCase()).filter(Boolean).slice(0, 13);
+        const updateRes = await fetch(
+          `https://openapi.etsy.com/v3/application/shops/${etsyShopId}/listings/${listingId}`,
+          { method: 'PATCH', headers: etsyHeaders, body: JSON.stringify({ tags }) }
+        );
+        if (!updateRes.ok) throw new Error(`Etsy tags update failed: ${await updateRes.text()}`);
+        return { message: `Updated Etsy listing #${listingId} tags: ${tags.join(', ')}` };
+      }
+
+      if (action.type === 'etsy_end_listing') {
+        const updateRes = await fetch(
+          `https://openapi.etsy.com/v3/application/shops/${etsyShopId}/listings/${listingId}`,
+          { method: 'PATCH', headers: etsyHeaders, body: JSON.stringify({ state: 'inactive' }) }
+        );
+        if (!updateRes.ok) throw new Error(`Etsy end listing failed: ${await updateRes.text()}`);
+        return { message: `Deactivated Etsy listing #${listingId}` };
+      }
+
+      if (action.type === 'etsy_renew_listing') {
+        const updateRes = await fetch(
+          `https://openapi.etsy.com/v3/application/shops/${etsyShopId}/listings/${listingId}`,
+          { method: 'PATCH', headers: etsyHeaders, body: JSON.stringify({ state: 'active' }) }
+        );
+        if (!updateRes.ok) throw new Error(`Etsy renew listing failed: ${await updateRes.text()}`);
+        return { message: `Reactivated Etsy listing #${listingId}` };
+      }
+      break;
+    }
+
+    case 'etsy_create_listing': {
+      const { data: etsyPlatsC } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!etsyPlatsC || etsyPlatsC.length === 0) throw new Error('No connected Etsy shop found.');
+      const etsyPlatC = etsyPlatsC[0];
+      const etsyTokC = etsyPlatC.credentials?.access_token;
+      const etsyShopIdC = etsyPlatC.metadata?.shop_id;
+      const etsyClientIdC = Deno.env.get('ETSY_CLIENT_ID');
+      if (!etsyTokC || !etsyShopIdC || !etsyClientIdC) throw new Error('Etsy credentials or shop_id missing.');
+
+      const {
+        title, description, price, quantity = 1, sku, tags,
+        who_made = 'i_did', when_made = 'made_to_order', taxonomy_id = 69, state = 'draft',
+      } = action;
+      if (!title || !description || price == null) {
+        throw new Error('etsy_create_listing requires title, description, and price.');
+      }
+
+      const createBody: Record<string, any> = {
+        title,
+        description,
+        price: Number(price),
+        quantity: Number(quantity),
+        who_made,
+        when_made,
+        taxonomy_id: Number(taxonomy_id),
+        state,
+      };
+      if (sku) createBody.sku = sku;
+      if (Array.isArray(tags) && tags.length > 0) createBody.tags = tags.slice(0, 13);
+
+      const createRes = await fetch(
+        `https://openapi.etsy.com/v3/application/shops/${etsyShopIdC}/listings`,
+        {
+          method: 'POST',
+          headers: {
+            'x-api-key': etsyClientIdC,
+            'Authorization': `Bearer ${etsyTokC}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(createBody),
+        }
+      );
+      if (!createRes.ok) throw new Error(`Etsy create listing failed: ${await createRes.text()}`);
+      const newListing = await createRes.json();
+
+      await supabaseClient.from('products').upsert({
+        user_id: userId,
+        platform_type: 'etsy',
+        title,
+        sku: sku || `etsy-${newListing.listing_id}`,
+        price: Number(price),
+        inventory_quantity: Number(quantity),
+        status: state === 'active' ? 'active' : 'draft',
+        vendor: '',
+        product_type: '',
+      }, { onConflict: 'user_id,platform_type,sku', ignoreDuplicates: false });
+
+      return { message: `Created Etsy listing "${title}" (ID: ${newListing.listing_id})`, listing_id: newListing.listing_id };
+    }
+
+    case 'etsy_bulk_create_listings': {
+      const { data: etsyPlatsB } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!etsyPlatsB || etsyPlatsB.length === 0) throw new Error('No connected Etsy shop found.');
+      const etsyPlatB = etsyPlatsB[0];
+      const etsyTokB = etsyPlatB.credentials?.access_token;
+      const etsyShopIdB = etsyPlatB.metadata?.shop_id;
+      const etsyClientIdB = Deno.env.get('ETSY_CLIENT_ID');
+      if (!etsyTokB || !etsyShopIdB || !etsyClientIdB) throw new Error('Etsy credentials or shop_id missing.');
+
+      const bulkListings: any[] = Array.isArray(action.listings) ? action.listings : [];
+      if (bulkListings.length === 0) throw new Error('etsy_bulk_create_listings requires a non-empty listings array.');
+
+      const etsyHeadersB: Record<string, string> = {
+        'x-api-key': etsyClientIdB,
+        'Authorization': `Bearer ${etsyTokB}`,
+        'Content-Type': 'application/json',
+      };
+
+      const bulkResults: { title: string; listing_id?: number; error?: string }[] = [];
+      const productRows: any[] = [];
+
+      for (const listing of bulkListings) {
+        const {
+          title, description, price, quantity = 1, sku, tags,
+          who_made = 'i_did', when_made = 'made_to_order', taxonomy_id = 69, state = 'draft',
+        } = listing;
+        if (!title || !description || price == null) {
+          bulkResults.push({ title: title || 'unknown', error: 'Missing required fields (title, description, price)' });
+          continue;
+        }
+        const bulkBody: Record<string, any> = {
+          title,
+          description,
+          price: Number(price),
+          quantity: Number(quantity),
+          who_made,
+          when_made,
+          taxonomy_id: Number(taxonomy_id),
+          state,
+        };
+        if (sku) bulkBody.sku = sku;
+        if (Array.isArray(tags) && tags.length > 0) bulkBody.tags = tags.slice(0, 13);
+
+        try {
+          const res = await fetch(
+            `https://openapi.etsy.com/v3/application/shops/${etsyShopIdB}/listings`,
+            { method: 'POST', headers: etsyHeadersB, body: JSON.stringify(bulkBody) }
+          );
+          if (!res.ok) {
+            bulkResults.push({ title, error: `HTTP ${res.status}: ${await res.text()}` });
+          } else {
+            const created = await res.json();
+            bulkResults.push({ title, listing_id: created.listing_id });
+            productRows.push({
+              user_id: userId,
+              platform_type: 'etsy',
+              title,
+              sku: sku || `etsy-${created.listing_id}`,
+              price: Number(price),
+              inventory_quantity: Number(quantity),
+              status: state === 'active' ? 'active' : 'draft',
+              vendor: '',
+              product_type: '',
+            });
+          }
+        } catch (e: any) {
+          bulkResults.push({ title, error: e.message });
+        }
+      }
+
+      if (productRows.length > 0) {
+        await supabaseClient.from('products').upsert(productRows, {
+          onConflict: 'user_id,platform_type,sku',
+          ignoreDuplicates: false,
+        });
+      }
+
+      const successCount = bulkResults.filter(r => !r.error).length;
+      const failCount = bulkResults.filter(r => r.error).length;
+      return {
+        message: `Bulk created ${successCount} Etsy listing(s)${failCount > 0 ? `, ${failCount} failed` : ''}`,
+        results: bulkResults,
+      };
     }
 
     default:
@@ -2272,10 +2962,10 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     productCount = count || 0;
   }
 
-  // Fetch live products from Ecwid, Magento, PrestaShop, Wish, Walmart
+  // Fetch live products from Ecwid, Magento, PrestaShop, Wish, Walmart, Etsy
   for (const platform of (platforms || [])) {
     const pt = platform.platform_type;
-    if (!['ecwid', 'magento', 'prestashop', 'wish', 'walmart'].includes(pt)) continue;
+    if (!['ecwid', 'magento', 'prestashop', 'wish', 'walmart', 'etsy'].includes(pt)) continue;
     try {
       if (pt === 'ecwid') {
         const { store_id, access_token: tok } = platform.credentials;
@@ -2419,6 +3109,43 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
             }
           }
         }
+      } else if (pt === 'etsy') {
+        const shopId = platform.metadata?.shop_id;
+        const tok = platform.credentials?.access_token;
+        const clientId = Deno.env.get('ETSY_CLIENT_ID');
+        if (shopId && tok && clientId) {
+          const res = await fetch(
+            `https://openapi.etsy.com/v3/application/shops/${shopId}/listings/active?limit=100&includes=Images,MainImage`,
+            { headers: { 'x-api-key': clientId, 'Authorization': `Bearer ${tok}` } }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            for (const l of (data.results || [])) {
+              const price = l.price?.amount != null ? l.price.amount / (l.price.divisor || 100) : 0;
+              const images = l.images || (l.main_image ? [l.main_image] : []);
+              const imageCount = images.length;
+              const imageUrl = images[0]?.url_570xN || images[0]?.url_fullxfull || null;
+              products.push({
+                id: `etsy-${l.listing_id}`,
+                title: l.title || 'Unnamed',
+                sku: l.sku?.[0] || `etsy-${l.listing_id}`,
+                price,
+                inventory_quantity: l.quantity || 0,
+                status: l.state === 'active' ? 'active' : 'draft',
+                vendor: '',
+                product_type: l.taxonomy_path?.[0] || '',
+                tags: (l.tags || []).join(', '),
+                body_html: l.description ? l.description.slice(0, 150) : '',
+                image_count: imageCount,
+                has_images: imageCount > 0,
+                image_url: imageUrl,
+                platform_type: 'etsy',
+                listing_id: l.listing_id,
+              });
+              productCount++;
+            }
+          }
+        }
       }
     } catch (e: any) {
       console.warn(`[Orion] ${pt} product fetch failed:`, e.message);
@@ -2453,10 +3180,50 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     .order('created_at', { ascending: false })
     .limit(25);
 
-  // Merge eBay orders with DB orders
+  // Fetch live Etsy orders (receipts) for any connected Etsy platform
+  const etsyOrders: any[] = [];
+  for (const platform of (platforms || [])) {
+    if (platform.platform_type !== 'etsy') continue;
+    const shopId = platform.metadata?.shop_id;
+    const tok = platform.credentials?.access_token;
+    const clientId = Deno.env.get('ETSY_CLIENT_ID');
+    if (!shopId || !tok || !clientId) continue;
+    try {
+      const receiptsRes = await fetch(
+        `https://openapi.etsy.com/v3/application/shops/${shopId}/receipts?limit=50`,
+        { headers: { 'x-api-key': clientId, 'Authorization': `Bearer ${tok}` } }
+      );
+      if (receiptsRes.ok) {
+        const receiptsData = await receiptsRes.json();
+        for (const r of (receiptsData.results || [])) {
+          etsyOrders.push({
+            order_id: `etsy-${r.receipt_id}`,
+            order_number: r.receipt_id,
+            customer_name: r.name || 'Etsy Customer',
+            customer_email: r.buyer_email || '',
+            total_price: (r.grandtotal?.amount || 0) / (r.grandtotal?.divisor || 100),
+            status: r.status === 'paid' ? 'processing' : r.status === 'completed' ? 'delivered' : r.status,
+            platform: 'Etsy',
+            order_date: r.created_timestamp ? new Date(r.created_timestamp * 1000).toISOString() : null,
+            created_at: r.created_timestamp ? new Date(r.created_timestamp * 1000).toISOString() : null,
+            fulfillment_status: r.is_shipped ? 'fulfilled' : 'unfulfilled',
+            line_items: (r.transactions || []).map((t: any) => ({
+              title: t.title || 'Item',
+              quantity: t.quantity || 1,
+              price: (t.price?.amount || 0) / (t.price?.divisor || 100),
+            })),
+          });
+        }
+      }
+    } catch (e: any) {
+      console.warn('[Orion] Etsy receipts fetch failed:', e.message);
+    }
+  }
+
+  // Merge eBay orders with DB orders and Etsy orders
   const ebayOrders = (platforms || []).flatMap((p: any) => p._ebayOrders || []);
-  const orders = [...(dbOrders || []), ...ebayOrders];
-  const totalOrders = (orderCount || 0) + ebayOrders.length;
+  const orders = [...(dbOrders || []), ...ebayOrders, ...etsyOrders];
+  const totalOrders = (orderCount || 0) + ebayOrders.length + etsyOrders.length;
 
   const totalRevenue = orders.reduce((sum: number, o: any) => sum + (parseFloat(o.total_price) || 0), 0);
   const avgOrderValue = orders.length > 0 ? totalRevenue / orders.length : 0;
@@ -2608,34 +3375,69 @@ When the user asks you to create a product, add inventory, change a price, renam
   • ebay_update_title      ← update the listing title on eBay
   • ebay_update_description← update the listing description on eBay
   • ebay_update_image      ← update/add images on an eBay listing (requires public image URL)
-  • ebay_end_listing       ← remove a listing from eBay (keeps inventory, can relist)
-  • ebay_relist            ← re-publish a previously ended eBay listing
+  • ebay_end_listing             ← remove a listing from eBay (keeps inventory, can relist)
+  • ebay_relist                  ← re-publish a previously ended eBay listing
+  • ebay_update_item_specifics   ← update item specifics/attributes (Brand, Size, Material, etc.) for eBay SEO and buyer filtering
   WooCommerce actions:
   • woo_create_product
   • woo_bulk_create_products
+  • woo_update_price
+  • woo_update_inventory
+  • woo_update_title
+  • woo_update_description
+  • woo_update_tags
+  • woo_end_listing    (sets status=draft)
+  • woo_renew_listing  (sets status=publish)
   Ecwid actions:
   • ecwid_create_product
   • ecwid_update_inventory
   • ecwid_update_price
   • ecwid_update_title
   • ecwid_update_description
+  • ecwid_update_tags    (stored as keywords in Ecwid)
+  • ecwid_end_listing    (sets enabled=false)
+  • ecwid_renew_listing  (sets enabled=true)
   Magento / Adobe Commerce actions:
   • magento_create_product
   • magento_update_inventory
   • magento_update_price
   • magento_update_title
   • magento_update_description
+  • magento_end_listing    (sets status=disabled)
+  • magento_renew_listing  (sets status=enabled)
   PrestaShop actions:
   • prestashop_create_product
   • prestashop_update_inventory
   • prestashop_update_price
   • prestashop_update_title
+  • prestashop_update_description
+  • prestashop_end_listing   (sets active=0)
+  • prestashop_renew_listing (sets active=1)
+  • prestashop_update_tags   (creates/links PrestaShop tag entities; replaces existing tags)
   Wish Marketplace actions:
   • wish_update_inventory
   • wish_update_price
+  • wish_update_title        — { type, sku, new_title }
+  • wish_update_description  — { type, sku, description }
+  • wish_update_tags         — { type, sku, tags: ["tag1","tag2"] }
+  • wish_end_listing         — { type, sku }
+  • wish_renew_listing       — { type, sku }
   Walmart Marketplace actions:
   • walmart_update_inventory
   • walmart_update_price
+  • walmart_update_title       — { type, sku, new_title } (submitted as feed, ~minutes to process)
+  • walmart_update_description — { type, sku, description } (submitted as feed, ~minutes to process)
+  • walmart_end_listing        — { type, sku } (retires item from Walmart storefront)
+  Etsy Shop actions:
+  • etsy_update_price       — { type, product_name, listing_id?, price }
+  • etsy_update_inventory   — { type, product_name, listing_id?, quantity }
+  • etsy_update_title       — { type, product_name, listing_id?, title }
+  • etsy_update_description — { type, product_name, listing_id?, description }
+  • etsy_update_tags        — { type, product_name, listing_id?, tags: ["tag1","tag2",...] } (max 13 tags — this IS SEO on Etsy)
+  • etsy_end_listing        — { type, product_name, listing_id? }  (sets state to inactive)
+  • etsy_renew_listing      — { type, product_name, listing_id? }  (sets state back to active)
+  • etsy_create_listing     — { type, title, description, price, quantity?, sku?, tags?, who_made?, when_made?, taxonomy_id?, state? }
+  • etsy_bulk_create_listings — { type, listings: [{title,description,price,quantity?,sku?,tags?,who_made?,when_made?,taxonomy_id?,state?},...] }
 ❌ FORBIDDEN (will always fail): update_product, update_seo, bulk_update, add_image, set_image, woo_update_product, or any other type not in the list above.
 
 Platform action routing:
@@ -2646,12 +3448,18 @@ Platform action routing:
 - Use prestashop_* actions for products with platform_type 'prestashop'
 - Use wish_* actions for products with platform_type 'wish'
 - Use walmart_* actions for products with platform_type 'walmart'
+- Use etsy_* actions for products with platform_type 'etsy'
 - For multi_action and batch_update, sub-actions should use the correct prefix for the product's platform
 - ⚠️ CRITICAL: eBay has NO "draft" or "archived" status. For eBay, the words "deactivate", "draft", "hide", "end", "mark as sold", "remove", "take down" all map to ebay_end_listing. NEVER use update_status on an eBay product.
-- ⚠️ CRITICAL: update_status is Shopify-ONLY. If the user says "draft" or "archive" and the item is from eBay, use ebay_end_listing.
+- ⚠️ CRITICAL: Etsy has NO "draft" status. For Etsy, "deactivate", "remove", "hide", "take down" map to etsy_end_listing; "reactivate" or "relist" maps to etsy_renew_listing. NEVER use update_status on an Etsy product.
+- ⚠️ CRITICAL: update_status is Shopify-ONLY.
+- ⚠️ Etsy SEO = tags. When a user asks to "optimize SEO", "add keywords", or "improve search" on an Etsy listing, use etsy_update_tags (and optionally etsy_update_title/description). Etsy does not have separate SEO fields.
+- ⚠️ Etsy tags: max 13, lowercase, no special characters except spaces. Always supply as an array.
 - ⚠️ For Wish and Walmart, always include the SKU — these platforms identify products by SKU only.
 - ⚠️ For Magento, always include the SKU — Magento's REST API uses SKU as the product identifier.
-- ⚠️ PrestaShop SEO/description updates: use prestashop_update_title for title changes; description updates require manual editing in PrestaShop admin (not yet supported via API).
+- ⚠️ For Wish and Walmart title/description updates, SKU is required — both platforms identify products by SKU only.
+- ⚠️ Walmart title/description changes are submitted as feeds and may take a few minutes to reflect on the storefront. Mention this to the user.
+- ⚠️ WooCommerce update actions require either a SKU or product name to resolve the product ID. Prefer SKU when available.
 
 Context continuity rules (prevents executing wrong actions from short replies):
 - When the user gives a short follow-up reply ("yes", "do it", "draft", "archived", "go ahead", "that one", "sounds good"), ALWAYS apply it to the EXACT item and action from the immediately preceding exchange — not anything else.
@@ -2724,22 +3532,43 @@ To end (remove) an eBay listing — listing is removed from eBay but inventory i
 To relist a previously ended eBay listing:
 [ORION_ACTION:{"type":"ebay_relist","product_name":"Vintage Wool Sweater","sku":"SWEATER-001"}]
 
+To update eBay item specifics (aspects) — these are the structured attributes buyers filter on (Brand, Size, Material, etc.).
+replace_all:true replaces everything; omit or set false to merge with existing aspects:
+[ORION_ACTION:{"type":"ebay_update_item_specifics","product_name":"Vintage Wool Sweater","sku":"SWEATER-001","item_specifics":{"Brand":["Handmade"],"Material":["Wool"],"Size":["M"],"Color":["Charcoal Grey"],"Style":["Vintage"]}}]
+[ORION_ACTION:{"type":"ebay_update_item_specifics","product_name":"Vintage Wool Sweater","sku":"SWEATER-001","item_specifics":{"Season":["Fall","Winter"]},"replace_all":false}]
+
 To create a single product on WooCommerce:
 [ORION_ACTION:{"type":"woo_create_product","name":"Product Title","sku":"SKU-001","price":"29.99","quantity":10,"description":"Full description here","images":["https://image-url-1.jpg","https://image-url-2.jpg"],"tags":["tag1","tag2"],"product_type":"simple"}]
 
 To bulk-create multiple products on WooCommerce (e.g. from an Etsy CSV migration — single confirmation for the whole batch):
 [ORION_ACTION:{"type":"woo_bulk_create_products","products":[{"name":"Product 1","sku":"SKU-001","price":"19.99","quantity":5,"description":"...","images":["https://..."],"tags":["spring","cotton"]},{"name":"Product 2","sku":"SKU-002","price":"24.99","quantity":10,"description":"...","images":["https://..."],"tags":["summer"]}]}]
 
+To update a WooCommerce product's price, inventory, title, description, or tags:
+[ORION_ACTION:{"type":"woo_update_price","product_name":"Product Title","sku":"SKU-001","price":34.99}]
+[ORION_ACTION:{"type":"woo_update_inventory","product_name":"Product Title","sku":"SKU-001","quantity":25}]
+[ORION_ACTION:{"type":"woo_update_title","product_name":"Product Title","sku":"SKU-001","new_title":"New Product Title"}]
+[ORION_ACTION:{"type":"woo_update_description","product_name":"Product Title","sku":"SKU-001","description":"Updated product description here"}]
+[ORION_ACTION:{"type":"woo_update_tags","product_name":"Product Title","sku":"SKU-001","tags":["spring","cotton","women"]}]
+
+To deactivate or reactivate a WooCommerce product:
+[ORION_ACTION:{"type":"woo_end_listing","product_name":"Product Title","sku":"SKU-001"}]
+[ORION_ACTION:{"type":"woo_renew_listing","product_name":"Product Title","sku":"SKU-001"}]
+
 — Ecwid Actions —
 
 To create a product on Ecwid:
 [ORION_ACTION:{"type":"ecwid_create_product","title":"Product Name","sku":"SKU-001","price":29.99,"quantity":10,"description":"Full description here"}]
 
-To update Ecwid inventory, price, title, or description:
+To update Ecwid inventory, price, title, description, or keywords (tags):
 [ORION_ACTION:{"type":"ecwid_update_inventory","product_name":"Product Name","sku":"SKU-001","quantity":15}]
 [ORION_ACTION:{"type":"ecwid_update_price","product_name":"Product Name","sku":"SKU-001","price":24.99}]
 [ORION_ACTION:{"type":"ecwid_update_title","product_name":"Product Name","sku":"SKU-001","new_title":"New Product Name"}]
 [ORION_ACTION:{"type":"ecwid_update_description","product_name":"Product Name","sku":"SKU-001","description":"Updated description text here"}]
+[ORION_ACTION:{"type":"ecwid_update_tags","product_name":"Product Name","sku":"SKU-001","tags":["spring","cotton","women"]}]
+
+To disable or enable an Ecwid product:
+[ORION_ACTION:{"type":"ecwid_end_listing","product_name":"Product Name","sku":"SKU-001"}]
+[ORION_ACTION:{"type":"ecwid_renew_listing","product_name":"Product Name","sku":"SKU-001"}]
 
 — Magento / Adobe Commerce Actions —
 
@@ -2752,27 +3581,74 @@ To update Magento inventory, price, title, or description (SKU required):
 [ORION_ACTION:{"type":"magento_update_title","product_name":"Product Name","sku":"SKU-001","new_title":"New Product Name"}]
 [ORION_ACTION:{"type":"magento_update_description","product_name":"Product Name","sku":"SKU-001","description":"Updated description here"}]
 
+To disable or enable a Magento product (SKU required):
+[ORION_ACTION:{"type":"magento_end_listing","product_name":"Product Name","sku":"SKU-001"}]
+[ORION_ACTION:{"type":"magento_renew_listing","product_name":"Product Name","sku":"SKU-001"}]
+
 — PrestaShop Actions —
 
 To create a product on PrestaShop:
 [ORION_ACTION:{"type":"prestashop_create_product","title":"Product Name","sku":"SKU-001","price":29.99,"quantity":10}]
 
-To update PrestaShop inventory, price, or title:
+To update PrestaShop inventory, price, title, or description:
 [ORION_ACTION:{"type":"prestashop_update_inventory","product_name":"Product Name","sku":"SKU-001","quantity":15}]
 [ORION_ACTION:{"type":"prestashop_update_price","product_name":"Product Name","sku":"SKU-001","price":19.99}]
 [ORION_ACTION:{"type":"prestashop_update_title","product_name":"Product Name","sku":"SKU-001","new_title":"New Product Name"}]
+[ORION_ACTION:{"type":"prestashop_update_description","product_name":"Product Name","sku":"SKU-001","description":"Updated full product description here"}]
+
+To disable or enable a PrestaShop product:
+[ORION_ACTION:{"type":"prestashop_end_listing","product_name":"Product Name","sku":"SKU-001"}]
+[ORION_ACTION:{"type":"prestashop_renew_listing","product_name":"Product Name","sku":"SKU-001"}]
+
+To update (replace) tags on a PrestaShop product — tags are created automatically if they don't exist yet.
+Note: this replaces all existing tags on the product with the new set.
+[ORION_ACTION:{"type":"prestashop_update_tags","product_name":"Product Name","sku":"SKU-001","tags":["handmade","ceramic","gift idea","home decor"]}]
 
 — Wish Marketplace Actions —
 
-To update Wish inventory or price (SKU required):
+To update Wish inventory, price, title, description, or tags (SKU required):
 [ORION_ACTION:{"type":"wish_update_inventory","product_name":"Product Name","sku":"SKU-001","quantity":5}]
 [ORION_ACTION:{"type":"wish_update_price","product_name":"Product Name","sku":"SKU-001","price":12.99}]
+[ORION_ACTION:{"type":"wish_update_title","product_name":"Product Name","sku":"SKU-001","new_title":"New Product Title"}]
+[ORION_ACTION:{"type":"wish_update_description","product_name":"Product Name","sku":"SKU-001","description":"Updated product description here"}]
+[ORION_ACTION:{"type":"wish_update_tags","product_name":"Product Name","sku":"SKU-001","tags":["fashion","women","summer"]}]
+
+To disable or enable a Wish product (SKU required):
+[ORION_ACTION:{"type":"wish_end_listing","product_name":"Product Name","sku":"SKU-001"}]
+[ORION_ACTION:{"type":"wish_renew_listing","product_name":"Product Name","sku":"SKU-001"}]
 
 — Walmart Marketplace Actions —
 
 To update Walmart inventory or price (SKU required):
 [ORION_ACTION:{"type":"walmart_update_inventory","product_name":"Product Name","sku":"SKU-001","quantity":25}]
 [ORION_ACTION:{"type":"walmart_update_price","product_name":"Product Name","sku":"SKU-001","price":49.99}]
+
+To update Walmart title or description (SKU required — submitted as a feed, visible in a few minutes):
+[ORION_ACTION:{"type":"walmart_update_title","product_name":"Product Name","sku":"SKU-001","new_title":"New Product Title"}]
+[ORION_ACTION:{"type":"walmart_update_description","product_name":"Product Name","sku":"SKU-001","description":"Updated short description here"}]
+
+To retire (remove) a Walmart listing (SKU required):
+[ORION_ACTION:{"type":"walmart_end_listing","product_name":"Product Name","sku":"SKU-001"}]
+
+— Etsy Shop Actions —
+
+To update an Etsy listing's price, inventory, title, description, or tags:
+[ORION_ACTION:{"type":"etsy_update_price","product_name":"Handmade Ceramic Mug","listing_id":123456789,"price":28.00}]
+[ORION_ACTION:{"type":"etsy_update_inventory","product_name":"Handmade Ceramic Mug","listing_id":123456789,"quantity":5}]
+[ORION_ACTION:{"type":"etsy_update_title","product_name":"Handmade Ceramic Mug","listing_id":123456789,"title":"Handmade Ceramic Coffee Mug - Speckled Glaze - 12oz"}]
+[ORION_ACTION:{"type":"etsy_update_description","product_name":"Handmade Ceramic Mug","listing_id":123456789,"description":"Beautifully handcrafted ceramic mug with speckled glaze finish..."}]
+[ORION_ACTION:{"type":"etsy_update_tags","product_name":"Handmade Ceramic Mug","listing_id":123456789,"tags":["ceramic mug","handmade","coffee mug","pottery","kitchen gift","speckled","stoneware"]}]
+
+To deactivate or reactivate an Etsy listing:
+[ORION_ACTION:{"type":"etsy_end_listing","product_name":"Handmade Ceramic Mug","listing_id":123456789}]
+[ORION_ACTION:{"type":"etsy_renew_listing","product_name":"Handmade Ceramic Mug","listing_id":123456789}]
+
+To create a single new Etsy listing:
+Note: who_made options: "i_did" | "someone_else" | "collective". when_made options: "made_to_order" | "2020_2024" | "2010_2019" | "before_2007" | etc. taxonomy_id: 69=Art, 68=Bags, 520=Home & Living, 568=Jewelry, 345=Clothing, 1=Accessories. state: "draft" (default) or "active".
+[ORION_ACTION:{"type":"etsy_create_listing","title":"Handmade Ceramic Coffee Mug","description":"Beautifully handcrafted ceramic coffee mug with speckled glaze. Holds 12oz. Microwave and dishwasher safe. Each piece is unique.","price":28.00,"quantity":3,"sku":"MUGA-001","tags":["ceramic mug","handmade pottery","coffee lover gift","kitchen gift","stoneware"],"who_made":"i_did","when_made":"made_to_order","taxonomy_id":520,"state":"draft"}]
+
+To bulk-create multiple Etsy listings at once (e.g. from a CSV upload — single confirmation for the whole batch):
+[ORION_ACTION:{"type":"etsy_bulk_create_listings","listings":[{"title":"Ceramic Mug - Blue","description":"Handmade blue ceramic mug, 12oz.","price":28.00,"quantity":5,"sku":"MUG-BLUE-001","tags":["ceramic mug","handmade","blue pottery"],"who_made":"i_did","when_made":"made_to_order","taxonomy_id":520,"state":"draft"},{"title":"Ceramic Mug - Green","description":"Handmade green ceramic mug, 12oz.","price":28.00,"quantity":5,"sku":"MUG-GREEN-001","tags":["ceramic mug","handmade","green pottery"],"who_made":"i_did","when_made":"made_to_order","taxonomy_id":520,"state":"draft"}]}]
 
 To make MULTIPLE changes to ONE product (title + metafield + alt text, etc.) — one confirmation card, all run together:
 [ORION_ACTION:{"type":"multi_action","product_name":"Tie Dye T-Shirt","sku":"TDT-001","description":"Update title, SEO alt text, and material metafield","actions":[{"type":"update_title","new_title":"Vibrant Handmade Tie Dye T-Shirt"},{"type":"update_image_alt","alt_text":"Colorful handmade tie dye t-shirt on white background"},{"type":"update_metafield","metafield_key":"material","metafield_value":"100% Cotton","metafield_type":"single_line_text_field"}]}]

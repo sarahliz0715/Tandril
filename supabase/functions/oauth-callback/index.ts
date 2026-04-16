@@ -36,17 +36,49 @@ async function exchangeEtsy(code: string, codeVerifier: string): Promise<any> {
   if (!res.ok) throw new Error(`Etsy token exchange failed: ${await res.text()}`);
   const tokens = await res.json();
 
-  // Fetch shop info for display name
-  const shopRes = await fetch('https://openapi.etsy.com/v3/application/users/me', {
+  // Fetch user info for display name and user_id
+  const userRes = await fetch('https://openapi.etsy.com/v3/application/users/me', {
     headers: { 'x-api-key': clientId, 'Authorization': `Bearer ${tokens.access_token}` },
   });
-  const shopData = shopRes.ok ? await shopRes.json() : {};
-  const displayName = shopData.login_name || shopData.user_id || 'Etsy Shop';
+  const userData = userRes.ok ? await userRes.json() : {};
+  const displayName = userData.login_name || String(userData.user_id) || 'Etsy Shop';
+  const etsyUserId = userData.user_id;
+
+  // Fetch shop_id — needed for listings API
+  let shopId: number | null = null;
+  let shopName = displayName;
+  if (etsyUserId) {
+    try {
+      const shopListRes = await fetch(
+        `https://openapi.etsy.com/v3/application/users/${etsyUserId}/shops`,
+        { headers: { 'x-api-key': clientId, 'Authorization': `Bearer ${tokens.access_token}` } }
+      );
+      if (shopListRes.ok) {
+        const shopListData = await shopListRes.json();
+        // API returns a paginated result or a single shop object
+        const firstShop = shopListData.results?.[0] ?? shopListData;
+        shopId = firstShop.shop_id ?? firstShop.id ?? null;
+        shopName = firstShop.shop_name ?? firstShop.name ?? displayName;
+      }
+    } catch (e: any) {
+      console.warn('[Etsy] Could not fetch shop info:', e.message);
+    }
+  }
 
   return {
-    credentials: { access_token: tokens.access_token, refresh_token: tokens.refresh_token, expires_in: tokens.expires_in },
-    name: `Etsy - ${displayName}`,
-    metadata: { username: displayName, token_expires_at: new Date(Date.now() + tokens.expires_in * 1000).toISOString() },
+    credentials: {
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      expires_in: tokens.expires_in,
+    },
+    name: `Etsy - ${shopName}`,
+    metadata: {
+      username: displayName,
+      shop_id: shopId,
+      shop_name: shopName,
+      etsy_user_id: etsyUserId,
+      token_expires_at: new Date(Date.now() + (tokens.expires_in || 3600) * 1000).toISOString(),
+    },
   };
 }
 
@@ -381,6 +413,44 @@ serve(async (req) => {
     }
 
     console.log(`[oauth-callback] Successfully connected ${platform} for user ${userId}`);
+
+    // Post-connect: sync Etsy listings into the products table
+    if (platform === 'etsy') {
+      const shopId = result.metadata?.shop_id;
+      const accessToken = result.credentials?.access_token;
+      const clientId = Deno.env.get('ETSY_CLIENT_ID');
+      if (shopId && accessToken && clientId) {
+        try {
+          const listingsRes = await fetch(
+            `https://openapi.etsy.com/v3/application/shops/${shopId}/listings/active?limit=100`,
+            { headers: { 'x-api-key': clientId, 'Authorization': `Bearer ${accessToken}` } }
+          );
+          if (listingsRes.ok) {
+            const listingsData = await listingsRes.json();
+            const rows = (listingsData.results || []).map((l: any) => ({
+              user_id: userId,
+              platform_type: 'etsy',
+              title: l.title || 'Unnamed',
+              sku: l.sku?.[0] || `etsy-${l.listing_id}`,
+              price: l.price?.amount != null ? l.price.amount / (l.price.divisor || 100) : 0,
+              inventory_quantity: l.quantity || 0,
+              status: l.state === 'active' ? 'active' : 'draft',
+              vendor: '',
+              product_type: l.taxonomy_path?.[0] || '',
+            }));
+            if (rows.length > 0) {
+              await supabase.from('products').upsert(rows, {
+                onConflict: 'user_id,platform_type,sku',
+                ignoreDuplicates: false,
+              });
+              console.log(`[oauth-callback] Synced ${rows.length} Etsy listings for user ${userId}`);
+            }
+          }
+        } catch (syncErr: any) {
+          console.warn('[oauth-callback] Etsy listing sync failed (non-critical):', syncErr.message);
+        }
+      }
+    }
 
     return new Response(
       JSON.stringify({ success: true, platform, name: result.name }),

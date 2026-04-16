@@ -55,7 +55,7 @@ const CALLBACK_URL = `${APP_URL}/oauth-callback`;
 const PLATFORM_CONFIG: Record<string, PlatformConfig> = {
   etsy: {
     authUrl: 'https://www.etsy.com/oauth/connect',
-    scopes: 'listings_r listings_w shops_r shops_w transactions_r transactions_w',
+    scopes: 'listings_r listings_w shops_r transactions_r',
     requiresPKCE: true,
     clientIdEnv: 'ETSY_CLIENT_ID',
     scopeSeparator: ' ',
