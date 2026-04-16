@@ -85,6 +85,13 @@ function summarizeOrionAction(action: any): string {
     case 'ebay_relist':                 return `Relisted "${name}" on eBay`;
     case 'ebay_update_item_specifics':  return `Updated eBay item specifics for "${name}"`;
     case 'ebay_create_listing':         return `Created eBay listing: "${action.title || name}"`;
+    case 'tiktok_update_price':         return `Updated TikTok Shop price for "${name}" → $${action.price}`;
+    case 'tiktok_update_inventory':     return `Updated TikTok Shop inventory for "${name}" → ${action.quantity} units`;
+    case 'tiktok_update_title':         return `Updated TikTok Shop title for "${name}"`;
+    case 'tiktok_update_description':   return `Updated TikTok Shop description for "${name}"`;
+    case 'tiktok_end_listing':          return `Deactivated TikTok Shop listing "${name}"`;
+    case 'tiktok_renew_listing':        return `Reactivated TikTok Shop listing "${name}"`;
+    case 'tiktok_create_product':       return `Created TikTok Shop product: "${action.title || name}"`;
     case 'update_price':        return `Updated price for "${name}" → $${action.price}`;
     case 'update_title':        return `Updated title of "${name}" → "${action.new_title}"`;
     case 'update_tags':
@@ -652,6 +659,116 @@ async function getEbayClientForActions(supabaseClient: any, userId: string) {
   return { platform, apiBase, marketplaceId, headers };
 }
 
+// ─── TikTok Shop Client Helper ────────────────────────────────────────────────
+// Fetches the connected TikTok Shop platform, refreshes the token if needed,
+// resolves the shop_id (cached in metadata after first lookup), and returns
+// ready-to-use headers + apiBase + shopId.
+async function getTikTokClientForActions(supabaseClient: any, userId: string) {
+  const { data: ttPlatforms } = await supabaseClient
+    .from('platforms')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('platform_type', 'tiktok_shop')
+    .or('is_active.eq.true,status.eq.connected')
+    .limit(1);
+
+  if (!ttPlatforms || ttPlatforms.length === 0) {
+    throw new Error('No connected TikTok Shop found. Connect one in the Platforms tab first.');
+  }
+
+  const platform = ttPlatforms[0];
+  const credentials = platform.credentials;
+  const metadata = platform.metadata || {};
+  let accessToken = credentials.access_token;
+
+  // Refresh token if expired or within 5 minutes of expiry
+  const tokenExpiresAt = metadata.token_expires_at ? new Date(metadata.token_expires_at).getTime() : 0;
+  const needsRefresh = !metadata.token_expires_at || Date.now() > tokenExpiresAt - 5 * 60 * 1000;
+  if (needsRefresh && credentials.refresh_token) {
+    try {
+      const clientKey = Deno.env.get('TIKTOK_CLIENT_KEY');
+      const clientSecret = Deno.env.get('TIKTOK_CLIENT_SECRET');
+      if (clientKey && clientSecret) {
+        const refreshRes = await fetch('https://auth.tiktok-shops.com/api/v2/token/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            app_key: clientKey,
+            app_secret: clientSecret,
+            refresh_token: credentials.refresh_token,
+            grant_type: 'refresh_token',
+          }),
+        });
+        if (refreshRes.ok) {
+          const refreshData = await refreshRes.json();
+          if (refreshData.code === 0 && refreshData.data?.access_token) {
+            const newTokens = refreshData.data;
+            accessToken = newTokens.access_token;
+            await supabaseClient.from('platforms').update({
+              credentials: {
+                ...credentials,
+                access_token: newTokens.access_token,
+                refresh_token: newTokens.refresh_token || credentials.refresh_token,
+              },
+              metadata: {
+                ...metadata,
+                token_expires_at: new Date(Date.now() + (newTokens.access_token_expire_in || 172800) * 1000).toISOString(),
+              },
+            }).eq('id', platform.id);
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn('[Orion] TikTok token refresh error:', e.message);
+    }
+  }
+
+  const apiBase = 'https://open-api.tiktok-shops.com';
+  const headers: Record<string, string> = {
+    'x-tts-access-token': accessToken,
+    'Content-Type': 'application/json',
+  };
+
+  // Resolve shop_id — cached in metadata after first lookup
+  let shopId: string = metadata.shop_id || credentials.shop_id || '';
+  if (!shopId) {
+    const shopsRes = await fetch(`${apiBase}/authorization/202309/shops`, { headers });
+    if (shopsRes.ok) {
+      const shopsData = await shopsRes.json();
+      shopId = shopsData?.data?.shops?.[0]?.id || '';
+      if (shopId) {
+        await supabaseClient.from('platforms').update({
+          metadata: { ...metadata, shop_id: shopId },
+        }).eq('id', platform.id);
+      }
+    }
+    if (!shopId) throw new Error('Could not retrieve TikTok Shop ID. Try disconnecting and reconnecting TikTok Shop.');
+  }
+
+  return { platform, apiBase, headers, shopId };
+}
+
+// Looks up a TikTok product by keyword (SKU first, then product name) and returns
+// the first match with its product_id and first sku details.
+async function findTikTokProduct(apiBase: string, headers: Record<string, string>, shopId: string, productName: string, sku: string) {
+  const keyword = sku && sku !== 'N/A' ? sku : productName;
+  if (!keyword) throw new Error('product_name or sku is required to find a TikTok product.');
+
+  const searchRes = await fetch(`${apiBase}/product/202309/products/search?shop_id=${encodeURIComponent(shopId)}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ keyword, page_size: 10 }),
+  });
+  if (!searchRes.ok) throw new Error(`TikTok product search failed: ${await searchRes.text()}`);
+  const searchData = await searchRes.json();
+  if (searchData.code !== 0) throw new Error(`TikTok API error (${searchData.code}): ${searchData.message}`);
+
+  const products = searchData.data?.products || [];
+  if (products.length === 0) throw new Error(`Product "${productName || sku}" not found in TikTok Shop.`);
+
+  return products[0];
+}
+
 async function executeStoreAction(supabaseClient: any, userId: string, action: any) {
   const { data: platforms } = await supabaseClient
     .from('platforms')
@@ -787,6 +904,82 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         }
       } catch (e: any) {
         console.warn('[smart-api] eBay inventory fetch failed:', e.message);
+      }
+
+      // Fetch TikTok Shop products
+      try {
+        const { data: ttPlatforms } = await supabaseClient
+          .from('platforms')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('platform_type', 'tiktok_shop')
+          .or('is_active.eq.true,status.eq.connected');
+
+        for (const ttPlat of (ttPlatforms || [])) {
+          const creds = ttPlat.credentials;
+          const meta = ttPlat.metadata || {};
+          if (!creds?.access_token) continue;
+
+          const ttHeaders: Record<string, string> = {
+            'x-tts-access-token': creds.access_token,
+            'Content-Type': 'application/json',
+          };
+          const ttBase = 'https://open-api.tiktok-shops.com';
+
+          // Resolve shop_id
+          let ttShopId: string = meta.shop_id || creds.shop_id || '';
+          if (!ttShopId) {
+            const shopsRes = await fetch(`${ttBase}/authorization/202309/shops`, { headers: ttHeaders });
+            if (shopsRes.ok) {
+              const shopsData = await shopsRes.json();
+              ttShopId = shopsData?.data?.shops?.[0]?.id || '';
+              if (ttShopId) {
+                await supabaseClient.from('platforms').update({
+                  metadata: { ...meta, shop_id: ttShopId },
+                }).eq('id', ttPlat.id);
+              }
+            }
+          }
+          if (!ttShopId) continue;
+
+          const searchRes = await fetch(`${ttBase}/product/202309/products/search?shop_id=${encodeURIComponent(ttShopId)}`, {
+            method: 'POST',
+            headers: ttHeaders,
+            body: JSON.stringify({ page_size: 100 }),
+          });
+          if (!searchRes.ok) continue;
+          const searchData = await searchRes.json();
+          if (searchData.code !== 0) continue;
+
+          for (const p of (searchData.data?.products || [])) {
+            const firstSku = p.skus?.[0];
+            const price = parseFloat(firstSku?.price?.original_price || '0');
+            const qty = (firstSku?.inventory || []).reduce((sum: number, inv: any) => sum + (inv.quantity || 0), 0);
+            const imageUrl = p.main_images?.[0]?.urls?.[0] || p.images?.[0]?.urls?.[0] || null;
+            let status = 'active';
+            if (p.status === 'SELLER_DEACTIVATED' || p.status === 'PLATFORM_DEACTIVATED') status = 'inactive';
+            else if (qty === 0) status = 'out_of_stock';
+            else if (qty <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+
+            inventory.push({
+              id: `tiktok-${p.id}`,
+              product_name: p.title || 'TikTok Product',
+              sku: firstSku?.seller_sku || 'N/A',
+              category: '',
+              status,
+              total_stock: qty,
+              base_price: price,
+              image_url: imageUrl,
+              vendor: '',
+              tags: '',
+              platform_listings: [{ listing_id: p.id, platform: 'TikTok Shop' }],
+              source: 'tiktok_shop',
+              tiktok_product_id: p.id,
+            });
+          }
+        }
+      } catch (e: any) {
+        console.warn('[smart-api] TikTok Shop inventory fetch failed:', e.message);
       }
 
       return { inventory };
@@ -1414,6 +1607,131 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const publishData = await publishRes.json();
 
       return { message: `Created and published eBay listing for "${action.title}" (SKU: ${sku}, Listing ID: ${publishData.listingId || offerId}) at $${action.price}` };
+    }
+
+    // ── TikTok Shop write actions ─────────────────────────────────────────────
+
+    case 'tiktok_update_price': {
+      const { apiBase: ttBase, headers: ttHeaders, shopId } = await getTikTokClientForActions(supabaseClient, userId);
+      const product = await findTikTokProduct(ttBase, ttHeaders, shopId, action.product_name, action.sku);
+      const skuId = product.skus?.[0]?.id;
+      if (!skuId) throw new Error(`No SKU found on TikTok product "${action.product_name || action.sku}".`);
+
+      const res = await fetch(`${ttBase}/product/202309/skus?shop_id=${encodeURIComponent(shopId)}`, {
+        method: 'PUT',
+        headers: ttHeaders,
+        body: JSON.stringify({
+          skus: [{ id: skuId, price: { currency: 'USD', original_price: String(Number(action.price).toFixed(2)) } }],
+        }),
+      });
+      if (!res.ok) throw new Error(`TikTok price update failed: ${await res.text()}`);
+      const data = await res.json();
+      if (data.code !== 0) throw new Error(`TikTok API error: ${data.message}`);
+      return { message: `Updated TikTok Shop price for "${action.product_name || action.sku}" to $${action.price}` };
+    }
+
+    case 'tiktok_update_inventory': {
+      const { apiBase: ttBase, headers: ttHeaders, shopId } = await getTikTokClientForActions(supabaseClient, userId);
+      const product = await findTikTokProduct(ttBase, ttHeaders, shopId, action.product_name, action.sku);
+      const firstSku = product.skus?.[0];
+      if (!firstSku?.id) throw new Error(`No SKU found on TikTok product "${action.product_name || action.sku}".`);
+
+      // Fetch first warehouse to use for inventory update
+      const warehousesRes = await fetch(`${ttBase}/logistics/202309/warehouses?shop_id=${encodeURIComponent(shopId)}`, { headers: ttHeaders });
+      if (!warehousesRes.ok) throw new Error(`TikTok warehouse lookup failed: ${await warehousesRes.text()}`);
+      const warehousesData = await warehousesRes.json();
+      const warehouseId = warehousesData?.data?.warehouses?.[0]?.id;
+      if (!warehouseId) throw new Error('No TikTok Shop warehouse found. Check your seller account setup.');
+
+      const res = await fetch(`${ttBase}/product/202309/stocks?shop_id=${encodeURIComponent(shopId)}`, {
+        method: 'POST',
+        headers: ttHeaders,
+        body: JSON.stringify({
+          skus: [{
+            id: firstSku.id,
+            seller_sku: firstSku.seller_sku || '',
+            inventory: [{ warehouse_id: warehouseId, quantity: Number(action.quantity) }],
+          }],
+        }),
+      });
+      if (!res.ok) throw new Error(`TikTok inventory update failed: ${await res.text()}`);
+      const data = await res.json();
+      if (data.code !== 0) throw new Error(`TikTok API error: ${data.message}`);
+      return { message: `Updated TikTok Shop inventory for "${action.product_name || action.sku}" to ${action.quantity} units` };
+    }
+
+    case 'tiktok_update_title':
+    case 'tiktok_update_description': {
+      const { apiBase: ttBase, headers: ttHeaders, shopId } = await getTikTokClientForActions(supabaseClient, userId);
+      const product = await findTikTokProduct(ttBase, ttHeaders, shopId, action.product_name, action.sku);
+
+      const body: Record<string, string> = {};
+      if (action.type === 'tiktok_update_title') body.title = action.new_title;
+      if (action.type === 'tiktok_update_description') body.description = action.description;
+
+      const res = await fetch(`${ttBase}/product/202309/products/${encodeURIComponent(product.id)}?shop_id=${encodeURIComponent(shopId)}`, {
+        method: 'PUT',
+        headers: ttHeaders,
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`TikTok product update failed: ${await res.text()}`);
+      const data = await res.json();
+      if (data.code !== 0) throw new Error(`TikTok API error: ${data.message}`);
+
+      if (action.type === 'tiktok_update_title') return { message: `Updated TikTok Shop title for "${action.product_name || action.sku}" → "${action.new_title}"` };
+      return { message: `Updated TikTok Shop description for "${action.product_name || action.sku}"` };
+    }
+
+    case 'tiktok_end_listing':
+    case 'tiktok_renew_listing': {
+      const { apiBase: ttBase, headers: ttHeaders, shopId } = await getTikTokClientForActions(supabaseClient, userId);
+      const product = await findTikTokProduct(ttBase, ttHeaders, shopId, action.product_name, action.sku);
+
+      const endpoint = action.type === 'tiktok_end_listing' ? 'deactivate' : 'activate';
+      const res = await fetch(`${ttBase}/product/202309/products/${endpoint}?shop_id=${encodeURIComponent(shopId)}`, {
+        method: 'POST',
+        headers: ttHeaders,
+        body: JSON.stringify({ product_ids: [product.id] }),
+      });
+      if (!res.ok) throw new Error(`TikTok ${endpoint} failed: ${await res.text()}`);
+      const data = await res.json();
+      if (data.code !== 0) throw new Error(`TikTok API error: ${data.message}`);
+
+      const verb = action.type === 'tiktok_end_listing' ? 'Deactivated' : 'Reactivated';
+      return { message: `${verb} TikTok Shop listing for "${action.product_name || action.sku}"` };
+    }
+
+    case 'tiktok_create_product': {
+      // Requires category_id — look up via GET /product/202309/categories if not provided.
+      // All other fields are required: title, description, images[], price, quantity, category_id.
+      const { apiBase: ttBase, headers: ttHeaders, shopId } = await getTikTokClientForActions(supabaseClient, userId);
+
+      if (!action.title) throw new Error('title is required for tiktok_create_product.');
+      if (!action.price) throw new Error('price is required for tiktok_create_product.');
+      if (!action.category_id) throw new Error('category_id is required for tiktok_create_product. Ask the user to provide it or look it up first.');
+      if (!action.images || action.images.length === 0) throw new Error('At least one image URL is required for tiktok_create_product.');
+
+      const body = {
+        title: action.title,
+        description: action.description || '',
+        category_id: String(action.category_id),
+        main_images: action.images.map((url: string) => ({ urls: [url] })),
+        skus: [{
+          seller_sku: action.sku || '',
+          price: { currency: 'USD', original_price: String(Number(action.price).toFixed(2)) },
+          inventory: [{ quantity: Number(action.quantity ?? 0) }],
+        }],
+      };
+
+      const res = await fetch(`${ttBase}/product/202309/products?shop_id=${encodeURIComponent(shopId)}`, {
+        method: 'POST',
+        headers: ttHeaders,
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`TikTok product create failed: ${await res.text()}`);
+      const data = await res.json();
+      if (data.code !== 0) throw new Error(`TikTok API error: ${data.message}`);
+      return { message: `Created TikTok Shop product: "${action.title}" (ID: ${data.data?.product_id || 'unknown'})` };
     }
 
     case 'woo_create_product': {
@@ -3378,6 +3696,14 @@ When the user asks you to create a product, add inventory, change a price, renam
   • ebay_end_listing             ← remove a listing from eBay (keeps inventory, can relist)
   • ebay_relist                  ← re-publish a previously ended eBay listing
   • ebay_update_item_specifics   ← update item specifics/attributes (Brand, Size, Material, etc.) for eBay SEO and buyer filtering
+  TikTok Shop actions:
+  • tiktok_create_product    — { type, title, description, price, quantity?, sku?, category_id, images: ["url",...] }
+  • tiktok_update_price      — { type, product_name, sku, price }
+  • tiktok_update_inventory  — { type, product_name, sku, quantity }
+  • tiktok_update_title      — { type, product_name, sku, new_title }
+  • tiktok_update_description— { type, product_name, sku, description }
+  • tiktok_end_listing       — { type, product_name, sku }  (deactivates — removes from storefront)
+  • tiktok_renew_listing     — { type, product_name, sku }  (reactivates)
   WooCommerce actions:
   • woo_create_product
   • woo_bulk_create_products
@@ -3449,6 +3775,7 @@ Platform action routing:
 - Use wish_* actions for products with platform_type 'wish'
 - Use walmart_* actions for products with platform_type 'walmart'
 - Use etsy_* actions for products with platform_type 'etsy'
+- Use tiktok_* actions for products with platform_type 'tiktok_shop'
 - For multi_action and batch_update, sub-actions should use the correct prefix for the product's platform
 - ⚠️ CRITICAL: eBay has NO "draft" or "archived" status. For eBay, the words "deactivate", "draft", "hide", "end", "mark as sold", "remove", "take down" all map to ebay_end_listing. NEVER use update_status on an eBay product.
 - ⚠️ CRITICAL: Etsy has NO "draft" status. For Etsy, "deactivate", "remove", "hide", "take down" map to etsy_end_listing; "reactivate" or "relist" maps to etsy_renew_listing. NEVER use update_status on an Etsy product.
@@ -3629,6 +3956,22 @@ To update Walmart title or description (SKU required — submitted as a feed, vi
 
 To retire (remove) a Walmart listing (SKU required):
 [ORION_ACTION:{"type":"walmart_end_listing","product_name":"Product Name","sku":"SKU-001"}]
+
+— TikTok Shop Actions —
+
+To update TikTok Shop price, inventory, title, or description (product_name or sku required):
+[ORION_ACTION:{"type":"tiktok_update_price","product_name":"Ceramic Mug","sku":"MUG-001","price":24.99}]
+[ORION_ACTION:{"type":"tiktok_update_inventory","product_name":"Ceramic Mug","sku":"MUG-001","quantity":20}]
+[ORION_ACTION:{"type":"tiktok_update_title","product_name":"Ceramic Mug","sku":"MUG-001","new_title":"Handmade Ceramic Coffee Mug - 12oz - Speckled Glaze"}]
+[ORION_ACTION:{"type":"tiktok_update_description","product_name":"Ceramic Mug","sku":"MUG-001","description":"Beautifully handcrafted ceramic mug. Holds 12oz. Microwave safe. Each piece is unique."}]
+
+To deactivate or reactivate a TikTok Shop listing:
+[ORION_ACTION:{"type":"tiktok_end_listing","product_name":"Ceramic Mug","sku":"MUG-001"}]
+[ORION_ACTION:{"type":"tiktok_renew_listing","product_name":"Ceramic Mug","sku":"MUG-001"}]
+
+To create a new TikTok Shop product (category_id and at least one image URL required):
+Note: category_id is required by TikTok. Common IDs: 601079 = Clothing, 601105 = Shoes, 601191 = Home & Living, 601145 = Beauty & Personal Care, 601165 = Sports & Outdoors, 601217 = Electronics. If unsure, ask the user.
+[ORION_ACTION:{"type":"tiktok_create_product","title":"Handmade Ceramic Mug","description":"Beautiful handcrafted ceramic mug, 12oz, microwave safe.","price":24.99,"quantity":10,"sku":"MUG-001","category_id":"601191","images":["https://your-image-url.jpg"]}]
 
 — Etsy Shop Actions —
 
