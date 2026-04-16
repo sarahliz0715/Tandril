@@ -83,6 +83,7 @@ function summarizeOrionAction(action: any): string {
     case 'ebay_update_image':           return `Updated eBay images for "${name}"`;
     case 'ebay_end_listing':            return `Ended eBay listing for "${name}"`;
     case 'ebay_relist':                 return `Relisted "${name}" on eBay`;
+    case 'ebay_update_item_specifics':  return `Updated eBay item specifics for "${name}"`;
     case 'ebay_create_listing':         return `Created eBay listing: "${action.title || name}"`;
     case 'update_price':        return `Updated price for "${name}" → $${action.price}`;
     case 'update_title':        return `Updated title of "${name}" → "${action.new_title}"`;
@@ -144,6 +145,7 @@ function summarizeOrionAction(action: any): string {
     case 'prestashop_update_description': return `Updated PrestaShop description for "${name}"`;
     case 'prestashop_end_listing':    return `Disabled PrestaShop product "${name}"`;
     case 'prestashop_renew_listing':  return `Enabled PrestaShop product "${name}"`;
+    case 'prestashop_update_tags':    return `Updated tags for "${name}" on PrestaShop`;
     case 'wish_update_title':         return `Updated Wish title for SKU "${action.sku || name}"`;
     case 'wish_update_description':   return `Updated Wish description for SKU "${action.sku || name}"`;
     case 'wish_update_tags':          return `Updated Wish tags for SKU "${action.sku || name}"`;
@@ -1279,6 +1281,39 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: `Relisted "${action.product_name || sku}" on eBay successfully.` };
     }
 
+    case 'ebay_update_item_specifics': {
+      // Updates product.aspects (item specifics) on an eBay inventory item.
+      // action.item_specifics: { "Brand": ["Nike"], "Size": ["M", "L"] }
+      // action.replace_all: true → replaces all aspects; false/omitted → merges with existing
+      const { apiBase, headers: ebayHeaders } = await getEbayClientForActions(supabaseClient, userId);
+      const sku = action.sku;
+      if (!sku) throw new Error('sku is required for ebay_update_item_specifics.');
+
+      const getRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, { headers: ebayHeaders });
+      if (!getRes.ok) throw new Error(`eBay inventory item not found for SKU "${sku}": ${await getRes.text()}`);
+      const currentItem = await getRes.json();
+
+      const existingAspects: Record<string, string[]> = currentItem.product?.aspects || {};
+      const incoming: Record<string, unknown> = action.item_specifics || {};
+      const merged = action.replace_all ? incoming : { ...existingAspects, ...incoming };
+
+      // eBay requires every aspect value to be a string[]
+      const normalized: Record<string, string[]> = {};
+      for (const [k, v] of Object.entries(merged)) {
+        normalized[k] = Array.isArray(v) ? (v as unknown[]).map(String) : [String(v)];
+      }
+
+      const putRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, {
+        method: 'PUT',
+        headers: ebayHeaders,
+        body: JSON.stringify({ ...currentItem, product: { ...currentItem.product, aspects: normalized } }),
+      });
+      if (!putRes.ok) throw new Error(`eBay item specifics update failed: ${await putRes.text()}`);
+
+      const updatedKeys = Object.keys(normalized).join(', ');
+      return { message: `Updated eBay item specifics for "${action.product_name || sku}": ${updatedKeys}` };
+    }
+
     case 'ebay_create_listing': {
       // Creates an eBay managed-inventory listing end-to-end:
       // 1. PUT inventory item (title, description, images, quantity, condition)
@@ -2047,6 +2082,105 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       });
       if (!createRes.ok) throw new Error(`PrestaShop product creation failed: ${await createRes.text()}`);
       return { message: `Created PrestaShop product: "${action.title}"` };
+    }
+
+    case 'prestashop_update_tags': {
+      // PrestaShop tags are a separate entity type.  For each tag name we:
+      //   1. Search /api/tags for an existing record with that name + language
+      //   2. Create a new tag record if none found
+      //   3. Collect all resolved tag IDs
+      //   4. GET the product XML and replace (or insert) the <tags> block inside <associations>
+      //   5. PUT the updated product XML back
+      const { data: psTPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'prestashop').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!psTPlats || psTPlats.length === 0) throw new Error('No connected PrestaShop store found.');
+      const psT = psTPlats[0];
+      const psTBase = psT.store_url.replace(/\/$/, '');
+      const psTEncoded = btoa(`${psT.credentials.api_key}:`);
+      const psTJsonH = { 'Authorization': `Basic ${psTEncoded}`, 'Content-Type': 'application/json' };
+
+      // 1. Resolve product ID
+      const psTRef = action.sku && action.sku !== 'N/A' ? action.sku : '';
+      let psTProductId: string | null = null;
+
+      if (psTRef) {
+        const sRes = await fetch(`${psTBase}/api/products?output_format=JSON&filter[reference]=${encodeURIComponent(psTRef)}&display=[id]`, { headers: psTJsonH });
+        if (sRes.ok) { const sd = await sRes.json(); psTProductId = sd?.products?.[0]?.id?.toString() || null; }
+      }
+      if (!psTProductId && action.product_name) {
+        const sRes = await fetch(`${psTBase}/api/products?output_format=JSON&filter[name]=%25${encodeURIComponent(action.product_name)}%25&display=[id]`, { headers: psTJsonH });
+        if (sRes.ok) { const sd = await sRes.json(); psTProductId = sd?.products?.[0]?.id?.toString() || null; }
+      }
+      if (!psTProductId) throw new Error(`Product "${action.product_name || action.sku}" not found in PrestaShop.`);
+
+      // 2. Resolve / create each tag
+      const langId = action.lang_id || 1;
+      const tagIds: number[] = [];
+      for (const rawTag of (action.tags || [])) {
+        const tagName = String(rawTag).trim();
+        if (!tagName) continue;
+
+        // Search for existing tag
+        const searchRes = await fetch(
+          `${psTBase}/api/tags?output_format=JSON&filter[name]=${encodeURIComponent(tagName)}&filter[id_lang]=${langId}&display=[id]`,
+          { headers: psTJsonH }
+        );
+        let tagId: number | null = null;
+        if (searchRes.ok) {
+          const td = await searchRes.json();
+          tagId = td?.tags?.[0]?.id || null;
+        }
+
+        if (!tagId) {
+          // Create the tag via XML (PrestaShop tags endpoint requires XML)
+          const tagXml = `<?xml version="1.0" encoding="UTF-8"?><prestashop xmlns:xlink="http://www.w3.org/1999/xlink"><tag><id_lang>${langId}</id_lang><name><![CDATA[${tagName}]]></name></tag></prestashop>`;
+          const createRes = await fetch(`${psTBase}/api/tags`, {
+            method: 'POST',
+            headers: { 'Authorization': `Basic ${psTEncoded}`, 'Content-Type': 'application/xml' },
+            body: tagXml,
+          });
+          if (createRes.ok) {
+            const xml = await createRes.text();
+            const m = xml.match(/<id>(\d+)<\/id>/);
+            if (m) tagId = parseInt(m[1], 10);
+          } else {
+            console.error(`[prestashop_update_tags] Tag create failed for "${tagName}": ${await createRes.text()}`);
+          }
+        }
+        if (tagId) tagIds.push(tagId);
+      }
+      if (tagIds.length === 0) throw new Error('No valid tags could be resolved for PrestaShop.');
+
+      // 3. GET product XML and splice in the new <tags> block
+      const prodRes = await fetch(`${psTBase}/api/products/${psTProductId}`, {
+        headers: { 'Authorization': `Basic ${psTEncoded}`, 'Accept': 'application/xml' },
+      });
+      if (!prodRes.ok) throw new Error(`PrestaShop product fetch failed: ${await prodRes.text()}`);
+      let prodXml = await prodRes.text();
+
+      const tagNodes = tagIds.map(id => `<tag><id>${id}</id></tag>`).join('');
+      const newTagsBlock = `<tags nodeType="tag" api="tags">${tagNodes}</tags>`;
+
+      if (/<tags[^>]*>[\s\S]*?<\/tags>/.test(prodXml)) {
+        prodXml = prodXml.replace(/<tags[^>]*>[\s\S]*?<\/tags>/, newTagsBlock);
+      } else {
+        // Insert before </associations>; if no associations block, append before </product>
+        if (prodXml.includes('</associations>')) {
+          prodXml = prodXml.replace('</associations>', `${newTagsBlock}</associations>`);
+        } else {
+          prodXml = prodXml.replace('</product>', `<associations>${newTagsBlock}</associations></product>`);
+        }
+      }
+
+      // 4. PUT updated product
+      const putRes = await fetch(`${psTBase}/api/products/${psTProductId}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Basic ${psTEncoded}`, 'Content-Type': 'application/xml' },
+        body: prodXml,
+      });
+      if (!putRes.ok) throw new Error(`PrestaShop tag update failed: ${await putRes.text()}`);
+
+      return { message: `Updated tags for "${action.product_name || action.sku}" on PrestaShop: ${(action.tags || []).join(', ')}` };
     }
 
     // ── Wish write actions ────────────────────────────────────────────────────
@@ -3241,8 +3375,9 @@ When the user asks you to create a product, add inventory, change a price, renam
   • ebay_update_title      ← update the listing title on eBay
   • ebay_update_description← update the listing description on eBay
   • ebay_update_image      ← update/add images on an eBay listing (requires public image URL)
-  • ebay_end_listing       ← remove a listing from eBay (keeps inventory, can relist)
-  • ebay_relist            ← re-publish a previously ended eBay listing
+  • ebay_end_listing             ← remove a listing from eBay (keeps inventory, can relist)
+  • ebay_relist                  ← re-publish a previously ended eBay listing
+  • ebay_update_item_specifics   ← update item specifics/attributes (Brand, Size, Material, etc.) for eBay SEO and buyer filtering
   WooCommerce actions:
   • woo_create_product
   • woo_bulk_create_products
@@ -3278,6 +3413,7 @@ When the user asks you to create a product, add inventory, change a price, renam
   • prestashop_update_description
   • prestashop_end_listing   (sets active=0)
   • prestashop_renew_listing (sets active=1)
+  • prestashop_update_tags   (creates/links PrestaShop tag entities; replaces existing tags)
   Wish Marketplace actions:
   • wish_update_inventory
   • wish_update_price
@@ -3396,6 +3532,11 @@ To end (remove) an eBay listing — listing is removed from eBay but inventory i
 To relist a previously ended eBay listing:
 [ORION_ACTION:{"type":"ebay_relist","product_name":"Vintage Wool Sweater","sku":"SWEATER-001"}]
 
+To update eBay item specifics (aspects) — these are the structured attributes buyers filter on (Brand, Size, Material, etc.).
+replace_all:true replaces everything; omit or set false to merge with existing aspects:
+[ORION_ACTION:{"type":"ebay_update_item_specifics","product_name":"Vintage Wool Sweater","sku":"SWEATER-001","item_specifics":{"Brand":["Handmade"],"Material":["Wool"],"Size":["M"],"Color":["Charcoal Grey"],"Style":["Vintage"]}}]
+[ORION_ACTION:{"type":"ebay_update_item_specifics","product_name":"Vintage Wool Sweater","sku":"SWEATER-001","item_specifics":{"Season":["Fall","Winter"]},"replace_all":false}]
+
 To create a single product on WooCommerce:
 [ORION_ACTION:{"type":"woo_create_product","name":"Product Title","sku":"SKU-001","price":"29.99","quantity":10,"description":"Full description here","images":["https://image-url-1.jpg","https://image-url-2.jpg"],"tags":["tag1","tag2"],"product_type":"simple"}]
 
@@ -3458,6 +3599,10 @@ To update PrestaShop inventory, price, title, or description:
 To disable or enable a PrestaShop product:
 [ORION_ACTION:{"type":"prestashop_end_listing","product_name":"Product Name","sku":"SKU-001"}]
 [ORION_ACTION:{"type":"prestashop_renew_listing","product_name":"Product Name","sku":"SKU-001"}]
+
+To update (replace) tags on a PrestaShop product — tags are created automatically if they don't exist yet.
+Note: this replaces all existing tags on the product with the new set.
+[ORION_ACTION:{"type":"prestashop_update_tags","product_name":"Product Name","sku":"SKU-001","tags":["handmade","ceramic","gift idea","home decor"]}]
 
 — Wish Marketplace Actions —
 
