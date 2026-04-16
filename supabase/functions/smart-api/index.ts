@@ -98,6 +98,14 @@ function summarizeOrionAction(action: any): string {
     case 'fulfill_order':   return `Marked order ${action.platform_order_id} as shipped (${action.tracking_number})`;
     case 'cancel_order':    return `Cancelled order ${action.platform_order_id} on ${action.platform_type}`;
     case 'refund_order':    return `Refunded order ${action.platform_order_id} on ${action.platform_type}`;
+    case 'shopify_create_discount': return `Created Shopify discount code ${action.code || ''}`;
+    case 'shopify_delete_discount': return `Deleted Shopify discount${action.code ? ` ${action.code}` : ''}`;
+    case 'etsy_create_sale':        return `Started Etsy sale on "${name}"${action.discount_percent ? ` (${action.discount_percent}% off)` : ''}`;
+    case 'etsy_end_sale':           return `Ended Etsy sale on "${name}" — restored $${action.regular_price}`;
+    case 'ebay_create_promotion':   return `Created eBay promotion: "${action.name}"`;
+    case 'ebay_end_promotion':      return `Ended eBay promotion ${action.promotion_id}`;
+    case 'woo_create_coupon':       return `Created WooCommerce coupon ${action.code || ''}`;
+    case 'woo_delete_coupon':       return `Deleted WooCommerce coupon ${action.code || action.coupon_id || ''}`;
     case 'update_price':        return `Updated price for "${name}" → $${action.price}`;
     case 'update_title':        return `Updated title of "${name}" → "${action.new_title}"`;
     case 'update_tags':
@@ -3597,6 +3605,353 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       };
     }
 
+    // ── Promotions & Discounts ────────────────────────────────────────────────
+
+    case 'shopify_create_discount': {
+      // Creates a price rule + discount code on Shopify.
+      // action.code           — e.g. "SUMMER20"
+      // action.discount_type  — 'percentage' | 'fixed_amount' | 'free_shipping'
+      // action.value          — positive number (% or $ off); ignored for free_shipping
+      // action.min_subtotal   — optional minimum order subtotal (USD)
+      // action.usage_limit    — optional max total uses (omit for unlimited)
+      // action.starts_at      — optional ISO datetime (defaults to now)
+      // action.ends_at        — optional ISO datetime (omit for no expiry)
+      const discountCode = (action.code || `ORION${Date.now()}`).toUpperCase();
+      const discountType = action.discount_type || 'percentage';
+      const discountValue = discountType === 'free_shipping' ? '0.0' : String(Math.abs(Number(action.value || 10)));
+
+      const priceRuleBody: any = {
+        price_rule: {
+          title: discountCode,
+          target_type: 'line_item',
+          target_selection: 'all',
+          allocation_method: 'across',
+          value_type: discountType === 'fixed_amount' ? 'fixed_amount' : (discountType === 'free_shipping' ? 'percentage' : 'percentage'),
+          value: discountType === 'free_shipping' ? '0.0' : `-${discountValue}`,
+          customer_selection: 'all',
+          starts_at: action.starts_at || new Date().toISOString(),
+        },
+      };
+      if (discountType === 'free_shipping') {
+        priceRuleBody.price_rule.target_type = 'shipping_line';
+        priceRuleBody.price_rule.target_selection = 'all';
+        priceRuleBody.price_rule.value_type = 'percentage';
+        priceRuleBody.price_rule.value = '-100.0';
+      }
+      if (action.min_subtotal) {
+        priceRuleBody.price_rule.prerequisite_subtotal_range = { greater_than_or_equal_to: String(action.min_subtotal) };
+      }
+      if (action.usage_limit) {
+        priceRuleBody.price_rule.usage_limit = Number(action.usage_limit);
+      }
+      if (action.ends_at) {
+        priceRuleBody.price_rule.ends_at = action.ends_at;
+      }
+
+      const prRes = await fetch(`${shopifyBase}/price_rules.json`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(priceRuleBody),
+      });
+      if (!prRes.ok) throw new Error(`Shopify price rule creation failed: ${await prRes.text()}`);
+      const { price_rule: newRule } = await prRes.json();
+
+      // Attach the discount code to the price rule
+      const codeRes = await fetch(`${shopifyBase}/price_rules/${newRule.id}/discount_codes.json`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ discount_code: { code: discountCode } }),
+      });
+      if (!codeRes.ok) throw new Error(`Shopify discount code creation failed: ${await codeRes.text()}`);
+
+      const summary = discountType === 'free_shipping'
+        ? 'Free shipping'
+        : discountType === 'fixed_amount'
+          ? `$${discountValue} off`
+          : `${discountValue}% off`;
+      const expiry = action.ends_at ? ` (expires ${action.ends_at.slice(0, 10)})` : ' (no expiry)';
+      return {
+        message: `Created Shopify discount code **${discountCode}** — ${summary}${action.min_subtotal ? ` on orders over $${action.min_subtotal}` : ''}${expiry}. Price rule ID: ${newRule.id}`,
+        price_rule_id: newRule.id,
+        code: discountCode,
+      };
+    }
+
+    case 'shopify_delete_discount': {
+      // Deletes a Shopify price rule (and all its codes) by price_rule_id or code string.
+      let priceRuleId = action.price_rule_id;
+
+      if (!priceRuleId && action.code) {
+        // Look up price rule by scanning discount codes — Shopify doesn't have a direct lookup endpoint
+        const listRes = await fetch(`${shopifyBase}/price_rules.json?limit=250`, { headers });
+        if (listRes.ok) {
+          const { price_rules } = await listRes.json();
+          for (const rule of (price_rules || [])) {
+            const codesRes = await fetch(`${shopifyBase}/price_rules/${rule.id}/discount_codes.json`, { headers });
+            if (codesRes.ok) {
+              const { discount_codes } = await codesRes.json();
+              const match = (discount_codes || []).find((c: any) => c.code.toUpperCase() === action.code.toUpperCase());
+              if (match) { priceRuleId = rule.id; break; }
+            }
+          }
+        }
+      }
+      if (!priceRuleId) throw new Error('price_rule_id or code is required for shopify_delete_discount.');
+
+      const delRes = await fetch(`${shopifyBase}/price_rules/${priceRuleId}.json`, { method: 'DELETE', headers });
+      if (!delRes.ok && delRes.status !== 404) throw new Error(`Shopify delete discount failed: ${await delRes.text()}`);
+      return { message: `Deleted Shopify discount${action.code ? ` code ${action.code}` : ''} (price rule ${priceRuleId}).` };
+    }
+
+    case 'etsy_create_sale': {
+      // Starts an Etsy sale by temporarily overriding the listing price.
+      // Etsy's Offsite Ads / Sales Events API doesn't exist in v3 Open API —
+      // the supported approach is to PATCH the listing price directly.
+      // action.listing_id | product_name/sku   — identifies the listing
+      // action.sale_price  OR  action.discount_percent  — new price or % off
+      const { data: etsySalePlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!etsySalePlats || etsySalePlats.length === 0) throw new Error('No connected Etsy shop found.');
+      const etsySalePlat = etsySalePlats[0];
+      const etsySaleTok = etsySalePlat.credentials?.access_token;
+      const etsySaleShopId = etsySalePlat.metadata?.shop_id;
+      const etsySaleClientId = Deno.env.get('ETSY_CLIENT_ID');
+      if (!etsySaleTok || !etsySaleShopId || !etsySaleClientId) throw new Error('Etsy credentials or shop_id missing.');
+
+      const etsySaleHeaders: Record<string, string> = {
+        'x-api-key': etsySaleClientId,
+        'Authorization': `Bearer ${etsySaleTok}`,
+        'Content-Type': 'application/json',
+      };
+
+      // Resolve listing_id
+      let saleListingId = action.listing_id;
+      if (!saleListingId && (action.product_name || action.sku)) {
+        const srRes = await fetch(
+          `https://openapi.etsy.com/v3/application/shops/${etsySaleShopId}/listings?limit=100&state=active`,
+          { headers: etsySaleHeaders }
+        );
+        if (srRes.ok) {
+          const srData = await srRes.json();
+          const found = (srData.results || []).find((l: any) =>
+            (action.product_name && l.title?.toLowerCase().includes(action.product_name.toLowerCase())) ||
+            (action.sku && l.sku?.includes(action.sku))
+          );
+          if (found) saleListingId = found.listing_id;
+        }
+        if (!saleListingId) throw new Error(`Could not find Etsy listing matching "${action.product_name || action.sku}".`);
+      }
+      if (!saleListingId) throw new Error('listing_id or product_name/sku required for etsy_create_sale.');
+
+      // Determine sale price
+      let salePrice = action.sale_price;
+      if (!salePrice && action.discount_percent) {
+        // Fetch current price to calculate sale price
+        const listRes = await fetch(
+          `https://openapi.etsy.com/v3/application/listings/${saleListingId}`,
+          { headers: etsySaleHeaders }
+        );
+        if (!listRes.ok) throw new Error(`Could not fetch Etsy listing ${saleListingId}: ${await listRes.text()}`);
+        const listData = await listRes.json();
+        const currentPrice = parseFloat(listData.price?.amount) / (listData.price?.divisor || 100);
+        salePrice = parseFloat((currentPrice * (1 - Number(action.discount_percent) / 100)).toFixed(2));
+      }
+      if (!salePrice) throw new Error('sale_price or discount_percent is required for etsy_create_sale.');
+
+      const saleRes = await fetch(
+        `https://openapi.etsy.com/v3/application/shops/${etsySaleShopId}/listings/${saleListingId}`,
+        { method: 'PATCH', headers: etsySaleHeaders, body: JSON.stringify({ price: Number(salePrice) }) }
+      );
+      if (!saleRes.ok) throw new Error(`Etsy sale price update failed: ${await saleRes.text()}`);
+      const discountDisplay = action.discount_percent ? `${action.discount_percent}% off → ` : '';
+      return { message: `Etsy listing #${saleListingId} sale started: ${discountDisplay}$${salePrice}. To end the sale, use etsy_end_sale with the original price.` };
+    }
+
+    case 'etsy_end_sale': {
+      // Restores the regular price on an Etsy listing after a sale.
+      // action.listing_id | product_name/sku  — identifies the listing
+      // action.regular_price                  — the original pre-sale price to restore
+      const { data: etsyEndSalePlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!etsyEndSalePlats || etsyEndSalePlats.length === 0) throw new Error('No connected Etsy shop found.');
+      const etsyEndPlat = etsyEndSalePlats[0];
+      const etsyEndTok = etsyEndPlat.credentials?.access_token;
+      const etsyEndShopId = etsyEndPlat.metadata?.shop_id;
+      const etsyEndClientId = Deno.env.get('ETSY_CLIENT_ID');
+      if (!etsyEndTok || !etsyEndShopId || !etsyEndClientId) throw new Error('Etsy credentials or shop_id missing.');
+
+      const etsyEndHeaders: Record<string, string> = {
+        'x-api-key': etsyEndClientId,
+        'Authorization': `Bearer ${etsyEndTok}`,
+        'Content-Type': 'application/json',
+      };
+
+      let endListingId = action.listing_id;
+      if (!endListingId && (action.product_name || action.sku)) {
+        const srRes = await fetch(
+          `https://openapi.etsy.com/v3/application/shops/${etsyEndShopId}/listings?limit=100&state=active`,
+          { headers: etsyEndHeaders }
+        );
+        if (srRes.ok) {
+          const srData = await srRes.json();
+          const found = (srData.results || []).find((l: any) =>
+            (action.product_name && l.title?.toLowerCase().includes(action.product_name.toLowerCase())) ||
+            (action.sku && l.sku?.includes(action.sku))
+          );
+          if (found) endListingId = found.listing_id;
+        }
+        if (!endListingId) throw new Error(`Could not find Etsy listing matching "${action.product_name || action.sku}".`);
+      }
+      if (!endListingId) throw new Error('listing_id or product_name/sku required for etsy_end_sale.');
+      if (!action.regular_price) throw new Error('regular_price is required for etsy_end_sale (the price to restore).');
+
+      const restoreRes = await fetch(
+        `https://openapi.etsy.com/v3/application/shops/${etsyEndShopId}/listings/${endListingId}`,
+        { method: 'PATCH', headers: etsyEndHeaders, body: JSON.stringify({ price: Number(action.regular_price) }) }
+      );
+      if (!restoreRes.ok) throw new Error(`Etsy end sale failed: ${await restoreRes.text()}`);
+      return { message: `Etsy listing #${endListingId} sale ended — price restored to $${action.regular_price}.` };
+    }
+
+    case 'ebay_create_promotion': {
+      // Creates an eBay item promotion (markdown sale) using the Promotions API.
+      // action.name           — promo name (required)
+      // action.discount_type  — 'PERCENT_OFF' | 'AMOUNT_OFF'
+      // action.discount_value — % or $ off (required)
+      // action.listing_ids    — optional array of eBay listing IDs to apply to (omit = store-wide)
+      // action.starts_at      — optional ISO datetime (defaults to now)
+      // action.ends_at        — optional ISO datetime (required for item promotions)
+      const { apiBase: ebayPromoBase, headers: ebayPromoHeaders } = await getEbayClientForActions(supabaseClient, userId);
+      if (!action.name) throw new Error('name is required for ebay_create_promotion.');
+      if (!action.discount_value) throw new Error('discount_value is required for ebay_create_promotion.');
+
+      const discountTypeEbay = (action.discount_type || 'PERCENT_OFF').toUpperCase();
+      const promoBody: any = {
+        name: action.name,
+        promotionType: 'ITEM_PRICE_MARKDOWN',
+        status: 'ACTIVE',
+        startDate: action.starts_at || new Date().toISOString(),
+        ...(action.ends_at ? { endDate: action.ends_at } : {}),
+        discountRules: [{
+          discountBenefit: {
+            ...(discountTypeEbay === 'PERCENT_OFF'
+              ? { percentageDiscount: String(action.discount_value) }
+              : { amountOffItem: { currency: 'USD', value: String(action.discount_value) } }
+            ),
+          },
+          inventoryCriterion: action.listing_ids?.length
+            ? { inventoryCriterionType: 'INVENTORY_BY_VALUE', inventoryItems: action.listing_ids.map((id: string) => ({ listingId: id })) }
+            : { inventoryCriterionType: 'INVENTORY_ANY' },
+        }],
+      };
+
+      const promoRes = await fetch(`${ebayPromoBase}/sell/marketing/v1/item_promotion`, {
+        method: 'POST',
+        headers: ebayPromoHeaders,
+        body: JSON.stringify(promoBody),
+      });
+      if (!promoRes.ok) throw new Error(`eBay promotion creation failed: ${await promoRes.text()}`);
+      const promoData = promoRes.status === 201 ? {} : await promoRes.json();
+      const promoId = promoData.promotionId || promoRes.headers?.get('location')?.split('/').pop() || 'unknown';
+
+      const discountSummary = discountTypeEbay === 'PERCENT_OFF' ? `${action.discount_value}% off` : `$${action.discount_value} off`;
+      return {
+        message: `Created eBay promotion "${action.name}": ${discountSummary}${action.ends_at ? ` through ${action.ends_at.slice(0, 10)}` : ''}. Promotion ID: ${promoId}`,
+        promotion_id: promoId,
+      };
+    }
+
+    case 'ebay_end_promotion': {
+      // Ends (deletes) an eBay promotion.
+      // action.promotion_id — required
+      const { apiBase: ebayEndPromoBase, headers: ebayEndPromoHeaders } = await getEbayClientForActions(supabaseClient, userId);
+      if (!action.promotion_id) throw new Error('promotion_id is required for ebay_end_promotion.');
+
+      const endPromoRes = await fetch(`${ebayEndPromoBase}/sell/marketing/v1/item_promotion/${action.promotion_id}`, {
+        method: 'DELETE',
+        headers: ebayEndPromoHeaders,
+      });
+      if (!endPromoRes.ok && endPromoRes.status !== 404) throw new Error(`eBay end promotion failed: ${await endPromoRes.text()}`);
+      return { message: `eBay promotion ${action.promotion_id} ended and deleted.` };
+    }
+
+    case 'woo_create_coupon': {
+      // Creates a WooCommerce coupon code.
+      // action.code           — coupon code string (required)
+      // action.discount_type  — 'percent' | 'fixed_cart' | 'fixed_product' (default: 'percent')
+      // action.amount         — discount value as a string (required)
+      // action.min_amount     — optional minimum order subtotal
+      // action.usage_limit    — optional max uses (integer)
+      // action.expires_at     — optional expiry date (YYYY-MM-DD)
+      // action.description    — optional note
+      const { data: wooCouponPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'woocommerce').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!wooCouponPlats || wooCouponPlats.length === 0) throw new Error('No connected WooCommerce store found.');
+      const wooCouponPlat = wooCouponPlats[0];
+      const { consumer_key: wooCK, consumer_secret: wooCSecret } = wooCouponPlat.credentials;
+      const wooCouponBase = `${wooCouponPlat.store_url}/wp-json/wc/v3`;
+      const wooCouponHeaders = {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${btoa(`${wooCK}:${wooCSecret}`)}`,
+      };
+
+      if (!action.code) throw new Error('code is required for woo_create_coupon.');
+      if (!action.amount) throw new Error('amount is required for woo_create_coupon.');
+
+      const couponBody: any = {
+        code: action.code.toLowerCase(),
+        discount_type: action.discount_type || 'percent',
+        amount: String(action.amount),
+        description: action.description || '',
+        ...(action.min_amount ? { minimum_amount: String(action.min_amount) } : {}),
+        ...(action.usage_limit ? { usage_limit: Number(action.usage_limit) } : {}),
+        ...(action.expires_at ? { date_expires: action.expires_at } : {}),
+      };
+
+      const couponRes = await fetch(`${wooCouponBase}/coupons`, {
+        method: 'POST',
+        headers: wooCouponHeaders,
+        body: JSON.stringify(couponBody),
+      });
+      if (!couponRes.ok) throw new Error(`WooCommerce coupon creation failed: ${await couponRes.text()}`);
+      const couponData = await couponRes.json();
+      const discTypeName = { percent: '%', fixed_cart: '$ off cart', fixed_product: '$ off product' }[couponBody.discount_type] || couponBody.discount_type;
+      return {
+        message: `Created WooCommerce coupon **${couponData.code.toUpperCase()}**: ${action.amount}${discTypeName}${action.expires_at ? ` (expires ${action.expires_at})` : ''}. Coupon ID: ${couponData.id}`,
+        coupon_id: couponData.id,
+        code: couponData.code,
+      };
+    }
+
+    case 'woo_delete_coupon': {
+      // Deletes a WooCommerce coupon by ID or code.
+      const { data: wooDelCouponPlats } = await supabaseClient.from('platforms').select('*')
+        .eq('user_id', userId).eq('platform_type', 'woocommerce').or('is_active.eq.true,status.eq.connected').limit(1);
+      if (!wooDelCouponPlats || wooDelCouponPlats.length === 0) throw new Error('No connected WooCommerce store found.');
+      const wooDelPlat = wooDelCouponPlats[0];
+      const { consumer_key: wooDelCK, consumer_secret: wooDelCS } = wooDelPlat.credentials;
+      const wooDelBase = `${wooDelPlat.store_url}/wp-json/wc/v3`;
+      const wooDelHeaders = {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${btoa(`${wooDelCK}:${wooDelCS}`)}`,
+      };
+
+      let couponId = action.coupon_id;
+      if (!couponId && action.code) {
+        const searchRes = await fetch(`${wooDelBase}/coupons?code=${encodeURIComponent(action.code)}&per_page=1`, { headers: wooDelHeaders });
+        if (searchRes.ok) {
+          const [found] = await searchRes.json();
+          if (found) couponId = found.id;
+        }
+        if (!couponId) throw new Error(`WooCommerce coupon "${action.code}" not found.`);
+      }
+      if (!couponId) throw new Error('coupon_id or code is required for woo_delete_coupon.');
+
+      const delRes = await fetch(`${wooDelBase}/coupons/${couponId}?force=true`, { method: 'DELETE', headers: wooDelHeaders });
+      if (!delRes.ok && delRes.status !== 404) throw new Error(`WooCommerce delete coupon failed: ${await delRes.text()}`);
+      return { message: `Deleted WooCommerce coupon ${action.code || `#${couponId}`}.` };
+    }
+
     default:
       throw new Error(`Unknown action type: ${action.type}`);
   }
@@ -4455,6 +4810,15 @@ When the user asks you to create a product, add inventory, change a price, renam
   • fulfill_order   — { type, platform_type, platform_order_id, tracking_number, tracking_company?, carrier_code? }
   • cancel_order    — { type, platform_type, platform_order_id, reason? }
   • refund_order    — { type, platform_type, platform_order_id, reason? } — full refund only
+  Promotions & Discounts:
+  • shopify_create_discount — { type, code, discount_type: 'percentage'|'fixed_amount'|'free_shipping', value, min_subtotal?, usage_limit?, starts_at?, ends_at? }
+  • shopify_delete_discount — { type, price_rule_id? | code? }
+  • etsy_create_sale        — { type, listing_id?|product_name?|sku?, sale_price? | discount_percent? }
+  • etsy_end_sale           — { type, listing_id?|product_name?|sku?, regular_price }
+  • ebay_create_promotion   — { type, name, discount_type: 'PERCENT_OFF'|'AMOUNT_OFF', discount_value, listing_ids?: [...], starts_at?, ends_at? }
+  • ebay_end_promotion      — { type, promotion_id }
+  • woo_create_coupon       — { type, code, discount_type: 'percent'|'fixed_cart'|'fixed_product', amount, min_amount?, usage_limit?, expires_at?, description? }
+  • woo_delete_coupon       — { type, coupon_id? | code? }
 ❌ FORBIDDEN (will always fail): update_product, update_seo, bulk_update, add_image, set_image, woo_update_product, or any other type not in the list above.
 
 Platform action routing:
@@ -4736,6 +5100,56 @@ To issue a full refund on an order:
 
 ⚠️ For partial refunds (specific items or amounts), tell the user to process them in their platform dashboard — partial refunds require line-item level detail that varies per platform.
 ⚠️ Always run sync_orders first if the user asks about their current orders and the order data in context looks stale or empty.
+
+— Promotions & Discounts —
+
+Use these actions to create discount codes, run sales, and launch promotions across platforms.
+
+Shopify — create a percentage-off discount code:
+[ORION_ACTION:{"type":"shopify_create_discount","code":"SUMMER20","discount_type":"percentage","value":20}]
+
+Shopify — fixed $5 off coupon with $30 minimum order and 100-use limit:
+[ORION_ACTION:{"type":"shopify_create_discount","code":"SAVE5","discount_type":"fixed_amount","value":5,"min_subtotal":30,"usage_limit":100}]
+
+Shopify — free shipping code (no minimum):
+[ORION_ACTION:{"type":"shopify_create_discount","code":"FREESHIP","discount_type":"free_shipping"}]
+
+Shopify — discount with expiry date:
+[ORION_ACTION:{"type":"shopify_create_discount","code":"FLASH15","discount_type":"percentage","value":15,"ends_at":"2026-04-20T23:59:00Z"}]
+
+Shopify — delete/deactivate a discount code:
+[ORION_ACTION:{"type":"shopify_delete_discount","code":"SUMMER20"}]
+
+Etsy — put a specific listing on sale (30% off):
+[ORION_ACTION:{"type":"etsy_create_sale","product_name":"Handmade Ceramic Mug","discount_percent":30}]
+
+Etsy — set a listing to an explicit sale price:
+[ORION_ACTION:{"type":"etsy_create_sale","listing_id":"1234567890","sale_price":19.99}]
+
+Etsy — end a sale and restore the original price:
+[ORION_ACTION:{"type":"etsy_end_sale","product_name":"Handmade Ceramic Mug","regular_price":28.00}]
+
+eBay — create a store-wide 15% markdown promotion:
+[ORION_ACTION:{"type":"ebay_create_promotion","name":"Spring Sale 15% Off Everything","discount_type":"PERCENT_OFF","discount_value":15,"ends_at":"2026-05-01T00:00:00Z"}]
+
+eBay — create a promotion on specific listings:
+[ORION_ACTION:{"type":"ebay_create_promotion","name":"Flash Deal","discount_type":"PERCENT_OFF","discount_value":20,"listing_ids":["123456789012","234567890123"],"ends_at":"2026-04-18T23:59:00Z"}]
+
+eBay — end a promotion:
+[ORION_ACTION:{"type":"ebay_end_promotion","promotion_id":"5xxxxxxxxxxxxxxxx"}]
+
+WooCommerce — create a 20% off coupon:
+[ORION_ACTION:{"type":"woo_create_coupon","code":"WOO20","discount_type":"percent","amount":"20"}]
+
+WooCommerce — create a fixed $10 off coupon expiring April 30:
+[ORION_ACTION:{"type":"woo_create_coupon","code":"TEN OFF","discount_type":"fixed_cart","amount":"10","expires_at":"2026-04-30"}]
+
+WooCommerce — delete a coupon:
+[ORION_ACTION:{"type":"woo_delete_coupon","code":"WOO20"}]
+
+⚠️ Etsy does NOT have a native sale/promotion API in v3 — etsy_create_sale works by patching the listing price directly. Always get the current price first if the user doesn't provide it, so you can restore it with etsy_end_sale.
+⚠️ eBay promotions require the Promotions Manager (available to eBay Store subscribers). If creation fails, suggest the user check their eBay Store subscription.
+⚠️ For Shopify discount codes, discount_type must be exactly "percentage", "fixed_amount", or "free_shipping". value is always positive.
 
 To make MULTIPLE changes to ONE product (title + metafield + alt text, etc.) — one confirmation card, all run together:
 [ORION_ACTION:{"type":"multi_action","product_name":"Tie Dye T-Shirt","sku":"TDT-001","description":"Update title, SEO alt text, and material metafield","actions":[{"type":"update_title","new_title":"Vibrant Handmade Tie Dye T-Shirt"},{"type":"update_image_alt","alt_text":"Colorful handmade tie dye t-shirt on white background"},{"type":"update_metafield","metafield_key":"material","metafield_value":"100% Cotton","metafield_type":"single_line_text_field"}]}]
