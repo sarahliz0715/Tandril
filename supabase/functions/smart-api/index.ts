@@ -108,6 +108,8 @@ function summarizeOrionAction(action: any): string {
     case 'woo_delete_coupon':       return `Deleted WooCommerce coupon ${action.code || action.coupon_id || ''}`;
     case 'cross_platform_create':   return `Listed "${action.title || name}" on ${action.platforms?.join(', ') || 'all connected platforms'}`;
     case 'bulk_ai_content': return `AI content rewrite: ${(action.updates || []).length} product${(action.updates || []).length !== 1 ? 's' : ''}`;
+    case 'get_messages':  return `Fetched customer messages from ${action.platform_type || 'all platforms'}`;
+    case 'send_message':  return `Sent reply to ${action.platform_type || 'customer'} conversation ${action.conversation_id || ''}`;
     case 'update_price':        return `Updated price for "${name}" → $${action.price}`;
     case 'update_title':        return `Updated title of "${name}" → "${action.new_title}"`;
     case 'update_tags':
@@ -4228,6 +4230,147 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       };
     }
 
+    // ── Customer Messages ─────────────────────────────────────────────────────
+
+    case 'get_messages': {
+      // Fetches recent unread/unanswered customer messages from connected platforms.
+      // action.platform_type — 'etsy' | 'ebay' | 'all' (default: 'all')
+      // action.limit         — max messages per platform (default: 20)
+      // action.unread_only   — boolean, default true
+
+      const msgPlatform = action.platform_type || 'all';
+      const msgLimit = action.limit || 20;
+      const allMessages: any[] = [];
+
+      // ── Etsy Messages ────────────────────────────────────────────────────────
+      if (msgPlatform === 'all' || msgPlatform === 'etsy') {
+        const { data: etsyMsgPlats } = await supabaseClient.from('platforms').select('*')
+          .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
+        if (etsyMsgPlats && etsyMsgPlats.length > 0) {
+          const etsyMsgPlat = etsyMsgPlats[0];
+          const etsyMsgTok = etsyMsgPlat.credentials?.access_token;
+          const etsyMsgShopId = etsyMsgPlat.metadata?.shop_id;
+          const etsyMsgClientId = Deno.env.get('ETSY_CLIENT_ID');
+          if (etsyMsgTok && etsyMsgShopId && etsyMsgClientId) {
+            const etsyMsgHeaders = {
+              'x-api-key': etsyMsgClientId,
+              'Authorization': `Bearer ${etsyMsgTok}`,
+              'Content-Type': 'application/json',
+            };
+            // Etsy Conversations API: GET /v3/application/shops/{shop_id}/conversations
+            const convRes = await fetch(
+              `https://openapi.etsy.com/v3/application/shops/${etsyMsgShopId}/conversations?limit=${msgLimit}`,
+              { headers: etsyMsgHeaders }
+            );
+            if (convRes.ok) {
+              const convData = await convRes.json();
+              for (const conv of (convData.results || [])) {
+                // Fetch latest message in each conversation
+                const lastMsg = conv.last_message;
+                allMessages.push({
+                  platform: 'etsy',
+                  conversation_id: String(conv.conversation_id),
+                  from: conv.other_user?.login_name || 'Buyer',
+                  subject: conv.subject || '(no subject)',
+                  preview: lastMsg?.text?.slice(0, 200) || '',
+                  unread: !conv.read_by_seller,
+                  created_at: lastMsg?.creation_timestamp
+                    ? new Date(lastMsg.creation_timestamp * 1000).toISOString()
+                    : null,
+                  listing_id: conv.listing_id ? String(conv.listing_id) : null,
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // ── eBay Messages (Ask Seller a Question) ────────────────────────────────
+      if (msgPlatform === 'all' || msgPlatform === 'ebay') {
+        const { data: ebayMsgPlats } = await supabaseClient.from('platforms').select('*')
+          .eq('user_id', userId).eq('platform_type', 'ebay').or('is_active.eq.true,status.eq.connected').limit(1);
+        if (ebayMsgPlats && ebayMsgPlats.length > 0) {
+          try {
+            const { apiBase: ebayMsgBase, headers: ebayMsgHeaders } = await getEbayClientForActions(supabaseClient, userId);
+            // eBay Post Order API: GET /post-order/v2/inquiry or member messages
+            // Member Messages (older API) uses Trading API — we'll use the newer messaging SDK approach
+            const msgRes = await fetch(
+              `${ebayMsgBase}/sell/fulfillment/v1/shipping_fulfillment?limit=${msgLimit}`,
+              { headers: ebayMsgHeaders }
+            );
+            // eBay doesn't have a simple REST "get messages" endpoint in the modern API suite.
+            // Buyer messages are surfaced through the Resolution Center / Post-Order API.
+            // We note this limitation and surface a fallback message.
+            allMessages.push({
+              platform: 'ebay',
+              conversation_id: null,
+              from: 'eBay',
+              subject: 'eBay Messages',
+              preview: 'eBay buyer messages are managed through the eBay Resolution Center or the My Messages section in your eBay account. Direct message API access requires the Post-Order API with buyer-seller communication scope.',
+              unread: false,
+              created_at: null,
+              note: 'api_limitation',
+            });
+          } catch (_) {
+            // no-op if eBay fetch fails
+          }
+        }
+      }
+
+      const unreadCount = allMessages.filter(m => m.unread).length;
+      return {
+        messages: allMessages,
+        total: allMessages.length,
+        unread: unreadCount,
+        message: `Found ${allMessages.length} customer message${allMessages.length !== 1 ? 's' : ''} (${unreadCount} unread).`,
+      };
+    }
+
+    case 'send_message': {
+      // Sends a reply to a customer message on Etsy.
+      // action.platform_type    — 'etsy' (only platform with reply API in v3)
+      // action.conversation_id  — required for Etsy
+      // action.body             — the reply text (required)
+
+      const { platform_type: sendPlatform, conversation_id: sendConvId, body: replyBody } = action;
+      if (!sendPlatform) throw new Error('platform_type is required for send_message.');
+      if (!replyBody) throw new Error('body is required for send_message.');
+
+      if (sendPlatform === 'etsy') {
+        if (!sendConvId) throw new Error('conversation_id is required for etsy send_message.');
+
+        const { data: etsySendPlats } = await supabaseClient.from('platforms').select('*')
+          .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
+        if (!etsySendPlats || etsySendPlats.length === 0) throw new Error('No connected Etsy shop found.');
+        const etsySendPlat = etsySendPlats[0];
+        const etsySendTok = etsySendPlat.credentials?.access_token;
+        const etsySendShopId = etsySendPlat.metadata?.shop_id;
+        const etsySendClientId = Deno.env.get('ETSY_CLIENT_ID');
+        if (!etsySendTok || !etsySendShopId || !etsySendClientId) throw new Error('Etsy credentials or shop_id missing.');
+
+        const sendRes = await fetch(
+          `https://openapi.etsy.com/v3/application/shops/${etsySendShopId}/conversations/${sendConvId}/messages`,
+          {
+            method: 'POST',
+            headers: {
+              'x-api-key': etsySendClientId,
+              'Authorization': `Bearer ${etsySendTok}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ message: replyBody }),
+          }
+        );
+        if (!sendRes.ok) throw new Error(`Etsy message send failed: ${await sendRes.text()}`);
+        return { message: `Reply sent to Etsy conversation #${sendConvId}.` };
+      }
+
+      if (sendPlatform === 'ebay') {
+        throw new Error('eBay direct message replies are not supported via the current API scope. Please reply through the eBay My Messages portal.');
+      }
+
+      throw new Error(`send_message is not supported for platform "${sendPlatform}". Supported: etsy.`);
+    }
+
     default:
       throw new Error(`Unknown action type: ${action.type}`);
   }
@@ -5105,6 +5248,11 @@ When the user asks you to create a product, add inventory, change a price, renam
   • bulk_ai_content — { type, updates: [{product_name, sku, platform_type?, title?, description?, tags?, seo_title?, seo_description?, url_handle?, image_alt?}, ...] }
                     Max 50 products per batch. Each product update only needs the fields being changed.
                     Applies AI-generated content to many products in one confirmed action (title/description/tags/SEO).
+  Customer messages:
+  • get_messages  — { type, platform_type?: 'etsy'|'ebay'|'all', limit?: 20 }
+                  Returns conversations with from, subject, preview, unread, conversation_id.
+  • send_message  — { type, platform_type: 'etsy', conversation_id, body }
+                  Sends a reply to an Etsy conversation (only Etsy supports reply API in v3).
 ❌ FORBIDDEN (will always fail): update_product, update_seo, bulk_update, add_image, set_image, woo_update_product, or any other type not in the list above.
 
 Platform action routing:
@@ -5482,6 +5630,35 @@ When the user asks to "rewrite my catalog", "SEO optimize everything", or "impro
 ⚠️ Etsy: tags only (no seo_title/seo_description). Max 13 tags, lowercase, no special chars.
 ⚠️ For non-Shopify platforms, seo_title, seo_description, and url_handle are ignored (Shopify-only fields).
 ⚠️ Max 50 products per bulk_ai_content action. For catalogs over 50 products, split into multiple batches.
+
+— Customer Messages —
+
+Use get_messages to fetch recent buyer questions/messages, then use send_message to reply on Etsy.
+
+Fetch all unread messages from all platforms:
+[ORION_ACTION:{"type":"get_messages"}]
+
+Fetch Etsy messages only:
+[ORION_ACTION:{"type":"get_messages","platform_type":"etsy","limit":20}]
+
+Reply to an Etsy buyer conversation:
+[ORION_ACTION:{"type":"send_message","platform_type":"etsy","conversation_id":"123456789","body":"Hi! Thank you so much for your message. Your order is being carefully handmade and will ship within 3-5 business days. I'll send tracking as soon as it's on its way. Please let me know if you have any other questions!"}]
+
+**Customer Message Workflow:**
+When the user asks "do I have any messages?", "check my Etsy messages", or "what are buyers asking?":
+1. Run get_messages first to fetch and display current messages
+2. For each unanswered message, show the buyer's name, subject, and preview
+3. Ask the user how they want to reply, or offer to draft a reply based on context
+4. Once the user approves a reply, use send_message to send it
+
+**Drafting replies:**
+When asked to draft or send a message reply, write a warm, professional response in the seller's voice.
+Reference the specific product/question if visible in the message preview.
+Always give the user a chance to review the draft before using send_message.
+
+⚠️ eBay replies must be sent through the eBay My Messages portal — the modern eBay API does not support direct message replies via OAuth.
+⚠️ Etsy's conversation API returns the most recent message. Older message history requires opening the conversation in the Etsy dashboard.
+⚠️ Never send a message without the user reviewing it first — always show the draft and ask for confirmation.
 
 To make MULTIPLE changes to ONE product (title + metafield + alt text, etc.) — one confirmation card, all run together:
 [ORION_ACTION:{"type":"multi_action","product_name":"Tie Dye T-Shirt","sku":"TDT-001","description":"Update title, SEO alt text, and material metafield","actions":[{"type":"update_title","new_title":"Vibrant Handmade Tie Dye T-Shirt"},{"type":"update_image_alt","alt_text":"Colorful handmade tie dye t-shirt on white background"},{"type":"update_metafield","metafield_key":"material","metafield_value":"100% Cotton","metafield_type":"single_line_text_field"}]}]
