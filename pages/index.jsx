@@ -100,6 +100,8 @@ import Welcome from "./Welcome";
 
 import Products from "./Products";
 
+import Security from "./Security";
+
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 
 const PAGES = {
@@ -201,6 +203,8 @@ const PAGES = {
     Welcome: Welcome,
 
     Products: Products,
+
+    Security: Security,
 
 }
 
@@ -326,6 +330,8 @@ function PagesContent() {
                 <Route path="/Welcome" element={<Welcome />} />
 
                 <Route path="/Products" element={<Products />} />
+
+                <Route path="/security" element={<Security />} />
 
             </Routes>
         </Layout>
