@@ -4,6 +4,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { signSpApiRequest, refreshLwaToken } from '../_shared/awsSigV4.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -170,9 +171,12 @@ async function exchangeMeta(code: string): Promise<any> {
 async function exchangeAmazon(code: string): Promise<any> {
   const clientId = Deno.env.get('AMAZON_CLIENT_ID');
   const clientSecret = Deno.env.get('AMAZON_CLIENT_SECRET');
+  const awsKeyId = Deno.env.get('AMAZON_AWS_ACCESS_KEY_ID');
+  const awsSecret = Deno.env.get('AMAZON_AWS_SECRET_ACCESS_KEY');
   if (!clientId || !clientSecret) throw new Error('Amazon credentials not configured');
 
-  const res = await fetch('https://api.amazon.com/auth/o2/token', {
+  // Exchange auth code for LWA tokens
+  const tokenRes = await fetch('https://api.amazon.com/auth/o2/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -183,13 +187,60 @@ async function exchangeAmazon(code: string): Promise<any> {
       client_secret: clientSecret,
     }),
   });
-  if (!res.ok) throw new Error(`Amazon token exchange failed: ${await res.text()}`);
-  const tokens = await res.json();
+  if (!tokenRes.ok) throw new Error(`Amazon token exchange failed: ${await tokenRes.text()}`);
+  const tokens = await tokenRes.json();
+
+  const accessToken = tokens.access_token;
+  const expiresAt = new Date(Date.now() + (tokens.expires_in || 3600) * 1000).toISOString();
+
+  // Fetch seller_id and marketplace IDs via SP-API (requires SigV4 + LWA token)
+  let sellerId = '';
+  let marketplaceId = 'ATVPDKIKX0DER'; // default US
+  let marketplaceName = 'Amazon US';
+  let region = 'us-east-1';
+  let apiBase = 'https://sellingpartnerapi-na.amazon.com';
+  let sellerName = 'Amazon Seller';
+
+  if (awsKeyId && awsSecret) {
+    try {
+      const spUrl = new URL(`${apiBase}/sellers/v1/marketplaceParticipations`);
+      const signedHdrs = await signSpApiRequest(
+        'GET', spUrl, '', region, awsKeyId, awsSecret,
+        { 'x-amz-access-token': accessToken }
+      );
+      const sellerRes = await fetch(spUrl.toString(), { headers: signedHdrs });
+      if (sellerRes.ok) {
+        const sellerData = await sellerRes.json();
+        const participations = sellerData.payload || [];
+        if (participations.length > 0) {
+          sellerId = participations[0].seller?.sellerId || '';
+          // Prefer the US marketplace if present
+          const usPart = participations.find((p: any) => p.marketplace?.id === 'ATVPDKIKX0DER') || participations[0];
+          marketplaceId = usPart.marketplace?.id || marketplaceId;
+          marketplaceName = usPart.marketplace?.name || marketplaceName;
+          sellerName = `Amazon - ${sellerId || 'Seller'}`;
+        }
+      }
+    } catch (e: any) {
+      console.warn('[Amazon] Could not fetch seller info (non-critical):', e.message);
+    }
+  }
 
   return {
-    credentials: { access_token: tokens.access_token, refresh_token: tokens.refresh_token, token_type: tokens.token_type },
-    name: 'Amazon Seller',
-    metadata: { token_expires_at: new Date(Date.now() + (tokens.expires_in || 3600) * 1000).toISOString() },
+    credentials: {
+      access_token: accessToken,
+      refresh_token: tokens.refresh_token,
+      token_type: tokens.token_type,
+    },
+    name: sellerName,
+    metadata: {
+      seller_id: sellerId,
+      marketplace_id: marketplaceId,
+      marketplace_name: marketplaceName,
+      region,
+      api_base: apiBase,
+      token_expires_at: expiresAt,
+    },
   };
 }
 
@@ -544,6 +595,57 @@ serve(async (req) => {
           }
         } catch (syncErr: any) {
           console.warn('[oauth-callback] TikTok Shop sync failed (non-critical):', syncErr.message);
+        }
+      }
+    }
+
+    // Post-connect: sync Amazon FBA inventory into the products table
+    if (platform === 'amazon') {
+      const accessToken = result.credentials?.access_token;
+      const sellerId = result.metadata?.seller_id;
+      const marketplaceId = result.metadata?.marketplace_id || 'ATVPDKIKX0DER';
+      const awsKeyId = Deno.env.get('AMAZON_AWS_ACCESS_KEY_ID');
+      const awsSecret = Deno.env.get('AMAZON_AWS_SECRET_ACCESS_KEY');
+      const apiBase = result.metadata?.api_base || 'https://sellingpartnerapi-na.amazon.com';
+      const region = result.metadata?.region || 'us-east-1';
+
+      if (accessToken && awsKeyId && awsSecret) {
+        try {
+          const invUrl = new URL(`${apiBase}/fba/inventory/v1/summaries`);
+          invUrl.searchParams.set('details', 'true');
+          invUrl.searchParams.set('granularityType', 'Marketplace');
+          invUrl.searchParams.set('granularityId', marketplaceId);
+          invUrl.searchParams.set('marketplaceIds', marketplaceId);
+
+          const signedHdrs = await signSpApiRequest(
+            'GET', invUrl, '', region, awsKeyId, awsSecret,
+            { 'x-amz-access-token': accessToken }
+          );
+          const invRes = await fetch(invUrl.toString(), { headers: signedHdrs });
+          if (invRes.ok) {
+            const invData = await invRes.json();
+            const summaries = invData.payload?.inventorySummaries || [];
+            if (summaries.length > 0) {
+              const rows = summaries.map((s: any) => ({
+                user_id: userId,
+                platform_type: 'amazon',
+                title: s.productName || s.asin || 'Amazon Product',
+                sku: s.sellerSku || s.asin,
+                price: 0, // price not in inventory summary; updated on first get_inventory call
+                inventory_quantity: s.inventoryDetails?.fulfillableQuantity ?? s.totalQuantity ?? 0,
+                status: 'active',
+                vendor: 'Amazon FBA',
+                product_type: s.productType || '',
+              }));
+              await supabase.from('products').upsert(rows, {
+                onConflict: 'user_id,platform_type,sku',
+                ignoreDuplicates: false,
+              });
+              console.log(`[oauth-callback] Synced ${rows.length} Amazon FBA products for user ${userId}`);
+            }
+          }
+        } catch (syncErr: any) {
+          console.warn('[oauth-callback] Amazon sync failed (non-critical):', syncErr.message);
         }
       }
     }
