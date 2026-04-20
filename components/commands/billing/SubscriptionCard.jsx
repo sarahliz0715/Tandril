@@ -31,7 +31,7 @@ export default function SubscriptionCard({ subscription, onManage, onUpgrade }) 
       <Card className="bg-white/80 backdrop-blur-sm border-slate-200/60">
         <CardHeader>
           <CardTitle className="flex items-center gap-3">
-            <Crown className="w-5 h-5 text-purple-600" />
+            <Crown className="w-5 h-5 text-green-600" />
             No Active Subscription
           </CardTitle>
         </CardHeader>
@@ -39,7 +39,7 @@ export default function SubscriptionCard({ subscription, onManage, onUpgrade }) 
           <p className="text-slate-600 mb-4">
             You don't have an active subscription yet. Choose a plan to get started with AI automation.
           </p>
-          <Button onClick={onUpgrade} className="bg-indigo-600 hover:bg-indigo-700">
+          <Button onClick={onUpgrade} className="bg-emerald-600 hover:bg-emerald-700">
             View Plans
           </Button>
         </CardContent>
@@ -51,7 +51,7 @@ export default function SubscriptionCard({ subscription, onManage, onUpgrade }) 
     <Card className="bg-white/80 backdrop-blur-sm border-slate-200/60">
       <CardHeader>
         <CardTitle className="flex items-center gap-3">
-          <Crown className="w-5 h-5 text-purple-600" />
+          <Crown className="w-5 h-5 text-green-600" />
           Current Subscription
         </CardTitle>
       </CardHeader>
@@ -126,7 +126,7 @@ export default function SubscriptionCard({ subscription, onManage, onUpgrade }) 
             Manage Billing
           </Button>
           {subscription.plan_id !== 'enterprise' && subscription.plan_id !== 'agency' && (
-            <Button onClick={onUpgrade} className="flex-1 bg-indigo-600 hover:bg-indigo-700">
+            <Button onClick={onUpgrade} className="flex-1 bg-emerald-600 hover:bg-emerald-700">
               Upgrade Plan
             </Button>
           )}

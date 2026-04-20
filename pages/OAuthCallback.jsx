@@ -98,12 +98,12 @@ export default function OAuthCallback() {
   }, [navigate]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-emerald-50 flex items-center justify-center p-4">
       <Card className="max-w-md w-full shadow-lg">
         <CardContent className="p-6 sm:p-8">
           {status === 'processing' && (
             <div className="text-center">
-              <Loader2 className="w-14 h-14 text-indigo-600 animate-spin mx-auto mb-4" />
+              <Loader2 className="w-14 h-14 text-emerald-600 animate-spin mx-auto mb-4" />
               <h2 className="text-xl font-bold text-slate-900 mb-2">Connecting {platformName}</h2>
               <p className="text-slate-600">{message}</p>
             </div>
@@ -127,7 +127,7 @@ export default function OAuthCallback() {
                   <p className="text-sm text-red-800">{errorDetails}</p>
                 </div>
               )}
-              <Button onClick={() => navigate(createPageUrl('Platforms'))} className="bg-indigo-600 hover:bg-indigo-700">
+              <Button onClick={() => navigate(createPageUrl('Platforms'))} className="bg-emerald-600 hover:bg-emerald-700">
                 Go to Platforms
               </Button>
             </div>

@@ -114,13 +114,13 @@ export default function AIResponseSuggestion({
     };
 
     return (
-        <Card className="border-indigo-200 bg-gradient-to-br from-indigo-50 to-purple-50">
+        <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50 to-green-50">
             <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                     <CardTitle className="flex items-center gap-2 text-lg">
-                        <Bot className="w-5 h-5 text-indigo-600" />
+                        <Bot className="w-5 h-5 text-emerald-600" />
                         AI-Generated Response
-                        <Badge className="bg-indigo-100 text-indigo-700 text-xs">
+                        <Badge className="bg-emerald-100 text-emerald-700 text-xs">
                             {suggestion.tone_used || 'friendly'}
                         </Badge>
                     </CardTitle>
@@ -191,7 +191,7 @@ export default function AIResponseSuggestion({
                         className="min-h-[150px] text-sm"
                     />
                 ) : (
-                    <div className="bg-white rounded-lg p-4 border border-indigo-200">
+                    <div className="bg-white rounded-lg p-4 border border-emerald-200">
                         <p className="text-sm text-slate-700 whitespace-pre-wrap">{editedResponse}</p>
                     </div>
                 )}
@@ -242,7 +242,7 @@ export default function AIResponseSuggestion({
                         onClick={handleUseResponse}
                         disabled={isSaving}
                         size="sm"
-                        className="flex-1 bg-indigo-600 hover:bg-indigo-700"
+                        className="flex-1 bg-emerald-600 hover:bg-emerald-700"
                     >
                         {isSaving ? (
                             <>

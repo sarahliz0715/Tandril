@@ -94,15 +94,15 @@ export default function ConditionalBranchModal({ isOpen, onClose, onSave, condit
             <DialogContent className="max-w-2xl">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
-                        <GitBranch className="w-5 h-5 text-purple-600" />
+                        <GitBranch className="w-5 h-5 text-green-600" />
                         Configure Conditional Branch
                     </DialogTitle>
                 </DialogHeader>
 
                 <div className="space-y-6 py-4">
                     {/* Condition Setup */}
-                    <div className="space-y-4 p-4 bg-purple-50 rounded-lg border border-purple-200">
-                        <h3 className="font-semibold text-purple-900">IF Condition</h3>
+                    <div className="space-y-4 p-4 bg-green-50 rounded-lg border border-green-200">
+                        <h3 className="font-semibold text-green-900">IF Condition</h3>
 
                         <div className="grid grid-cols-2 gap-4">
                             {/* Field */}
@@ -261,7 +261,7 @@ export default function ConditionalBranchModal({ isOpen, onClose, onSave, condit
                     <Button variant="outline" onClick={onClose}>
                         Cancel
                     </Button>
-                    <Button onClick={handleSave} className="bg-purple-600 hover:bg-purple-700">
+                    <Button onClick={handleSave} className="bg-green-600 hover:bg-green-700">
                         Save Condition
                     </Button>
                 </DialogFooter>

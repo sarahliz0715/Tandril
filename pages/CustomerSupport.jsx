@@ -90,7 +90,7 @@ export default function CustomerSupport() {
         return (
             <div className="min-h-screen flex items-center justify-center">
                 <div className="text-center">
-                    <MessageSquare className="w-12 h-12 text-indigo-600 animate-pulse mx-auto mb-4" />
+                    <MessageSquare className="w-12 h-12 text-emerald-600 animate-pulse mx-auto mb-4" />
                     <p className="text-slate-600">Loading customer support...</p>
                 </div>
             </div>
@@ -106,7 +106,7 @@ export default function CustomerSupport() {
                         <h1 className="text-3xl font-bold text-slate-900">Customer Support</h1>
                         <p className="text-slate-600 mt-1">AI-powered support automation & management</p>
                     </div>
-                    <Button className="bg-indigo-600 hover:bg-indigo-700">
+                    <Button className="bg-emerald-600 hover:bg-emerald-700">
                         <Sparkles className="w-4 h-4 mr-2" />
                         AI Settings
                     </Button>
@@ -157,7 +157,7 @@ export default function CustomerSupport() {
                                     <p className="text-sm text-slate-600">Avg Response</p>
                                     <p className="text-3xl font-bold text-slate-900">{stats.avgResponseTime}h</p>
                                 </div>
-                                <Clock className="w-8 h-8 text-indigo-500" />
+                                <Clock className="w-8 h-8 text-emerald-500" />
                             </div>
                         </CardContent>
                     </Card>

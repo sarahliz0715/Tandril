@@ -112,7 +112,7 @@ export default function CreateFromTemplateModal({ template, isOpen, onClose, onS
             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
-                        <Sparkles className="w-5 h-5 text-indigo-600" />
+                        <Sparkles className="w-5 h-5 text-emerald-600" />
                         Create Automation from Template
                     </DialogTitle>
                     <DialogDescription>
@@ -133,9 +133,9 @@ export default function CreateFromTemplateModal({ template, isOpen, onClose, onS
                     </div>
 
                     {/* Template Info */}
-                    <Alert className="bg-indigo-50 border-indigo-200">
-                        <AlertCircle className="h-4 w-4 text-indigo-600" />
-                        <AlertDescription className="text-indigo-900">
+                    <Alert className="bg-emerald-50 border-emerald-200">
+                        <AlertCircle className="h-4 w-4 text-emerald-600" />
+                        <AlertDescription className="text-emerald-900">
                             <strong>What this does:</strong> {template.description}
                         </AlertDescription>
                     </Alert>
@@ -166,7 +166,7 @@ export default function CreateFromTemplateModal({ template, isOpen, onClose, onS
                         <div className="bg-slate-50 rounded-lg p-3 space-y-2">
                             {template.actions_template.map((action, index) => (
                                 <div key={index} className="flex items-start gap-2 text-sm">
-                                    <span className="flex items-center justify-center w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold flex-shrink-0 mt-0.5">
+                                    <span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold flex-shrink-0 mt-0.5">
                                         {index + 1}
                                     </span>
                                     <div>
@@ -199,7 +199,7 @@ export default function CreateFromTemplateModal({ template, isOpen, onClose, onS
                     <Button 
                         onClick={handleCreate} 
                         disabled={isCreating || !automationName.trim()}
-                        className="bg-indigo-600 hover:bg-indigo-700"
+                        className="bg-emerald-600 hover:bg-emerald-700"
                     >
                         {isCreating ? (
                             <>

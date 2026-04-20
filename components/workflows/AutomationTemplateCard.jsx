@@ -24,10 +24,10 @@ export default function AutomationTemplateCard({ template, onUse, showTrending =
     const getCategoryColor = (category) => {
         const colors = {
             inventory: 'bg-blue-100 text-blue-800',
-            marketing: 'bg-purple-100 text-purple-800',
+            marketing: 'bg-green-100 text-green-800',
             customer_service: 'bg-green-100 text-green-800',
             analytics: 'bg-orange-100 text-orange-800',
-            operations: 'bg-indigo-100 text-indigo-800',
+            operations: 'bg-emerald-100 text-emerald-800',
             general: 'bg-slate-100 text-slate-800'
         };
         return colors[category] || 'bg-slate-100 text-slate-800';
@@ -39,7 +39,7 @@ export default function AutomationTemplateCard({ template, onUse, showTrending =
                 <div className="flex items-start justify-between">
                     <div className="flex-1">
                         <CardTitle className="flex items-center gap-2 text-lg mb-2">
-                            <Zap className="w-5 h-5 text-indigo-600" />
+                            <Zap className="w-5 h-5 text-emerald-600" />
                             {template.name}
                         </CardTitle>
                         <div className="flex items-center gap-2 flex-wrap">
@@ -97,7 +97,7 @@ export default function AutomationTemplateCard({ template, onUse, showTrending =
                 {/* Action Button */}
                 <Button
                     onClick={onUse}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700"
+                    className="w-full bg-emerald-600 hover:bg-emerald-700"
                     size="sm"
                 >
                     <Sparkles className="w-4 h-4 mr-2" />

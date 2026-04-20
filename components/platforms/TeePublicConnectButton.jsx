@@ -42,7 +42,7 @@ export default function TeePublicConnectButton({ onSuccess }) {
     return (
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
             <DialogTrigger asChild>
-                <Button className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white">
+                <Button className="w-full bg-gradient-to-r from-green-600 to-pink-600 hover:from-green-700 hover:to-pink-700 text-white">
                     <Palette className="w-4 h-4 mr-2" />
                     Connect TeePublic
                 </Button>
@@ -50,7 +50,7 @@ export default function TeePublicConnectButton({ onSuccess }) {
             <DialogContent className="max-w-md">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
-                        <Palette className="w-5 h-5 text-purple-600" />
+                        <Palette className="w-5 h-5 text-green-600" />
                         Connect TeePublic Account
                     </DialogTitle>
                     <DialogDescription>

@@ -80,7 +80,7 @@ export default function SavedCommandsPanel({ onRunCommand }) {
 
     const categoryColors = {
         inventory: 'bg-blue-100 text-blue-800',
-        products: 'bg-purple-100 text-purple-800',
+        products: 'bg-green-100 text-green-800',
         marketing: 'bg-pink-100 text-pink-800',
         analytics: 'bg-green-100 text-green-800',
         general: 'bg-slate-100 text-slate-800'
@@ -120,7 +120,7 @@ export default function SavedCommandsPanel({ onRunCommand }) {
                         <Button
                             size="sm"
                             onClick={() => handleRun(command)}
-                            className="flex-1 bg-indigo-600 hover:bg-indigo-700"
+                            className="flex-1 bg-emerald-600 hover:bg-emerald-700"
                         >
                             <Play className="w-3 h-3 mr-1" /> Run
                         </Button>

@@ -56,7 +56,7 @@ export default function BetaSignupModal({ isOpen, onClose, onSuccess }) {
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg flex items-center justify-center">
+            <div className="w-8 h-8 bg-gradient-to-r from-emerald-600 to-green-600 rounded-lg flex items-center justify-center">
               <FlaskConical className="w-5 h-5 text-white" />
             </div>
             Join the Beta Waitlist
@@ -103,7 +103,7 @@ export default function BetaSignupModal({ isOpen, onClose, onSuccess }) {
               <Button 
                 type="submit" 
                 disabled={isSubmitting || !email}
-                className="flex-1 bg-indigo-600 hover:bg-indigo-700"
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700"
               >
                 {isSubmitting ? (
                   <>

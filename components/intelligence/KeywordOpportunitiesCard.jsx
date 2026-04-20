@@ -21,7 +21,7 @@ export default function KeywordOpportunitiesCard({ data }) {
                  <div className="flex justify-between items-start">
                     <div>
                         <CardTitle className="flex items-center gap-2 text-lg">
-                            <Search className="w-5 h-5 text-purple-500" />
+                            <Search className="w-5 h-5 text-green-500" />
                             Keyword Opportunities
                         </CardTitle>
                         <p className="text-sm text-slate-500 mt-1">for "{data.category}"</p>
@@ -51,7 +51,7 @@ export default function KeywordOpportunitiesCard({ data }) {
             </CardContent>
             <CardFooter>
                  <Button 
-                    className="w-full bg-indigo-600 hover:bg-indigo-700"
+                    className="w-full bg-emerald-600 hover:bg-emerald-700"
                     onClick={() => navigate(createPageUrl('Commands?prompt=' + encodeURIComponent(`Update SEO for my ${data.category} products using these keywords: ${data.trending_keywords?.map(k=>k.keyword).join(', ')}`)))}
                 >
                     <Sparkles className="w-4 h-4 mr-2" />

@@ -37,8 +37,8 @@ export default function PricingActionModal({ isOpen, onClose, pricingResult, onA
                             <span className="absolute -top-2 -right-3">
                                 <Sparkles className="w-5 h-5 text-yellow-400 fill-yellow-300" />
                             </span>
-                            <p className="text-sm text-indigo-600">Suggested Price</p>
-                            <p className="text-2xl font-bold text-indigo-700">${suggested_price.toFixed(2)}</p>
+                            <p className="text-sm text-emerald-600">Suggested Price</p>
+                            <p className="text-2xl font-bold text-emerald-700">${suggested_price.toFixed(2)}</p>
                         </div>
                     </div>
 

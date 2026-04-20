@@ -15,7 +15,7 @@ import { User } from '@/lib/entities';
 const ActionCard = ({ title, description, icon: Icon, onClick, variant = "default", badge = null }) => {
     const variants = {
         default: "bg-white hover:bg-slate-50 border-slate-200",
-        primary: "bg-indigo-50 hover:bg-indigo-100 border-indigo-200", 
+        primary: "bg-emerald-50 hover:bg-emerald-100 border-emerald-200", 
         success: "bg-green-50 hover:bg-green-100 border-green-200",
         warning: "bg-amber-50 hover:bg-amber-100 border-amber-200"
     };
@@ -28,7 +28,7 @@ const ActionCard = ({ title, description, icon: Icon, onClick, variant = "defaul
             <CardContent className="p-4">
                 <div className="flex items-center gap-3">
                     <div className="p-2 rounded-lg bg-white/80 group-hover:bg-white transition-colors">
-                        <Icon className="w-5 h-5 text-indigo-600" />
+                        <Icon className="w-5 h-5 text-emerald-600" />
                     </div>
                     <div className="flex-1">
                         <div className="flex items-center gap-2">
@@ -162,7 +162,7 @@ export default function QuickActionsHub({ products, orders, platforms }) {
             <CardHeader className="p-0 pb-3">
                 <div className="flex items-center justify-between">
                     <CardTitle className="flex items-center gap-2 sm:gap-3 text-lg sm:text-xl">
-                        <Sparkles className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-600" />
+                        <Sparkles className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-600" />
                         Quick Actions
                     </CardTitle>
                 </div>

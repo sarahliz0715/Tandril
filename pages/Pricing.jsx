@@ -83,9 +83,9 @@ const PlanCard = ({ plan, onSelect, isLoading, currentTier }) => {
     const isThisPlanLoading = isLoading;
     
     return (
-        <Card className={`flex flex-col ${plan.isPopular ? 'border-indigo-500 border-2 shadow-lg scale-105' : 'shadow-md'} ${plan.isFree ? 'border-green-500 border-2' : ''}`}>
+        <Card className={`flex flex-col ${plan.isPopular ? 'border-emerald-500 border-2 shadow-lg scale-105' : 'shadow-md'} ${plan.isFree ? 'border-green-500 border-2' : ''}`}>
             {plan.isPopular && (
-                <div className="bg-indigo-500 text-white text-xs font-bold uppercase tracking-wider text-center py-1.5 rounded-t-lg">
+                <div className="bg-emerald-500 text-white text-xs font-bold uppercase tracking-wider text-center py-1.5 rounded-t-lg">
                     Most Popular
                 </div>
             )}
@@ -322,7 +322,7 @@ export default function Pricing() {
                             </p>
                         </div>
                         <p className="text-slate-500 text-sm">
-                            Need help choosing? <a href="mailto:evensonsarah704@gmail.com?subject=Tandril Plan Inquiry" className="text-indigo-600 hover:underline">Contact our team</a>
+                            Need help choosing? <a href="mailto:evensonsarah704@gmail.com?subject=Tandril Plan Inquiry" className="text-emerald-600 hover:underline">Contact our team</a>
                         </p>
                     </div>
                 </div>

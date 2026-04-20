@@ -66,7 +66,7 @@ export default function AutomationStatus() {
             <CardHeader>
                 <div className="flex items-center justify-between">
                     <CardTitle className="flex items-center gap-2">
-                        <Zap className="w-5 h-5 text-indigo-600" />
+                        <Zap className="w-5 h-5 text-emerald-600" />
                         Active Automations
                     </CardTitle>
                     <Button
@@ -88,11 +88,11 @@ export default function AutomationStatus() {
                         </div>
                         <div className="text-xs text-green-600 font-medium">Active</div>
                     </div>
-                    <div className="text-center p-3 bg-indigo-50 rounded-lg border border-indigo-200">
-                        <div className="text-2xl font-bold text-indigo-600">
+                    <div className="text-center p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                        <div className="text-2xl font-bold text-emerald-600">
                             {stats.total}
                         </div>
-                        <div className="text-xs text-indigo-600 font-medium">Total</div>
+                        <div className="text-xs text-emerald-600 font-medium">Total</div>
                     </div>
                     <div className="text-center p-3 bg-blue-50 rounded-lg border border-blue-200">
                         <div className="text-2xl font-bold text-blue-600">
@@ -150,7 +150,7 @@ export default function AutomationStatus() {
                         <Button
                             size="sm"
                             onClick={() => navigate(createPageUrl('AutomationMarketplace'))}
-                            className="bg-indigo-600 hover:bg-indigo-700"
+                            className="bg-emerald-600 hover:bg-emerald-700"
                         >
                             Browse Templates
                         </Button>

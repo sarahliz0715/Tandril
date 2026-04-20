@@ -73,7 +73,7 @@ const BulkActionPanel = ({ selectedCount, onAction }) => {
     if (selectedCount === 0) return null;
 
     return (
-        <Card className="bg-indigo-50 border-indigo-200">
+        <Card className="bg-emerald-50 border-emerald-200">
             <CardHeader>
                 <CardTitle className="text-lg">Bulk Actions ({selectedCount} selected)</CardTitle>
             </CardHeader>
@@ -94,7 +94,7 @@ const BulkActionPanel = ({ selectedCount, onAction }) => {
                         value={value}
                         onChange={e => setValue(e.target.value)}
                     />
-                    <Button onClick={handleApply} className="bg-indigo-600 hover:bg-indigo-700">
+                    <Button onClick={handleApply} className="bg-emerald-600 hover:bg-emerald-700">
                         Apply to Selected
                     </Button>
                 </div>

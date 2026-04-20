@@ -86,7 +86,7 @@ export default function CreateWorkflowModal({ onClose, onSuccess }) {
             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
-                        <Zap className="w-5 h-5 text-indigo-600" />
+                        <Zap className="w-5 h-5 text-emerald-600" />
                         Create New Workflow
                     </DialogTitle>
                     <DialogDescription>

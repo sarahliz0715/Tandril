@@ -35,7 +35,7 @@ export default function KeyMetrics({ metrics, timeRange }) {
                 value={formatCurrency(metrics.aov.value)}
                 growth={metrics.aov.growth}
                 icon={TrendingUp}
-                iconColor="text-purple-500"
+                iconColor="text-green-500"
                 timeRange={timeRange}
             />
             <MetricCard 

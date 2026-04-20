@@ -7,7 +7,7 @@ import { createPageUrl } from '@/utils';
 
 const CommandExample = ({ command, description }) => (
     <div className="p-3 my-4 border rounded-lg bg-slate-50 not-prose">
-        <code className="text-sm font-semibold text-indigo-700">{command}</code>
+        <code className="text-sm font-semibold text-emerald-700">{command}</code>
         <p className="text-xs text-slate-500 mt-1">{description}</p>
     </div>
 );
@@ -76,8 +76,8 @@ export default function Capabilities() {
             Print / Save as PDF
           </Button>
 
-          <div className="inline-block p-4 bg-indigo-100 rounded-full mb-4 ring-8 ring-indigo-50">
-            <Rocket className="w-12 h-12 text-indigo-600" />
+          <div className="inline-block p-4 bg-emerald-100 rounded-full mb-4 ring-8 ring-emerald-50">
+            <Rocket className="w-12 h-12 text-emerald-600" />
           </div>
           <h1 className="text-4xl sm:text-5xl font-bold text-slate-900">Tandril Capabilities Guide</h1>
           <p className="mt-4 text-lg sm:text-xl text-slate-600 max-w-2xl mx-auto">
@@ -88,11 +88,11 @@ export default function Capabilities() {
 
         <Card className="bg-white/90 backdrop-blur-sm shadow-xl border-slate-200/60">
           <CardContent className="p-6 sm:p-8 lg:p-10">
-            <div className="prose prose-lg max-w-none text-slate-700 prose-headings:text-slate-800 prose-h2:border-b prose-h2:pb-2 prose-h3:text-slate-700 prose-a:text-indigo-600 prose-a:font-semibold hover:prose-a:underline">
+            <div className="prose prose-lg max-w-none text-slate-700 prose-headings:text-slate-800 prose-h2:border-b prose-h2:pb-2 prose-h3:text-slate-700 prose-a:text-emerald-600 prose-a:font-semibold hover:prose-a:underline">
               
               {/* AI Command Center */}
               <h2 className="flex items-center gap-2">
-                <Zap className="w-6 h-6 text-indigo-600" />
+                <Zap className="w-6 h-6 text-emerald-600" />
                 AI Command Center
               </h2>
               <p>The heart of Tandril - your natural language interface to control your entire e-commerce operation.</p>
@@ -108,7 +108,7 @@ export default function Capabilities() {
 
               {/* Orion - AI Business Advisor */}
               <h2 className="flex items-center gap-2">
-                <MessageSquare className="w-6 h-6 text-purple-600" />
+                <MessageSquare className="w-6 h-6 text-green-600" />
                 Orion - Your AI Business Advisor
               </h2>
               <p>More than just task automation - Orion is your strategic partner for growth.</p>

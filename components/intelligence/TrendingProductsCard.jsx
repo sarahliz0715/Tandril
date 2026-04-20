@@ -39,7 +39,7 @@ export default function TrendingProductsCard({ data }) {
             </CardContent>
             <CardFooter>
                  <Button 
-                    className="w-full bg-indigo-600 hover:bg-indigo-700" 
+                    className="w-full bg-emerald-600 hover:bg-emerald-700" 
                     onClick={() => navigate(createPageUrl('Commands?prompt=' + encodeURIComponent(`Create a new product listing inspired by trending items in ${data.category}`)))}
                 >
                     <Sparkles className="w-4 h-4 mr-2" />

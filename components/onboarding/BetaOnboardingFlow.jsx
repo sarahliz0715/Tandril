@@ -303,7 +303,7 @@ Return JSON with:
     // Step 1: Mode Selection
     if (currentStep === 1) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center p-4">
+            <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-green-50 flex items-center justify-center p-4">
                 <Card className="w-full max-w-2xl">
                     <CardHeader className="text-center">
                         <div className="mb-4 flex justify-center">
@@ -325,7 +325,7 @@ Return JSON with:
 
                         <div className="grid md:grid-cols-2 gap-4">
                             <Card 
-                                className="cursor-pointer hover:shadow-lg transition-all border-2 hover:border-indigo-400"
+                                className="cursor-pointer hover:shadow-lg transition-all border-2 hover:border-emerald-400"
                                 onClick={() => handleModeSelection('demo')}
                             >
                                 <CardContent className="p-6 text-center">
@@ -373,7 +373,7 @@ Return JSON with:
     // Step 2: Connect Shopify
     if (currentStep === 2) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center p-4">
+            <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-green-50 flex items-center justify-center p-4">
                 <Card className="w-full max-w-2xl">
                     <CardHeader>
                         <div className="flex items-center gap-4 mb-4">
@@ -385,7 +385,7 @@ Return JSON with:
                         </div>
                     </CardHeader>
                     <CardContent className="space-y-6">
-                        <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-6">
+                        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-6">
                             <p className="text-slate-700 text-lg mb-4">
                                 Let's connect your e-commerce platform so I can help optimize your business and automate tedious tasks.
                             </p>
@@ -418,12 +418,12 @@ Return JSON with:
     // Step 3: Syncing
     if (currentStep === 3) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center p-4">
+            <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-green-50 flex items-center justify-center p-4">
                 <Card className="w-full max-w-2xl">
                     <CardContent className="p-12 text-center">
                         {syncInProgress && (
                             <>
-                                <Loader2 className="w-16 h-16 text-indigo-600 animate-spin mx-auto mb-6" />
+                                <Loader2 className="w-16 h-16 text-emerald-600 animate-spin mx-auto mb-6" />
                                 <h2 className="text-2xl font-bold text-slate-900 mb-3">
                                     Analyzing Your Store...
                                 </h2>
@@ -456,7 +456,7 @@ Return JSON with:
     // Step 4: Chat with Orion
     if (currentStep === 4) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center p-4">
+            <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-green-50 flex items-center justify-center p-4">
                 <Card className="w-full max-w-2xl">
                     <CardHeader>
                         <div className="flex items-center gap-4">
@@ -468,7 +468,7 @@ Return JSON with:
                         </div>
                     </CardHeader>
                     <CardContent className="space-y-6">
-                        <div className="bg-purple-50 border border-purple-200 rounded-lg p-6">
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-6">
                             <p className="text-slate-700 text-lg font-medium mb-4">
                                 What's your biggest challenge with managing your Shopify store?
                             </p>
@@ -486,7 +486,7 @@ Return JSON with:
 
                         <Button 
                             onClick={handleChallengeSubmit}
-                            className="w-full bg-indigo-600 hover:bg-indigo-700"
+                            className="w-full bg-emerald-600 hover:bg-emerald-700"
                             size="lg"
                             disabled={isAnalyzing || !userChallenge.trim()}
                         >
@@ -511,7 +511,7 @@ Return JSON with:
     // Step 4.5: Workflow Suggestion
     if (currentStep === 4.5) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 p-4 overflow-y-auto">
+            <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-green-50 p-4 overflow-y-auto">
                 <div className="max-w-4xl mx-auto py-8">
                     <Card className="mb-6">
                         <CardHeader>
@@ -523,7 +523,7 @@ Return JSON with:
                             </div>
                         </CardHeader>
                         <CardContent>
-                            <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-6 mb-6">
+                            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-6 mb-6">
                                 <p className="text-slate-700 text-lg">
                                     {orionResponse}
                                 </p>
@@ -538,7 +538,7 @@ Return JSON with:
                                     <Card 
                                         className={`cursor-pointer transition-all border-2 ${
                                             selectedWorkflow?.id === suggestedWorkflow.id 
-                                                ? 'border-indigo-500 shadow-lg' 
+                                                ? 'border-emerald-500 shadow-lg' 
                                                 : 'border-amber-300 hover:border-amber-400'
                                         }`}
                                         onClick={() => handleWorkflowSelection(suggestedWorkflow)}
@@ -574,15 +574,15 @@ Return JSON with:
                                             key={workflow.id}
                                             className={`cursor-pointer transition-all border hover:shadow-md ${
                                                 selectedWorkflow?.id === workflow.id 
-                                                    ? 'border-indigo-500 shadow-lg' 
+                                                    ? 'border-emerald-500 shadow-lg' 
                                                     : 'border-slate-200'
                                             }`}
                                             onClick={() => handleWorkflowSelection(workflow)}
                                         >
                                             <CardContent className="p-4">
                                                 <div className="flex items-start gap-3">
-                                                    <div className="p-2 bg-indigo-50 rounded-lg">
-                                                        <workflow.icon className="w-5 h-5 text-indigo-600" />
+                                                    <div className="p-2 bg-emerald-50 rounded-lg">
+                                                        <workflow.icon className="w-5 h-5 text-emerald-600" />
                                                     </div>
                                                     <div className="flex-1 min-w-0">
                                                         <h4 className="font-semibold text-sm text-slate-900 mb-1">
@@ -605,7 +605,7 @@ Return JSON with:
                             <div className="flex gap-3">
                                 <Button 
                                     onClick={handleCreateWorkflow}
-                                    className="flex-1 bg-indigo-600 hover:bg-indigo-700"
+                                    className="flex-1 bg-emerald-600 hover:bg-emerald-700"
                                     size="lg"
                                     disabled={!selectedWorkflow || isCreatingWorkflow}
                                 >
@@ -639,7 +639,7 @@ Return JSON with:
     // Step 5: Complete
     if (currentStep === 5) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center p-4">
+            <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-green-50 flex items-center justify-center p-4">
                 <Card className="w-full max-w-2xl">
                     <CardContent className="p-12 text-center">
                         <div className="mb-6 flex justify-center">
@@ -658,21 +658,21 @@ Return JSON with:
 
                         <div className="grid md:grid-cols-3 gap-4 mb-8">
                             <div className="bg-white border border-slate-200 rounded-lg p-4">
-                                <MessageSquare className="w-8 h-8 text-indigo-600 mx-auto mb-3" />
+                                <MessageSquare className="w-8 h-8 text-emerald-600 mx-auto mb-3" />
                                 <h4 className="font-semibold text-slate-900 mb-2">Chat with Orion</h4>
                                 <p className="text-sm text-slate-600">
                                     Ask questions and get business advice
                                 </p>
                             </div>
                             <div className="bg-white border border-slate-200 rounded-lg p-4">
-                                <Zap className="w-8 h-8 text-indigo-600 mx-auto mb-3" />
+                                <Zap className="w-8 h-8 text-emerald-600 mx-auto mb-3" />
                                 <h4 className="font-semibold text-slate-900 mb-2">Run Commands</h4>
                                 <p className="text-sm text-slate-600">
                                     Tell Orion what to do in plain English
                                 </p>
                             </div>
                             <div className="bg-white border border-slate-200 rounded-lg p-4">
-                                <BarChart className="w-8 h-8 text-indigo-600 mx-auto mb-3" />
+                                <BarChart className="w-8 h-8 text-emerald-600 mx-auto mb-3" />
                                 <h4 className="font-semibold text-slate-900 mb-2">View Analytics</h4>
                                 <p className="text-sm text-slate-600">
                                     See insights about your business
@@ -682,7 +682,7 @@ Return JSON with:
 
                         <Button 
                             onClick={handleComplete}
-                            className="bg-indigo-600 hover:bg-indigo-700"
+                            className="bg-emerald-600 hover:bg-emerald-700"
                             size="lg"
                         >
                             Go to Dashboard

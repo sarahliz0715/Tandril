@@ -33,7 +33,7 @@ const FILE_TYPES = [
     icon: Package,
     description: 'Process refunds, updates, and tracking in bulk',
     acceptedFormats: '.csv,.xlsx,.xls',
-    color: 'from-purple-500 to-purple-600'
+    color: 'from-green-500 to-green-600'
   },
   {
     id: 'supplier_catalog',

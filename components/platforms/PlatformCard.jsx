@@ -237,7 +237,7 @@ export default function PlatformCard({
     <Card className="flex flex-col h-full bg-white/80 backdrop-blur-sm shadow-lg transition-all duration-200 hover:shadow-xl">
       <CardHeader className="flex flex-row items-start justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-md">
+          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center shadow-md">
             <PlatformIcon className="w-6 h-6 text-white" />
           </div>
           <div>
@@ -263,8 +263,8 @@ export default function PlatformCard({
             </div>
         )}
         {isComingSoon && isBeta && (
-          <div className="mt-4 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
-            <p className="text-xs text-indigo-700">
+          <div className="mt-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+            <p className="text-xs text-emerald-700">
               🚀 This platform will be available when we launch the full version. Focusing on Shopify for beta!
             </p>
           </div>

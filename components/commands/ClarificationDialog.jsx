@@ -104,12 +104,12 @@ export default function ClarificationDialog({ isOpen, onClose, clarificationData
 
           {/* Suggestions */}
           {suggestions && suggestions.length > 0 && (
-            <div className="p-3 rounded-lg bg-purple-50 border border-purple-200">
+            <div className="p-3 rounded-lg bg-green-50 border border-green-200">
               <div className="flex items-start gap-2">
-                <Lightbulb className="w-4 h-4 text-purple-600 mt-0.5" />
+                <Lightbulb className="w-4 h-4 text-green-600 mt-0.5" />
                 <div className="flex-1">
-                  <p className="text-xs font-medium text-purple-900 mb-1">Suggestions:</p>
-                  <ul className="text-xs text-purple-700 space-y-1">
+                  <p className="text-xs font-medium text-green-900 mb-1">Suggestions:</p>
+                  <ul className="text-xs text-green-700 space-y-1">
                     {suggestions.map((suggestion, idx) => (
                       <li key={idx}>• {suggestion}</li>
                     ))}

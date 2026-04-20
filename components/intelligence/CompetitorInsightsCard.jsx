@@ -55,7 +55,7 @@ export default function CompetitorInsightsCard({ data }) {
             </CardContent>
             <CardFooter>
                 <Button 
-                    className="w-full bg-indigo-600 hover:bg-indigo-700"
+                    className="w-full bg-emerald-600 hover:bg-emerald-700"
                     onClick={() => navigate(createPageUrl('Commands?prompt=' + encodeURIComponent(`Exploit market gaps in ${data.category} based on competitor analysis`)))}
                 >
                     <Target className="w-4 h-4 mr-2" />

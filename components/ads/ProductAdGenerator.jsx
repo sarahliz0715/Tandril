@@ -88,7 +88,7 @@ export default function ProductAdGenerator({ isOpen, onClose, products, campaign
             <DialogContent className="max-w-4xl">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
-                        <Wand2 className="w-5 h-5 text-indigo-600" />
+                        <Wand2 className="w-5 h-5 text-emerald-600" />
                         AI Ad Generator
                     </DialogTitle>
                     <DialogDescription>

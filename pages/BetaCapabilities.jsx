@@ -8,7 +8,7 @@ import { createPageUrl } from '@/utils';
 
 const CommandExample = ({ command, description }) => (
     <div className="p-3 my-4 border rounded-lg bg-slate-50 not-prose">
-        <code className="text-sm font-semibold text-indigo-700">{command}</code>
+        <code className="text-sm font-semibold text-emerald-700">{command}</code>
         <p className="text-xs text-slate-500 mt-1">{description}</p>
     </div>
 );
@@ -77,8 +77,8 @@ export default function BetaCapabilities() {
             Print / Save as PDF
           </Button>
 
-          <div className="inline-block p-4 bg-purple-100 rounded-full mb-4 ring-8 ring-purple-50">
-            <FlaskConical className="w-12 h-12 text-purple-600" />
+          <div className="inline-block p-4 bg-green-100 rounded-full mb-4 ring-8 ring-green-50">
+            <FlaskConical className="w-12 h-12 text-green-600" />
           </div>
           <h1 className="text-4xl sm:text-5xl font-bold text-slate-900">Tandril Beta - Shopify Focus</h1>
           <p className="mt-4 text-lg sm:text-xl text-slate-600 max-w-2xl mx-auto">
@@ -88,17 +88,17 @@ export default function BetaCapabilities() {
         </header>
 
         {/* Beta Notice */}
-        <Alert className="mb-6 border-purple-200 bg-purple-50">
-          <FlaskConical className="h-4 w-4 text-purple-600" />
-          <AlertTitle className="text-purple-900">You're a Beta Tester!</AlertTitle>
-          <AlertDescription className="text-purple-700">
+        <Alert className="mb-6 border-green-200 bg-green-50">
+          <FlaskConical className="h-4 w-4 text-green-600" />
+          <AlertTitle className="text-green-900">You're a Beta Tester!</AlertTitle>
+          <AlertDescription className="text-green-700">
             This guide covers features available in the current beta. We're focused on perfecting Shopify integration before expanding to other platforms. Your feedback shapes our development priorities!
           </AlertDescription>
         </Alert>
 
         <Card className="bg-white/90 backdrop-blur-sm shadow-xl border-slate-200/60">
           <CardContent className="p-6 sm:p-8 lg:p-10">
-            <div className="prose prose-lg max-w-none text-slate-700 prose-headings:text-slate-800 prose-h2:border-b prose-h2:pb-2 prose-h3:text-slate-700 prose-a:text-indigo-600 prose-a:font-semibold hover:prose-a:underline">
+            <div className="prose prose-lg max-w-none text-slate-700 prose-headings:text-slate-800 prose-h2:border-b prose-h2:pb-2 prose-h3:text-slate-700 prose-a:text-emerald-600 prose-a:font-semibold hover:prose-a:underline">
               
               {/* What's Available in Beta */}
               <h2 className="flex items-center gap-2">
@@ -120,7 +120,7 @@ export default function BetaCapabilities() {
 
               {/* Orion - Your AI Business Partner */}
               <h2 className="flex items-center gap-2">
-                <MessageSquare className="w-6 h-6 text-purple-600" />
+                <MessageSquare className="w-6 h-6 text-green-600" />
                 Orion - Your AI Business Partner
               </h2>
               <p>Orion is your strategic advisor who knows your business and helps you make better decisions.</p>
@@ -137,7 +137,7 @@ export default function BetaCapabilities() {
 
               {/* AI Command Center */}
               <h2 className="flex items-center gap-2">
-                <Zap className="w-6 h-6 text-indigo-600" />
+                <Zap className="w-6 h-6 text-emerald-600" />
                 AI Command Center
               </h2>
               <p>Control your Shopify store with natural language commands. No more clicking through endless menus!</p>
@@ -312,31 +312,31 @@ export default function BetaCapabilities() {
 
               {/* Support & Feedback */}
               <div className="mt-12 not-prose">
-                <Card className="bg-purple-50 border-purple-200">
+                <Card className="bg-green-50 border-green-200">
                     <CardHeader className="flex flex-row items-center gap-4">
-                        <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                            <LifeBuoy className="w-7 h-7 text-purple-600" />
+                        <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                            <LifeBuoy className="w-7 h-7 text-green-600" />
                         </div>
                         <CardTitle className="text-xl font-bold text-slate-800">Beta Support & Feedback</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <p className="text-purple-800 mb-4">
+                        <p className="text-green-800 mb-4">
                             As a beta tester, you have direct access to our development team. Your input is invaluable and directly shapes the product roadmap.
                         </p>
                         <div className="space-y-2">
-                            <div className="text-purple-800">
+                            <div className="text-green-800">
                                 <strong>📧 Priority Email:</strong> <a href="mailto:evensonsarah704@gmail.com?subject=Tandril Beta Priority Support" className="underline">evensonsarah704@gmail.com</a>
                             </div>
-                            <div className="text-purple-800">
+                            <div className="text-green-800">
                                 <strong>💬 AI Advisor:</strong> Ask Orion for help or troubleshooting
                             </div>
-                            <div className="text-purple-800">
+                            <div className="text-green-800">
                                 <strong>📝 Feedback:</strong>{' '}
                                 <a href="mailto:evensonsarah704@gmail.com?subject=Tandril Beta Feedback&body=Hi Sarah,%0A%0AHere is my feedback:%0A%0A" className="underline">
                                     Share detailed feedback here
                                 </a>
                             </div>
-                            <div className="text-purple-800">
+                            <div className="text-green-800">
                                 <strong>🐛 Bug Reports:</strong> Email with subject line "BUG REPORT" for fastest response
                             </div>
                         </div>

@@ -291,10 +291,10 @@ export default function Intelligence() {
       </div>
 
       {/* Niche Selection Section */}
-      <Card className="bg-gradient-to-r from-indigo-50 to-purple-50 border-indigo-200">
+      <Card className="bg-gradient-to-r from-emerald-50 to-green-50 border-emerald-200">
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
-            <Target className="w-5 h-5 text-indigo-600" />
+            <Target className="w-5 h-5 text-emerald-600" />
             Selected Niches ({selectedNiches.length})
           </CardTitle>
         </CardHeader>
@@ -305,7 +305,7 @@ export default function Intelligence() {
               {selectedNiches.map((niche, index) => (
                 <Badge 
                   key={index}
-                  className="px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-700 flex items-center gap-2"
+                  className="px-3 py-1.5 text-sm bg-emerald-600 hover:bg-emerald-700 flex items-center gap-2"
                 >
                   {niche}
                   <button
@@ -381,7 +381,7 @@ export default function Intelligence() {
               </div>
 
               {/* Save to Profile Button */}
-              <div className="flex gap-2 pt-2 border-t border-indigo-200">
+              <div className="flex gap-2 pt-2 border-t border-emerald-200">
                 <Button onClick={handleSaveNichesToProfile} size="sm">
                   <Sparkles className="w-4 h-4 mr-2" />
                   Save Selected Niches to Profile
@@ -396,7 +396,7 @@ export default function Intelligence() {
               </div>
 
               <Alert className="bg-white/50">
-                <Info className="h-4 w-4 text-indigo-600" />
+                <Info className="h-4 w-4 text-emerald-600" />
                 <AlertDescription className="text-slate-700">
                   <strong>Tip:</strong> Be specific! Instead of "clothing," try "sustainable athletic wear" or "vintage band t-shirts" for better insights.
                 </AlertDescription>

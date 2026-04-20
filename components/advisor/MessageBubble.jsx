@@ -19,7 +19,7 @@ export default function MessageBubble({ message }) {
                 {message.content && (
                     <div className={cn(
                         "rounded-2xl px-4 py-2.5 shadow-sm break-words overflow-hidden",
-                        isUser ? "bg-indigo-600 text-white rounded-br-lg" : "bg-white border border-slate-200 rounded-bl-lg"
+                        isUser ? "bg-emerald-600 text-white rounded-br-lg" : "bg-white border border-slate-200 rounded-bl-lg"
                     )}>
                         {isUser ? (
                             <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{message.content}</p>
@@ -55,7 +55,7 @@ export default function MessageBubble({ message }) {
                                         );
                                     },
                                     a: ({ children, ...props }) => (
-                                        <a {...props} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline break-all">{children}</a>
+                                        <a {...props} target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline break-all">{children}</a>
                                     ),
                                     p: ({ children }) => <p className="my-1 leading-snug break-words">{children}</p>,
                                     ul: ({ children }) => <ul className="my-1 ml-4 list-disc space-y-0.5">{children}</ul>,

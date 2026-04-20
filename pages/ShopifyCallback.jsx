@@ -134,7 +134,7 @@ export default function ShopifyCallback() {
                 <CardContent className="space-y-4">
                     {status === 'processing' && (
                         <div className="flex flex-col items-center gap-4 py-6">
-                            <Loader2 className="w-12 h-12 text-indigo-600 animate-spin" />
+                            <Loader2 className="w-12 h-12 text-emerald-600 animate-spin" />
                             <p className="text-slate-700 text-center">{message}</p>
                         </div>
                     )}

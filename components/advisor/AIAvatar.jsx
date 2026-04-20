@@ -11,11 +11,11 @@ export default function AIAvatar({ isThinking, isSpeaking, size = 'md' }) {
 
     return (
         <div className={cn('relative rounded-full flex-shrink-0', sizeClasses[size])}>
-            <div className="rounded-full w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-400 to-indigo-600 border-2 border-white/50 shadow-lg">
+            <div className="rounded-full w-full h-full flex items-center justify-center bg-gradient-to-br from-green-400 to-emerald-600 border-2 border-white/50 shadow-lg">
                 <Bot className="w-1/2 h-1/2 text-white" />
             </div>
             {isThinking && (
-                <div className="absolute inset-0 rounded-full bg-indigo-500/30 animate-pulse flex items-center justify-center">
+                <div className="absolute inset-0 rounded-full bg-emerald-500/30 animate-pulse flex items-center justify-center">
                     <Bot className="w-1/2 h-1/2 text-white/70" />
                 </div>
             )}

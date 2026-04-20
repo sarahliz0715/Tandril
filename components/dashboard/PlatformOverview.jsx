@@ -70,7 +70,7 @@ export default function PlatformOverview() {
                     variant="ghost" 
                     size="sm"
                     onClick={() => navigate(createPageUrl('Platforms'))}
-                    className="text-indigo-600 hover:text-indigo-800"
+                    className="text-emerald-600 hover:text-emerald-800"
                 >
                     Manage <ArrowRight className="w-4 h-4 ml-1" />
                 </Button>
@@ -110,7 +110,7 @@ export default function PlatformOverview() {
                         <Button 
                             size="sm" 
                             onClick={() => navigate(createPageUrl('Platforms'))}
-                            className="bg-indigo-600 hover:bg-indigo-700"
+                            className="bg-emerald-600 hover:bg-emerald-700"
                         >
                             <Plus className="w-4 h-4 mr-2" />
                             Connect Platform

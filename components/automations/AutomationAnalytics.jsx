@@ -145,7 +145,7 @@ export default function AutomationAnalytics() {
     if (loading) {
         return (
             <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+                <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
             </div>
         );
     }
@@ -180,8 +180,8 @@ export default function AutomationAnalytics() {
                     label="Total Executions"
                     value={analytics.overview.totalRuns}
                     icon={Zap}
-                    color="text-indigo-600"
-                    bgColor="bg-indigo-100"
+                    color="text-emerald-600"
+                    bgColor="bg-emerald-100"
                 />
                 <StatCard
                     label="Success Rate"
@@ -203,8 +203,8 @@ export default function AutomationAnalytics() {
                     label="Avg Execution"
                     value={`${analytics.overview.avgExecutionTime}s`}
                     icon={TrendingUp}
-                    color="text-purple-600"
-                    bgColor="bg-purple-100"
+                    color="text-green-600"
+                    bgColor="bg-green-100"
                 />
             </div>
 
@@ -275,7 +275,7 @@ export default function AutomationAnalytics() {
                                     {analytics.topPerformers.map((auto, index) => (
                                         <div key={auto.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
                                             <div className="flex items-center gap-3">
-                                                <Badge className="bg-indigo-100 text-indigo-800">#{index + 1}</Badge>
+                                                <Badge className="bg-emerald-100 text-emerald-800">#{index + 1}</Badge>
                                                 <div>
                                                     <p className="font-medium text-sm">{auto.name}</p>
                                                     <p className="text-xs text-slate-500">{auto.runs} runs</p>

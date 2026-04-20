@@ -130,7 +130,7 @@ export default function Scratchpad() {
                                             </span>
                                             <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
                                                 <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleTogglePin(note)}>
-                                                    {note.is_pinned ? <PinOff className="w-4 h-4 text-indigo-600" /> : <Pin className="w-4 h-4 text-slate-500" />}
+                                                    {note.is_pinned ? <PinOff className="w-4 h-4 text-emerald-600" /> : <Pin className="w-4 h-4 text-slate-500" />}
                                                 </Button>
                                                 <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingNote(note)}>
                                                     <Edit className="w-4 h-4 text-slate-500" />

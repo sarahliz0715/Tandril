@@ -192,7 +192,7 @@ export default function MasterStrategist() {
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 className="w-12 h-12 text-purple-600 animate-spin" />
+          <Loader2 className="w-12 h-12 text-green-600 animate-spin" />
           <p className="text-lg font-medium text-slate-600">Loading Master Strategist...</p>
         </div>
       </div>
@@ -201,13 +201,13 @@ export default function MasterStrategist() {
 
   return (
     <>
-      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-indigo-50 p-4 sm:p-6">
+      <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-emerald-50 p-4 sm:p-6">
         <div className="max-w-7xl mx-auto">
           {/* Header */}
           <div className="mb-8">
             <div className="flex items-center gap-4 mb-4">
-              <div className="p-3 rounded-full bg-purple-100">
-                <Brain className="w-8 h-8 text-purple-600" />
+              <div className="p-3 rounded-full bg-green-100">
+                <Brain className="w-8 h-8 text-green-600" />
               </div>
               <div>
                 <h1 className="text-3xl sm:text-4xl font-bold text-slate-900">Master Strategist</h1>
@@ -216,7 +216,7 @@ export default function MasterStrategist() {
             </div>
             
             {!showNewStrategyForm && (
-              <Button onClick={() => setShowNewStrategyForm(true)} className="bg-purple-600 hover:bg-purple-700">
+              <Button onClick={() => setShowNewStrategyForm(true)} className="bg-green-600 hover:bg-green-700">
                 <Plus className="w-4 h-4 mr-2" />
                 Create New Strategy
               </Button>
@@ -228,7 +228,7 @@ export default function MasterStrategist() {
             <Card className="mb-8 bg-white/80 backdrop-blur-sm">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-purple-600" />
+                  <Sparkles className="w-5 h-5 text-green-600" />
                   Generate Business Strategy
                 </CardTitle>
                 <CardDescription>
@@ -284,7 +284,7 @@ export default function MasterStrategist() {
                   </div>
 
                   <div className="flex gap-3 pt-4">
-                    <Button type="submit" disabled={isGenerating} className="bg-purple-600 hover:bg-purple-700">
+                    <Button type="submit" disabled={isGenerating} className="bg-green-600 hover:bg-green-700">
                       {isGenerating ? (
                         <>
                           <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -403,7 +403,7 @@ export default function MasterStrategist() {
                       {strategy.strategy_phases && strategy.strategy_phases.length > 0 && (
                         <div>
                           <h4 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
-                            <Target className="w-5 h-5 text-purple-600" />
+                            <Target className="w-5 h-5 text-green-600" />
                             Strategic Phases
                           </h4>
                           <div className="grid gap-3">

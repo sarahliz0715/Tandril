@@ -116,7 +116,7 @@ export default function Login() {
                   <Label htmlFor="password">Password</Label>
                   <Link
                     to={createPageUrl('ForgotPassword')}
-                    className="text-sm text-indigo-600 hover:text-indigo-700"
+                    className="text-sm text-emerald-600 hover:text-emerald-700"
                   >
                     Forgot password?
                   </Link>
@@ -190,7 +190,7 @@ export default function Login() {
               Don't have an account?{' '}
               <Link
                 to={createPageUrl('Signup')}
-                className="font-medium text-indigo-600 hover:text-indigo-700"
+                className="font-medium text-emerald-600 hover:text-emerald-700"
               >
                 Sign up for free
               </Link>

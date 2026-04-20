@@ -72,7 +72,7 @@ export default function Settings() {
         return (
             <div className="flex items-center justify-center min-h-screen">
                 <div className="flex flex-col items-center gap-4">
-                    <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+                    <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
                     <p className="text-slate-600">Loading settings...</p>
                 </div>
             </div>
@@ -99,7 +99,7 @@ export default function Settings() {
             <div className="max-w-6xl mx-auto">
                 <div className="mb-8">
                     <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 flex items-center gap-3">
-                        <SettingsIcon className="w-8 h-8 sm:w-10 sm:h-10 text-indigo-600" />
+                        <SettingsIcon className="w-8 h-8 sm:w-10 sm:h-10 text-emerald-600" />
                         Settings
                     </h1>
                     <p className="mt-2 text-lg text-slate-600">

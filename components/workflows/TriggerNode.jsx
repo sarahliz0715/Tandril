@@ -29,7 +29,7 @@ export default function TriggerNode({ config, type, onUpdate }) {
         <Card className="bg-slate-50 border-slate-200 shadow-none">
             <CardHeader className="p-4">
                 <CardTitle className="text-base flex items-center gap-2">
-                    <Icon className="w-5 h-5 text-indigo-600" />
+                    <Icon className="w-5 h-5 text-emerald-600" />
                     Trigger: {label}
                 </CardTitle>
             </CardHeader>

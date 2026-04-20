@@ -24,7 +24,7 @@ const platformColors = {
     amazon_seller: 'bg-blue-100 text-blue-800',
     ebay: 'bg-yellow-100 text-yellow-800',
     facebook_shop: 'bg-blue-100 text-blue-800',
-    instagram_shop: 'bg-purple-100 text-purple-800'
+    instagram_shop: 'bg-green-100 text-green-800'
 };
 
 const priorityColors = {
@@ -127,7 +127,7 @@ export default function MessageCard({ message, onClick, isSelected = false, onRe
             <div 
                 className={`p-4 hover:bg-slate-50 cursor-pointer transition-colors border-l-4 ${
                     isSelected 
-                        ? 'bg-indigo-50 border-l-indigo-500' 
+                        ? 'bg-emerald-50 border-l-emerald-500' 
                         : message.status === 'new' 
                             ? 'border-l-blue-500' 
                             : 'border-l-transparent'
@@ -238,12 +238,12 @@ export default function MessageCard({ message, onClick, isSelected = false, onRe
                         </div>
                         
                         {message.ai_suggested_reply && !showReplyModal && (
-                            <div className="mt-3 p-3 bg-indigo-50 rounded-lg border border-indigo-200">
+                            <div className="mt-3 p-3 bg-emerald-50 rounded-lg border border-emerald-200">
                                 <div className="flex items-center gap-2 mb-2">
-                                    <Bot className="w-4 h-4 text-indigo-600" />
-                                    <span className="text-sm font-medium text-indigo-900">AI Suggested Reply</span>
+                                    <Bot className="w-4 h-4 text-emerald-600" />
+                                    <span className="text-sm font-medium text-emerald-900">AI Suggested Reply</span>
                                 </div>
-                                <p className="text-sm text-indigo-800">
+                                <p className="text-sm text-emerald-800">
                                     {truncateMessage(message.ai_suggested_reply, 100)}
                                 </p>
                             </div>
@@ -270,7 +270,7 @@ export default function MessageCard({ message, onClick, isSelected = false, onRe
                         {isGeneratingAI ? (
                             <div className="flex items-center justify-center py-8">
                                 <div className="text-center">
-                                    <Sparkles className="w-8 h-8 text-indigo-600 animate-pulse mx-auto mb-2" />
+                                    <Sparkles className="w-8 h-8 text-emerald-600 animate-pulse mx-auto mb-2" />
                                     <p className="text-sm text-slate-600">Generating AI response...</p>
                                 </div>
                             </div>

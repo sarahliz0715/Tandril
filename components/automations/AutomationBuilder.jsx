@@ -665,12 +665,12 @@ export default function AutomationBuilder({ automation, onSave }) {
                         const isExpanded = expandedAction === index;
 
                         return (
-                            <Card key={index} className="border-l-4 border-l-indigo-500">
+                            <Card key={index} className="border-l-4 border-l-emerald-500">
                                 <CardHeader className="pb-3">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-3">
                                             <Badge variant="outline">{index + 1}</Badge>
-                                            <Icon className="w-5 h-5 text-indigo-600" />
+                                            <Icon className="w-5 h-5 text-emerald-600" />
                                             <div>
                                                 <Select
                                                     value={action.action_type || ''}
@@ -726,7 +726,7 @@ export default function AutomationBuilder({ automation, onSave }) {
                 <Button variant="outline" onClick={() => window.history.back()}>
                     Cancel
                 </Button>
-                <Button onClick={handleSave} className="bg-indigo-600 hover:bg-indigo-700">
+                <Button onClick={handleSave} className="bg-emerald-600 hover:bg-emerald-700">
                     Save Automation
                 </Button>
             </div>

@@ -86,7 +86,7 @@ export default function ErrorRecoveryPanel({ automation, onUpdate }) {
                 {/* Enable/Disable */}
                 <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
                     <div className="flex items-center gap-3">
-                        <RefreshCw className="w-5 h-5 text-indigo-600" />
+                        <RefreshCw className="w-5 h-5 text-emerald-600" />
                         <div>
                             <Label className="text-base font-semibold">Enable Error Recovery</Label>
                             <p className="text-xs text-slate-600">
@@ -187,27 +187,27 @@ export default function ErrorRecoveryPanel({ automation, onUpdate }) {
                         )}
 
                         {/* Retry Timeline Preview */}
-                        <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-200">
-                            <h4 className="font-semibold text-indigo-900 text-sm mb-3 flex items-center gap-2">
+                        <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-200">
+                            <h4 className="font-semibold text-emerald-900 text-sm mb-3 flex items-center gap-2">
                                 <Clock className="w-4 h-4" />
                                 Retry Timeline Preview
                             </h4>
                             <div className="space-y-2">
                                 {delays.map((delay, index) => (
                                     <div key={index} className="flex items-center gap-3 text-xs">
-                                        <Badge className="bg-indigo-600 text-white w-20">
+                                        <Badge className="bg-emerald-600 text-white w-20">
                                             Attempt {index + 1}
                                         </Badge>
                                         <div className="flex items-center gap-2 flex-1">
-                                            <div className="h-1 bg-indigo-300 rounded-full" style={{ width: `${Math.min((delay / delays[delays.length - 1]) * 100, 100)}%` }} />
-                                            <span className="text-indigo-700 font-semibold">
+                                            <div className="h-1 bg-emerald-300 rounded-full" style={{ width: `${Math.min((delay / delays[delays.length - 1]) * 100, 100)}%` }} />
+                                            <span className="text-emerald-700 font-semibold">
                                                 {delay === 0 ? 'Immediate' : `Wait ${formatSeconds(delay)}`}
                                             </span>
                                         </div>
                                     </div>
                                 ))}
                             </div>
-                            <p className="text-xs text-indigo-700 mt-3">
+                            <p className="text-xs text-emerald-700 mt-3">
                                 Total time if all retries fail: {formatSeconds(delays.reduce((sum, d) => sum + d, 0))}
                             </p>
                         </div>
@@ -258,7 +258,7 @@ export default function ErrorRecoveryPanel({ automation, onUpdate }) {
                 {hasChanges && (
                     <Button
                         onClick={handleSave}
-                        className="w-full bg-indigo-600 hover:bg-indigo-700"
+                        className="w-full bg-emerald-600 hover:bg-emerald-700"
                     >
                         <Save className="w-4 h-4 mr-2" />
                         Save Error Recovery Settings

@@ -119,7 +119,7 @@ export default function CustomAlerts() {
         return (
             <div className="min-h-screen flex items-center justify-center">
                 <div className="text-center">
-                    <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mx-auto mb-4" />
+                    <Loader2 className="w-8 h-8 animate-spin text-emerald-600 mx-auto mb-4" />
                     <p className="text-slate-600">Loading custom alerts...</p>
                 </div>
             </div>
@@ -133,7 +133,7 @@ export default function CustomAlerts() {
                 <div className="flex items-center justify-between">
                     <div>
                         <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
-                            <Bell className="w-8 h-8 text-indigo-600" />
+                            <Bell className="w-8 h-8 text-emerald-600" />
                             Custom Alerts
                         </h1>
                         <p className="text-slate-600 mt-2">
@@ -145,7 +145,7 @@ export default function CustomAlerts() {
                             setEditingAlert(null);
                             setShowCreateModal(true);
                         }}
-                        className="bg-indigo-600 hover:bg-indigo-700"
+                        className="bg-emerald-600 hover:bg-emerald-700"
                     >
                         <Plus className="w-4 h-4 mr-2" />
                         Create Alert
@@ -170,7 +170,7 @@ export default function CustomAlerts() {
                                     <p className="text-sm text-slate-600">Total Alerts</p>
                                     <p className="text-2xl font-bold text-slate-900">{alerts.length}</p>
                                 </div>
-                                <Bell className="w-8 h-8 text-indigo-500" />
+                                <Bell className="w-8 h-8 text-emerald-500" />
                             </div>
                         </CardContent>
                     </Card>
@@ -305,12 +305,12 @@ function AlertCard({ alert, onToggle, onEdit, onDelete }) {
     };
 
     return (
-        <Card className={`transition-all ${alert.is_active ? 'border-indigo-200' : 'border-slate-200 opacity-75'}`}>
+        <Card className={`transition-all ${alert.is_active ? 'border-emerald-200' : 'border-slate-200 opacity-75'}`}>
             <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                     <div className="flex items-start gap-3 flex-1">
-                        <div className={`p-2 rounded-lg ${alert.is_active ? 'bg-indigo-100' : 'bg-slate-100'}`}>
-                            <Icon className={`w-5 h-5 ${alert.is_active ? 'text-indigo-600' : 'text-slate-400'}`} />
+                        <div className={`p-2 rounded-lg ${alert.is_active ? 'bg-emerald-100' : 'bg-slate-100'}`}>
+                            <Icon className={`w-5 h-5 ${alert.is_active ? 'text-emerald-600' : 'text-slate-400'}`} />
                         </div>
                         <div className="flex-1">
                             <CardTitle className="text-base mb-1">{alert.name}</CardTitle>

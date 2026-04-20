@@ -205,7 +205,7 @@ export default function Analytics() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+          <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
           <p className="text-slate-600">Loading analytics...</p>
         </div>
       </div>
@@ -219,7 +219,7 @@ export default function Analytics() {
         <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
-              <BarChart3 className="w-8 h-8 text-indigo-600" />
+              <BarChart3 className="w-8 h-8 text-emerald-600" />
               Analytics
             </h1>
             <p className="text-slate-600 mt-2">
@@ -257,7 +257,7 @@ export default function Analytics() {
         </div>
 
         {/* Key Metrics */}
-        <KeyMetrics metrics={metrics} />
+        <KeyMetrics metrics={metrics} timeRange={timeRange} />
 
         {/* Main Analytics Content */}
         {filteredOrders.length > 0 ? (

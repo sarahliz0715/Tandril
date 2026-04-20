@@ -321,7 +321,7 @@ export default function Platforms() {
         return (
             <div className="min-h-screen flex items-center justify-center p-6">
                 <div className="flex flex-col items-center gap-4">
-                    <Loader2 className="w-12 h-12 text-indigo-600 animate-spin" />
+                    <Loader2 className="w-12 h-12 text-emerald-600 animate-spin" />
                     <p className="text-lg font-medium text-slate-600">Loading platforms...</p>
                 </div>
             </div>
@@ -329,12 +329,12 @@ export default function Platforms() {
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 p-4 sm:p-6 lg:p-8">
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-emerald-50 p-4 sm:p-6 lg:p-8">
             <div className="max-w-7xl mx-auto">
                 {/* Header */}
                 <div className="mb-6">
                     <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 flex items-center gap-3 mb-2">
-                        <Briefcase className="w-8 h-8 sm:w-10 sm:h-10 text-indigo-600" />
+                        <Briefcase className="w-8 h-8 sm:w-10 sm:h-10 text-emerald-600" />
                         Platforms
                     </h1>
                     <p className="text-lg text-slate-600">
@@ -369,10 +369,10 @@ export default function Platforms() {
 
                 {/* Beta Banner */}
                 {hasBetaAccess && (
-                    <Alert className="mb-6 border-indigo-200 bg-indigo-50">
-                        <Sparkles className="h-4 w-4 text-indigo-600" />
-                        <AlertTitle className="text-indigo-900">Beta Version - Multi-Platform Access</AlertTitle>
-                        <AlertDescription className="text-indigo-700">
+                    <Alert className="mb-6 border-emerald-200 bg-emerald-50">
+                        <Sparkles className="h-4 w-4 text-emerald-600" />
+                        <AlertTitle className="text-emerald-900">Beta Version - Multi-Platform Access</AlertTitle>
+                        <AlertDescription className="text-emerald-700">
                             You now have access to Shopify, WooCommerce, BigCommerce, and Faire! Connect any of these platforms to get started.
                         </AlertDescription>
                     </Alert>
@@ -505,7 +505,7 @@ export default function Platforms() {
                 >
                     <div className="mb-8">
                         <h2 className="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
-                            <Plus className="w-6 h-6 text-indigo-600" />
+                            <Plus className="w-6 h-6 text-emerald-600" />
                             {hasBetaAccess ? 'Available & Coming Soon' : 'Connect New Platform'}
                         </h2>
                         
@@ -558,11 +558,11 @@ export default function Platforms() {
 
                 {/* Request Platform */}
                 {!hasBetaAccess && (
-                    <Card className="bg-gradient-to-r from-indigo-50 to-purple-50 border-indigo-200">
+                    <Card className="bg-gradient-to-r from-emerald-50 to-green-50 border-emerald-200">
                         <CardContent className="p-6">
                             <div className="flex items-start gap-4">
-                                <div className="p-3 bg-indigo-100 rounded-lg">
-                                    <Zap className="w-6 h-6 text-indigo-600" />
+                                <div className="p-3 bg-emerald-100 rounded-lg">
+                                    <Zap className="w-6 h-6 text-emerald-600" />
                                 </div>
                                 <div className="flex-1">
                                     <h3 className="text-lg font-semibold text-slate-900 mb-2">

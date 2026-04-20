@@ -8,13 +8,13 @@ import { createPageUrl } from '@/utils';
 const HubCard = ({ title, value, description, icon: Icon, iconColor, linkTo }) => {
     return (
         <Link to={linkTo} className="block group">
-            <Card className="bg-white/80 backdrop-blur-sm h-full transition-all duration-200 hover:shadow-xl hover:border-indigo-300 border-slate-200 border">
+            <Card className="bg-white/80 backdrop-blur-sm h-full transition-all duration-200 hover:shadow-xl hover:border-emerald-300 border-slate-200 border">
                 <div className="p-5">
                     <div className="flex items-center justify-between mb-4">
                         <div className={`p-2.5 rounded-lg ${iconColor}`}>
                             <Icon className="w-6 h-6 text-white" />
                         </div>
-                         <ArrowRight className="w-5 h-5 text-slate-400 group-hover:text-indigo-600 transition-colors" />
+                         <ArrowRight className="w-5 h-5 text-slate-400 group-hover:text-emerald-600 transition-colors" />
                     </div>
                     <div>
                         <h3 className="text-2xl font-bold text-slate-900">{value}</h3>
@@ -59,7 +59,7 @@ export default function AIHub({ stats }) {
                 value={stats.timeAutomated || '0 min'}
                 description={`${stats.automationsRun} task${stats.automationsRun !== 1 ? 's' : ''} completed by your AI agent`}
                 icon={Bot}
-                iconColor="bg-indigo-500"
+                iconColor="bg-emerald-500"
                 linkTo={createPageUrl('History')}
             />
         </div>

@@ -81,7 +81,7 @@ export default function SmartAlertsPanel({ onAlertAction }) {
             <Card className="bg-white/80 backdrop-blur-sm shadow-lg">
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                        <Sparkles className="w-5 h-5 text-purple-500" />
+                        <Sparkles className="w-5 h-5 text-green-500" />
                         Smart Alerts
                     </CardTitle>
                 </CardHeader>
@@ -99,7 +99,7 @@ export default function SmartAlertsPanel({ onAlertAction }) {
             <CardHeader>
                 <div className="flex items-center justify-between">
                     <CardTitle className="flex items-center gap-2">
-                        <Sparkles className="w-5 h-5 text-purple-500" />
+                        <Sparkles className="w-5 h-5 text-green-500" />
                         Smart Alerts
                         {alerts.length > 0 && (
                             <Badge variant="destructive">{alerts.length}</Badge>
@@ -130,7 +130,7 @@ export default function SmartAlertsPanel({ onAlertAction }) {
                                 className={`relative p-4 rounded-lg border transition-all duration-200 hover:shadow-md ${
                                     alert.alert_type === 'opportunity' ? 'bg-gradient-to-r from-yellow-50 to-orange-50 border-yellow-200' :
                                     alert.alert_type === 'critical' ? 'bg-gradient-to-r from-red-50 to-pink-50 border-red-200' :
-                                    'bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200'
+                                    'bg-gradient-to-r from-blue-50 to-emerald-50 border-blue-200'
                                 }`}
                             >
                                 <Button

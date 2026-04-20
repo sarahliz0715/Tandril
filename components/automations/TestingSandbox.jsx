@@ -115,7 +115,7 @@ export default function TestingSandbox({ automation }) {
         <Card>
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                    <TestTube className="w-5 h-5 text-indigo-600" />
+                    <TestTube className="w-5 h-5 text-emerald-600" />
                     Testing Sandbox
                 </CardTitle>
             </CardHeader>
@@ -173,7 +173,7 @@ export default function TestingSandbox({ automation }) {
                 <Button
                     onClick={handleRunTest}
                     disabled={isRunning || !automation.is_active}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700"
+                    className="w-full bg-emerald-600 hover:bg-emerald-700"
                 >
                     {isRunning ? (
                         <>

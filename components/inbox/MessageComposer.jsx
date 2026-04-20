@@ -146,19 +146,19 @@ export default function MessageComposer({ onClose, onSend }) {
 
                     {/* AI Assistance */}
                     {!useAIHelp ? (
-                        <div className="flex items-center justify-between p-3 bg-indigo-50 rounded-lg border border-indigo-200">
+                        <div className="flex items-center justify-between p-3 bg-emerald-50 rounded-lg border border-emerald-200">
                             <div className="flex items-center gap-2">
-                                <Bot className="w-5 h-5 text-indigo-600" />
-                                <span className="text-sm font-medium text-indigo-900">Need help writing your message?</span>
+                                <Bot className="w-5 h-5 text-emerald-600" />
+                                <span className="text-sm font-medium text-emerald-900">Need help writing your message?</span>
                             </div>
                             <Button size="sm" variant="outline" onClick={generateAISuggestions}>
                                 Get AI Suggestions
                             </Button>
                         </div>
                     ) : (
-                        <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200">
+                        <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
                             <div className="flex items-center justify-between mb-3">
-                                <span className="text-sm font-medium text-indigo-900">AI Suggestions</span>
+                                <span className="text-sm font-medium text-emerald-900">AI Suggestions</span>
                                 <Button size="sm" variant="ghost" onClick={() => setUseAIHelp(false)}>
                                     <X className="w-4 h-4" />
                                 </Button>
@@ -168,7 +168,7 @@ export default function MessageComposer({ onClose, onSend }) {
                                     <button
                                         key={index}
                                         type="button"
-                                        className="w-full text-left p-2 text-sm text-indigo-800 bg-white rounded border border-indigo-200 hover:bg-indigo-100 transition-colors"
+                                        className="w-full text-left p-2 text-sm text-emerald-800 bg-white rounded border border-emerald-200 hover:bg-emerald-100 transition-colors"
                                         onClick={() => insertSuggestion(suggestion)}
                                     >
                                         {suggestion}
@@ -209,7 +209,7 @@ export default function MessageComposer({ onClose, onSend }) {
                     <Button type="button" variant="outline" onClick={onClose}>
                         Cancel
                     </Button>
-                    <Button type="submit" onClick={handleSubmit} className="bg-indigo-600 hover:bg-indigo-700">
+                    <Button type="submit" onClick={handleSubmit} className="bg-emerald-600 hover:bg-emerald-700">
                         <Send className="w-4 h-4 mr-2" />
                         Send Message
                     </Button>

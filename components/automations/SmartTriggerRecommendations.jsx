@@ -99,7 +99,7 @@ export default function SmartTriggerRecommendations({ automationId, onApplyRecom
       <Card>
         <CardContent className="p-12">
           <div className="flex flex-col items-center gap-4">
-            <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
+            <Loader2 className="w-8 h-8 animate-spin text-green-600" />
             <p className="text-slate-600">Analyzing with AI...</p>
           </div>
         </CardContent>
@@ -124,10 +124,10 @@ export default function SmartTriggerRecommendations({ automationId, onApplyRecom
   return (
     <div className="space-y-4">
       {/* AI Analysis Header */}
-      <Card className="bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200">
+      <Card className="bg-gradient-to-r from-green-50 to-pink-50 border-green-200">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-purple-600" />
+            <Sparkles className="w-5 h-5 text-green-600" />
             AI-Powered Automation Intelligence
           </CardTitle>
         </CardHeader>
@@ -200,22 +200,22 @@ export default function SmartTriggerRecommendations({ automationId, onApplyRecom
                   {analysis.patterns_detected.map((pattern, idx) => (
                     <div
                       key={idx}
-                      className="p-3 rounded-lg bg-purple-50 border border-purple-200"
+                      className="p-3 rounded-lg bg-green-50 border border-green-200"
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          <p className="text-sm font-medium text-purple-900">{pattern.pattern}</p>
+                          <p className="text-sm font-medium text-green-900">{pattern.pattern}</p>
                           {pattern.recommendation && (
-                            <p className="text-xs text-purple-700 mt-1">{pattern.recommendation}</p>
+                            <p className="text-xs text-green-700 mt-1">{pattern.recommendation}</p>
                           )}
                         </div>
                         <Badge
                           className={
                             pattern.strength === 'strong'
-                              ? 'bg-purple-600 text-white'
+                              ? 'bg-green-600 text-white'
                               : pattern.strength === 'moderate'
-                              ? 'bg-purple-400 text-white'
-                              : 'bg-purple-200 text-purple-800'
+                              ? 'bg-green-400 text-white'
+                              : 'bg-green-200 text-green-800'
                           }
                         >
                           {pattern.strength}
@@ -235,7 +235,7 @@ export default function SmartTriggerRecommendations({ automationId, onApplyRecom
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <Brain className="w-4 h-4 text-purple-600" />
+              <Brain className="w-4 h-4 text-green-600" />
               AI-Recommended Schedule
             </CardTitle>
           </CardHeader>
@@ -263,18 +263,18 @@ export default function SmartTriggerRecommendations({ automationId, onApplyRecom
                 </div>
 
                 {/* Recommended Schedule */}
-                <div className="p-4 rounded-lg bg-purple-50 border border-purple-300">
-                  <p className="text-xs font-medium text-purple-600 mb-2">AI RECOMMENDED</p>
-                  <p className="font-semibold text-purple-900">
+                <div className="p-4 rounded-lg bg-green-50 border border-green-300">
+                  <p className="text-xs font-medium text-green-600 mb-2">AI RECOMMENDED</p>
+                  <p className="font-semibold text-green-900">
                     {schedule.recommended_schedule.frequency}
                   </p>
                   {schedule.recommended_schedule.time_of_day && (
-                    <p className="text-sm text-purple-700">
+                    <p className="text-sm text-green-700">
                       at {schedule.recommended_schedule.time_of_day} {schedule.recommended_schedule.timezone}
                     </p>
                   )}
                   {schedule.recommended_schedule.days_of_week && (
-                    <p className="text-xs text-purple-600 mt-1">
+                    <p className="text-xs text-green-600 mt-1">
                       Days: {schedule.recommended_schedule.days_of_week.join(', ')}
                     </p>
                   )}
@@ -313,7 +313,7 @@ export default function SmartTriggerRecommendations({ automationId, onApplyRecom
               {schedule.confidence > 0.6 && (
                 <Button
                   onClick={handleApplySchedule}
-                  className="w-full bg-purple-600 hover:bg-purple-700"
+                  className="w-full bg-green-600 hover:bg-green-700"
                 >
                   <Sparkles className="w-4 h-4 mr-2" />
                   Apply AI-Recommended Schedule

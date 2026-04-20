@@ -319,7 +319,7 @@ export default function Listings() {
         return (
             <div className="flex items-center justify-center min-h-screen">
                 <div className="flex flex-col items-center gap-4">
-                    <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+                    <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
                     <p className="text-slate-600">Loading listings...</p>
                 </div>
             </div>
@@ -327,12 +327,12 @@ export default function Listings() {
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-purple-50 p-4 sm:p-6 lg:p-8">
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-green-50 p-4 sm:p-6 lg:p-8">
             <div className="max-w-7xl mx-auto">
                 {/* Header */}
                 <div className="mb-8">
                     <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 flex items-center gap-3">
-                        <Package className="w-8 h-8 sm:w-10 sm:h-10 text-purple-600" />
+                        <Package className="w-8 h-8 sm:w-10 sm:h-10 text-green-600" />
                         Product Listings
                     </h1>
                     <p className="mt-2 text-lg text-slate-600">
@@ -351,7 +351,7 @@ export default function Listings() {
                     <Card className="bg-white/80 backdrop-blur-sm">
                         <CardContent className="p-4">
                             <p className="text-xs text-slate-600">All Listings</p>
-                            <p className="text-2xl font-bold text-indigo-600">{stats.totalListings}</p>
+                            <p className="text-2xl font-bold text-emerald-600">{stats.totalListings}</p>
                         </CardContent>
                     </Card>
                     <Card className="bg-white/80 backdrop-blur-sm">
@@ -375,7 +375,7 @@ export default function Listings() {
                     <Card className="bg-white/80 backdrop-blur-sm">
                         <CardContent className="p-4">
                             <p className="text-xs text-slate-600">Multi-Platform</p>
-                            <p className="text-2xl font-bold text-purple-600">{stats.multiPlatform}</p>
+                            <p className="text-2xl font-bold text-green-600">{stats.multiPlatform}</p>
                         </CardContent>
                     </Card>
                 </div>
@@ -421,7 +421,7 @@ export default function Listings() {
                                     </CardTitle>
                                     <Button
                                         onClick={() => setActiveTab('ai-generator')}
-                                        className="bg-purple-600 hover:bg-purple-700"
+                                        className="bg-green-600 hover:bg-green-700"
                                     >
                                         <Sparkles className="w-4 h-4 mr-2" />
                                         Generate with AI
@@ -501,7 +501,7 @@ export default function Listings() {
                         <Card className="bg-white/80 backdrop-blur-sm">
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
-                                    <Sparkles className="w-5 h-5 text-purple-600" />
+                                    <Sparkles className="w-5 h-5 text-green-600" />
                                     AI Listing Generator
                                 </CardTitle>
                             </CardHeader>
@@ -521,7 +521,7 @@ export default function Listings() {
                         <Card className="bg-white/80 backdrop-blur-sm">
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
-                                    <Upload className="w-5 h-5 text-indigo-600" />
+                                    <Upload className="w-5 h-5 text-emerald-600" />
                                     Bulk Actions
                                 </CardTitle>
                             </CardHeader>

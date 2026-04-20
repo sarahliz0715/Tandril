@@ -145,7 +145,7 @@ export default function PrivacyPolicy() {
                 <li><strong>Withdraw Consent:</strong> Revoke previously granted permissions at any time.</li>
               </ul>
               <p className="text-slate-700 mt-3">
-                To exercise these rights, email us at <a href="mailto:evensonsarah704@gmail.com" className="text-indigo-600 hover:underline font-semibold">evensonsarah704@gmail.com</a>. We will respond within 30 days.
+                To exercise these rights, email us at <a href="mailto:hello@tandril.org" className="text-emerald-600 hover:underline font-semibold">hello@tandril.org</a>. We will respond within 30 days.
               </p>
             </section>
 
@@ -185,10 +185,10 @@ export default function PrivacyPolicy() {
               <h2 className="text-2xl font-bold text-slate-900 mb-4">9. Third-Party Services</h2>
               <p className="text-slate-700 mb-3">We integrate with third-party services that have their own privacy policies:</p>
               <ul className="list-disc pl-6 space-y-2 text-slate-700">
-                <li><strong>Shopify:</strong> <a href="https://www.shopify.com/legal/privacy" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">Privacy Policy</a></li>
-                <li><strong>Stripe:</strong> <a href="https://stripe.com/privacy" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">Privacy Policy</a></li>
-                <li><strong>Supabase:</strong> <a href="https://supabase.com/privacy" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">Privacy Policy</a></li>
-                <li><strong>Anthropic:</strong> <a href="https://www.anthropic.com/privacy" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">Privacy Policy</a></li>
+                <li><strong>Shopify:</strong> <a href="https://www.shopify.com/legal/privacy" target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline">Privacy Policy</a></li>
+                <li><strong>Stripe:</strong> <a href="https://stripe.com/privacy" target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline">Privacy Policy</a></li>
+                <li><strong>Supabase:</strong> <a href="https://supabase.com/privacy" target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline">Privacy Policy</a></li>
+                <li><strong>Anthropic:</strong> <a href="https://www.anthropic.com/privacy" target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline">Privacy Policy</a></li>
               </ul>
             </section>
 
@@ -227,8 +227,8 @@ export default function PrivacyPolicy() {
               </p>
               <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-2">
                 <p className="text-slate-800"><strong>Tandril, Inc.</strong></p>
-                <p className="text-slate-700">Email: <a href="mailto:evensonsarah704@gmail.com" className="text-indigo-600 hover:underline font-semibold">evensonsarah704@gmail.com</a></p>
-                <p className="text-slate-700">Website: <a href="https://tandril-mvp.vercel.app" className="text-indigo-600 hover:underline font-semibold">https://tandril-mvp.vercel.app</a></p>
+                <p className="text-slate-700">Email: <a href="mailto:hello@tandril.org" className="text-emerald-600 hover:underline font-semibold">hello@tandril.org</a></p>
+                <p className="text-slate-700">Website: <a href="https://tandril-mvp.vercel.app" className="text-emerald-600 hover:underline font-semibold">https://tandril-mvp.vercel.app</a></p>
               </div>
             </section>
 

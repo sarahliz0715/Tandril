@@ -219,11 +219,11 @@ export default function Signup() {
 
               <p className="text-xs text-center text-slate-500">
                 By signing up, you agree to our{' '}
-                <Link to={createPageUrl('TermsOfService')} className="text-indigo-600 hover:underline">
+                <Link to={createPageUrl('TermsOfService')} className="text-emerald-600 hover:underline">
                   Terms of Service
                 </Link>{' '}
                 and{' '}
-                <Link to={createPageUrl('PrivacyPolicy')} className="text-indigo-600 hover:underline">
+                <Link to={createPageUrl('PrivacyPolicy')} className="text-emerald-600 hover:underline">
                   Privacy Policy
                 </Link>
               </p>
@@ -267,7 +267,7 @@ export default function Signup() {
               Already have an account?{' '}
               <Link
                 to={createPageUrl('Login')}
-                className="font-medium text-indigo-600 hover:text-indigo-700"
+                className="font-medium text-emerald-600 hover:text-emerald-700"
               >
                 Sign in
               </Link>

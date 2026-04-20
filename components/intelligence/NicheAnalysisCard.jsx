@@ -53,7 +53,7 @@ export default function NicheAnalysisCard({ data }) {
             </CardContent>
             <CardFooter>
                 <Button 
-                    className="w-full bg-indigo-600 hover:bg-indigo-700"
+                    className="w-full bg-emerald-600 hover:bg-emerald-700"
                     onClick={() => navigate(createPageUrl('Commands?prompt=' + encodeURIComponent(`Create a new product for the ${data.category} niche.`)))}
                 >
                     <PlusCircle className="w-4 h-4 mr-2" />

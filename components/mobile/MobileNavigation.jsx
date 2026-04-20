@@ -31,7 +31,7 @@ export default function MobileNavigation() {
                             to={createPageUrl(item.href)}
                             className={`flex flex-col items-center justify-center gap-1 relative transition-colors ${
                                 isActive 
-                                    ? 'text-indigo-600 bg-indigo-50' 
+                                    ? 'text-emerald-600 bg-emerald-50' 
                                     : 'text-slate-600 hover:text-slate-900'
                             }`}
                         >
@@ -45,7 +45,7 @@ export default function MobileNavigation() {
                             </div>
                             <span className="text-xs font-medium">{item.name}</span>
                             {isActive && (
-                                <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-8 h-0.5 bg-indigo-600 rounded-full" />
+                                <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-8 h-0.5 bg-emerald-600 rounded-full" />
                             )}
                         </Link>
                     );

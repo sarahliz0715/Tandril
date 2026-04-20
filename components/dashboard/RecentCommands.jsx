@@ -47,7 +47,7 @@ export default function RecentCommands() {
             <Card className="bg-white/60 backdrop-blur-sm shadow-sm border-slate-200/60">
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                        <Clock className="w-5 h-5 text-indigo-600" />
+                        <Clock className="w-5 h-5 text-emerald-600" />
                         Recent Commands
                     </CardTitle>
                 </CardHeader>
@@ -66,14 +66,14 @@ export default function RecentCommands() {
         <Card className="bg-white/60 backdrop-blur-sm shadow-sm border-slate-200/60">
             <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
-                    <Clock className="w-5 h-5 text-indigo-600" />
+                    <Clock className="w-5 h-5 text-emerald-600" />
                     Recent Commands
                 </CardTitle>
                 <Button 
                     variant="ghost" 
                     size="sm"
                     onClick={() => navigate(createPageUrl('History'))}
-                    className="text-indigo-600 hover:text-indigo-800"
+                    className="text-emerald-600 hover:text-emerald-800"
                 >
                     View All <ArrowRight className="w-4 h-4 ml-1" />
                 </Button>

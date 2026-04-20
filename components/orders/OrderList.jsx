@@ -39,7 +39,7 @@ export default function OrderList({ orders, onOrderClick, onBulkAction }) {
         const variants = {
             pending: { variant: 'secondary', icon: Clock, color: 'text-orange-600' },
             processing: { variant: 'outline', icon: Package, color: 'text-blue-600' },
-            shipped: { variant: 'outline', icon: Truck, color: 'text-purple-600' },
+            shipped: { variant: 'outline', icon: Truck, color: 'text-green-600' },
             delivered: { variant: 'default', icon: CheckCircle, color: 'text-green-600' },
             cancelled: { variant: 'destructive', icon: AlertCircle, color: 'text-red-600' },
             returned: { variant: 'secondary', icon: AlertCircle, color: 'text-gray-600' }
@@ -62,7 +62,7 @@ export default function OrderList({ orders, onOrderClick, onBulkAction }) {
             'Shopify': 'bg-green-100 text-green-800',
             'Amazon': 'bg-orange-100 text-orange-800',
             'Etsy': 'bg-red-100 text-red-800',
-            'WooCommerce': 'bg-purple-100 text-purple-800',
+            'WooCommerce': 'bg-green-100 text-green-800',
             'Manual': 'bg-gray-100 text-gray-800'
         };
         

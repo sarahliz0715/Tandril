@@ -41,13 +41,13 @@ export default function AutoResponseSettings({ user, onUpdate }) {
             <Card>
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                        <Sparkles className="w-5 h-5 text-purple-600" />
+                        <Sparkles className="w-5 h-5 text-green-600" />
                         AI Auto-Response Settings
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
                     {/* Master Toggle */}
-                    <div className="flex items-center justify-between p-4 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg border border-purple-200">
+                    <div className="flex items-center justify-between p-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border border-green-200">
                         <div>
                             <Label htmlFor="auto_response" className="text-base font-semibold text-slate-900">
                                 Enable AI Auto-Response
@@ -165,7 +165,7 @@ export default function AutoResponseSettings({ user, onUpdate }) {
                     <Button 
                         onClick={handleSave} 
                         disabled={isSaving}
-                        className="w-full bg-indigo-600 hover:bg-indigo-700"
+                        className="w-full bg-emerald-600 hover:bg-emerald-700"
                     >
                         <Save className="w-4 h-4 mr-2" />
                         {isSaving ? 'Saving...' : 'Save Settings'}

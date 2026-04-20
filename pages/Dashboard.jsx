@@ -49,7 +49,7 @@ const useBetaAccess = (user) => {
 const QuickActionCard = ({ title, description, icon: Icon, onClick, variant = "default" }) => {
     const variants = {
         default: "bg-white hover:bg-slate-50 border-slate-200",
-        primary: "bg-indigo-50 hover:bg-indigo-100 border-indigo-200",
+        primary: "bg-emerald-50 hover:bg-emerald-100 border-emerald-200",
         success: "bg-green-50 hover:bg-green-100 border-green-200",
         warning: "bg-amber-50 hover:bg-amber-100 border-amber-200"
     };
@@ -62,7 +62,7 @@ const QuickActionCard = ({ title, description, icon: Icon, onClick, variant = "d
             <CardContent className="p-4">
                 <div className="flex items-center gap-3">
                     <div className="p-2 rounded-lg bg-white/80">
-                        <Icon className="w-5 h-5 text-indigo-600" />
+                        <Icon className="w-5 h-5 text-emerald-600" />
                     </div>
                     <div>
                         <h3 className="font-semibold text-slate-900 text-sm">{title}</h3>
@@ -386,11 +386,11 @@ export default function Dashboard() {
         const mainTitle = isAdmin ? 'Chat with Orion - Your AI Business Partner' : 'Meet Orion - Your AI Business Partner';
         
         return (
-          <Card className="bg-gradient-to-r from-purple-50 via-indigo-50 to-blue-50 border-indigo-200 shadow-lg">
+          <Card className="bg-gradient-to-r from-green-50 via-emerald-50 to-blue-50 border-emerald-200 shadow-lg">
             <CardHeader className="p-4 sm:p-6">
               <CardTitle className="flex items-center gap-3 text-xl sm:text-2xl">
-                <div className="p-2 rounded-lg bg-purple-100">
-                  <Bot className="w-6 h-6 text-purple-600" />
+                <div className="p-2 rounded-lg bg-green-100">
+                  <Bot className="w-6 h-6 text-green-600" />
                 </div>
                 <div>
                   <span className="text-slate-900">{mainTitle}</span>
@@ -402,7 +402,7 @@ export default function Dashboard() {
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-1">
                   <div className="bg-white rounded-xl p-6 border border-slate-200 text-center">
-                    <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-gradient-to-br from-purple-400 to-indigo-600 flex items-center justify-center border-2 border-white/50 shadow-lg">
+                    <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center border-2 border-white/50 shadow-lg">
                       <img
                         src="https://images.unsplash.com/photo-1639747280804-dd2d6b3d883e?q=80&w=100&h=100&fit=crop&auto=format"
                         alt="Orion AI"
@@ -442,7 +442,7 @@ export default function Dashboard() {
 
                     <div className="bg-white rounded-lg p-4 border border-slate-200">
                       <div className="flex items-center gap-3 mb-2">
-                        <BarChart3 className="w-5 h-5 text-indigo-600" />
+                        <BarChart3 className="w-5 h-5 text-emerald-600" />
                         <h4 className="font-semibold text-slate-900">Analytics Insights</h4>
                       </div>
                       <p className="text-sm text-slate-600">Transforms raw data into actionable business intelligence and recommendations.</p>
@@ -450,7 +450,7 @@ export default function Dashboard() {
 
                     <div className="bg-white rounded-lg p-4 border border-slate-200">
                       <div className="flex items-center gap-3 mb-2">
-                        <Shield className="w-5 h-5 text-purple-600" />
+                        <Shield className="w-5 h-5 text-green-600" />
                         <h4 className="font-semibold text-slate-900">Proactive Monitoring</h4>
                       </div>
                       <p className="text-sm text-slate-600">Continuously monitors your business and alerts you to opportunities and issues.</p>
@@ -460,7 +460,7 @@ export default function Dashboard() {
                   <div className="flex flex-wrap gap-3">
                     <Button
                       onClick={() => navigate(createPageUrl('AIAdvisor'))}
-                      className="bg-purple-600 hover:bg-purple-700"
+                      className="bg-green-600 hover:bg-green-700"
                     >
                       <MessageSquare className="w-4 h-4 mr-2" />
                       Chat with Orion
@@ -498,7 +498,7 @@ export default function Dashboard() {
                 <Button
                   size="sm"
                   onClick={() => navigate(createPageUrl('Commands'))}
-                  className="bg-indigo-600 hover:bg-indigo-700"
+                  className="bg-emerald-600 hover:bg-emerald-700"
                 >
                   <Plus className="w-4 h-4 mr-1" />
                   New Command
@@ -675,9 +675,9 @@ export default function Dashboard() {
               <div className="space-y-3 sm:space-y-4">
                 {recommendations.length > 0 ? (
                   recommendations.filter(rec => rec && rec.title).slice(0, 3).map((rec, index) => (
-                    <div key={rec.id || index} className="p-3 sm:p-4 rounded-lg bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 hover:from-indigo-100 hover:to-purple-100 transition-colors">
+                    <div key={rec.id || index} className="p-3 sm:p-4 rounded-lg bg-gradient-to-r from-emerald-50 to-green-50 border border-emerald-200 hover:from-emerald-100 hover:to-green-100 transition-colors">
                       <div className="flex items-center gap-2 mb-2">
-                        <Target className="w-4 h-4 text-indigo-600" />
+                        <Target className="w-4 h-4 text-emerald-600" />
                         <Badge className={`text-xs ${
                           rec.impact_level === 'Critical' ? 'bg-red-100 text-red-700 border-red-200' :
                           rec.impact_level === 'High' ? 'bg-orange-100 text-orange-700 border-orange-200' :
@@ -694,7 +694,7 @@ export default function Dashboard() {
                       <div className="flex flex-col sm:flex-row gap-2">
                         <Button
                           size="sm"
-                          className="bg-indigo-600 hover:bg-indigo-700 text-xs h-8 flex-1"
+                          className="bg-emerald-600 hover:bg-emerald-700 text-xs h-8 flex-1"
                           onClick={() => navigate(createPageUrl('Commands?prompt=' + encodeURIComponent(`Implement: ${rec.title}`)))}
                         >
                           <Sparkles className="w-3 h-3 mr-1" />

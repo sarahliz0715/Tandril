@@ -19,10 +19,10 @@ export default function AutomationCard({ automation, onToggleActive, onEdit, onD
     const getCategoryColor = (category) => {
         const colors = {
             inventory: 'bg-blue-100 text-blue-700',
-            marketing: 'bg-purple-100 text-purple-700',
+            marketing: 'bg-green-100 text-green-700',
             customer_service: 'bg-green-100 text-green-700',
             operations: 'bg-orange-100 text-orange-700',
-            analytics: 'bg-indigo-100 text-indigo-700',
+            analytics: 'bg-emerald-100 text-emerald-700',
             general: 'bg-slate-100 text-slate-700'
         };
         return colors[category] || colors.general;

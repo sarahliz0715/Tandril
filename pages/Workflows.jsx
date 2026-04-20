@@ -310,7 +310,7 @@ export default function Workflows() {
           <h1 className="text-3xl font-bold text-slate-900">Workflows</h1>
           <p className="text-slate-600 mt-1">Automate repetitive tasks with AI-powered workflows</p>
         </div>
-        <Button onClick={() => setShowCreateModal(true)} className="bg-indigo-600 hover:bg-indigo-700">
+        <Button onClick={() => setShowCreateModal(true)} className="bg-emerald-600 hover:bg-emerald-700">
           <Plus className="w-4 h-4 mr-2" />
           Create Workflow
         </Button>

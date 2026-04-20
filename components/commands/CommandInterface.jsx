@@ -308,7 +308,7 @@ export default function CommandInterface({ onRunCommand, onSaveCommand, isExecut
                                     {category.commands.map((command, idx) => (
                                         <div
                                             key={idx}
-                                            className="p-3 rounded-lg border border-slate-200 hover:border-indigo-200 hover:bg-indigo-50/50 cursor-pointer transition-colors"
+                                            className="p-3 rounded-lg border border-slate-200 hover:border-emerald-200 hover:bg-emerald-50/50 cursor-pointer transition-colors"
                                             onClick={() => handleSuggestionSelect(command)}
                                         >
                                             <div className="font-medium text-slate-900 text-sm mb-1">
@@ -370,7 +370,7 @@ export default function CommandInterface({ onRunCommand, onSaveCommand, isExecut
                         <Button
                             onClick={handleRun}
                             disabled={isExecuting || !commandText.trim() || shopifyPlatforms.length === 0}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white touch-manipulation"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white touch-manipulation"
                         >
                             {isExecuting ? (
                                 <>
@@ -433,7 +433,7 @@ export default function CommandInterface({ onRunCommand, onSaveCommand, isExecut
                                 variant="outline"
                                 size="sm"
                                 onClick={() => handleQuickChipClick(chip)}
-                                className="text-xs h-8 bg-white/80 hover:bg-indigo-50 hover:border-indigo-200 touch-manipulation"
+                                className="text-xs h-8 bg-white/80 hover:bg-emerald-50 hover:border-emerald-200 touch-manipulation"
                             >
                                 <Sparkles className="w-3 h-3 mr-1" />
                                 {chip}

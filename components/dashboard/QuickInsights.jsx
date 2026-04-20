@@ -93,7 +93,7 @@ export default function QuickInsights({ orders, products, recommendations, alert
                     change: 'High impact',
                     trend: 'up',
                     description: 'Ready to implement',
-                    color: 'purple',
+                    color: 'green',
                     icon: TrendingUp,
                     action: () => navigate(createPageUrl('AIAdvisor'))
                 });
@@ -108,7 +108,7 @@ export default function QuickInsights({ orders, products, recommendations, alert
                 change: '+5%',
                 trend: 'up',
                 description: 'vs last month',
-                color: 'indigo',
+                color: 'emerald',
                 icon: Zap,
                 action: () => navigate(createPageUrl('Commands'))
             });
@@ -137,8 +137,8 @@ export default function QuickInsights({ orders, products, recommendations, alert
             green: trend === 'up' ? 'text-green-600' : 'text-green-600',
             blue: 'text-blue-600',
             red: 'text-red-600',
-            purple: 'text-purple-600',
-            indigo: 'text-indigo-600'
+            green: 'text-green-600',
+            emerald: 'text-emerald-600'
         };
         return baseClasses[color] || 'text-slate-600';
     };
@@ -148,8 +148,8 @@ export default function QuickInsights({ orders, products, recommendations, alert
             green: 'bg-green-50 border-green-200',
             blue: 'bg-blue-50 border-blue-200',
             red: 'bg-red-50 border-red-200',
-            purple: 'bg-purple-50 border-purple-200',
-            indigo: 'bg-indigo-50 border-indigo-200'
+            green: 'bg-green-50 border-green-200',
+            emerald: 'bg-emerald-50 border-emerald-200'
         };
         return bgClasses[color] || 'bg-slate-50 border-slate-200';
     };

@@ -64,7 +64,7 @@ export default function PredictiveInventory({ products, isLoading }) {
       <CardHeader className="border-b border-slate-100">
         <div className="flex justify-between items-center">
           <CardTitle className="text-xl font-bold text-slate-900 flex items-center gap-3">
-             <div className="p-2 bg-gradient-to-r from-purple-500 to-purple-600 rounded-xl">
+             <div className="p-2 bg-gradient-to-r from-green-500 to-green-600 rounded-xl">
                 <Package className="w-5 h-5 text-white" />
             </div>
             Predictive Inventory

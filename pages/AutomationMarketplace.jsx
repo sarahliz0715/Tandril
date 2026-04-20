@@ -100,7 +100,7 @@ export default function AutomationMarketplace() {
         return (
             <div className="min-h-screen flex items-center justify-center">
                 <div className="text-center">
-                    <Zap className="w-12 h-12 text-indigo-600 animate-pulse mx-auto mb-4" />
+                    <Zap className="w-12 h-12 text-emerald-600 animate-pulse mx-auto mb-4" />
                     <p className="text-slate-600">Loading automation marketplace...</p>
                 </div>
             </div>
@@ -118,14 +118,14 @@ export default function AutomationMarketplace() {
 
                 {/* Stats Banner */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-                    <Card className="bg-gradient-to-br from-indigo-50 to-purple-50 border-indigo-200">
+                    <Card className="bg-gradient-to-br from-emerald-50 to-green-50 border-emerald-200">
                         <CardContent className="p-4">
                             <div className="flex items-center justify-between">
                                 <div>
                                     <p className="text-sm text-slate-600">Total Templates</p>
-                                    <p className="text-2xl font-bold text-indigo-900">{templates.length}</p>
+                                    <p className="text-2xl font-bold text-emerald-900">{templates.length}</p>
                                 </div>
-                                <Zap className="w-8 h-8 text-indigo-600" />
+                                <Zap className="w-8 h-8 text-emerald-600" />
                             </div>
                         </CardContent>
                     </Card>
@@ -223,7 +223,7 @@ export default function AutomationMarketplace() {
                             {featuredTemplates.map((template) => (
                                 <Card
                                     key={template.id}
-                                    className="hover:shadow-xl transition-all duration-200 cursor-pointer border-2 hover:border-indigo-300"
+                                    className="hover:shadow-xl transition-all duration-200 cursor-pointer border-2 hover:border-emerald-300"
                                     onClick={() => setSelectedTemplate(template)}
                                 >
                                     <CardHeader className="pb-3">
@@ -257,7 +257,7 @@ export default function AutomationMarketplace() {
                                             </div>
                                         )}
 
-                                        <Button className="w-full bg-indigo-600 hover:bg-indigo-700">
+                                        <Button className="w-full bg-emerald-600 hover:bg-emerald-700">
                                             <Sparkles className="w-4 h-4 mr-2" />
                                             Use This Template
                                         </Button>
@@ -276,7 +276,7 @@ export default function AutomationMarketplace() {
                             {regularTemplates.map((template) => (
                                 <Card
                                     key={template.id}
-                                    className="hover:shadow-lg transition-all duration-200 cursor-pointer hover:border-indigo-200"
+                                    className="hover:shadow-lg transition-all duration-200 cursor-pointer hover:border-emerald-200"
                                     onClick={() => setSelectedTemplate(template)}
                                 >
                                     <CardHeader className="pb-3">

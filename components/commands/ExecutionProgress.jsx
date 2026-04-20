@@ -38,7 +38,7 @@ export default function ExecutionProgress({ command, onCancel }) {
                     ) : isFailed ? (
                         <X className="w-5 h-5 text-red-600" />
                     ) : (
-                        <Loader2 className="w-5 h-5 text-indigo-600 animate-spin" />
+                        <Loader2 className="w-5 h-5 text-emerald-600 animate-spin" />
                     )}
                     Command Execution
                 </CardTitle>
@@ -53,10 +53,10 @@ export default function ExecutionProgress({ command, onCancel }) {
                                     <>
                                         {stepIdx !== steps.length - 1 && (
                                             <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                                                <div className={`h-0.5 w-full ${isCompleted || stepIdx < currentStepIndex ? 'bg-indigo-600' : 'bg-slate-200'}`} />
+                                                <div className={`h-0.5 w-full ${isCompleted || stepIdx < currentStepIndex ? 'bg-emerald-600' : 'bg-slate-200'}`} />
                                             </div>
                                         )}
-                                        <div className="relative flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 hover:bg-indigo-700 transition-colors">
+                                        <div className="relative flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 hover:bg-emerald-700 transition-colors">
                                             {isCompleted || stepIdx < currentStepIndex ? (
                                                 <Check className="h-5 w-5 text-white" aria-hidden="true" />
                                             ) : (

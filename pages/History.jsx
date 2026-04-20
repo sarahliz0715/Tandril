@@ -347,14 +347,14 @@ export default function History() {
             <p className="text-2xl font-bold text-slate-900">{stats.avgExecutionTime}</p>
           </CardContent>
         </Card>
-        <Card className="border-indigo-200 bg-indigo-50 col-span-2 sm:col-span-1">
+        <Card className="border-emerald-200 bg-emerald-50 col-span-2 sm:col-span-1">
           <CardContent className="p-4 space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-sm text-indigo-600 font-medium">Time Saved</p>
+              <p className="text-sm text-emerald-600 font-medium">Time Saved</p>
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 px-2 text-xs text-indigo-500 hover:text-indigo-700"
+                className="h-6 px-2 text-xs text-emerald-500 hover:text-emerald-700"
                 onClick={() => handleResetTracking(platformFilter)}
                 title="Reset tracking start date"
               >
@@ -362,9 +362,9 @@ export default function History() {
                 Reset
               </Button>
             </div>
-            <p className="text-2xl font-bold text-indigo-700">{stats.timeSaved}</p>
+            <p className="text-2xl font-bold text-emerald-700">{stats.timeSaved}</p>
             <Select value={platformFilter} onValueChange={setPlatformFilter}>
-              <SelectTrigger className="h-7 text-xs border-indigo-200 bg-white">
+              <SelectTrigger className="h-7 text-xs border-emerald-200 bg-white">
                 <SelectValue placeholder="All platforms" />
               </SelectTrigger>
               <SelectContent>
@@ -375,7 +375,7 @@ export default function History() {
               </SelectContent>
             </Select>
             {stats.trackingStart && (
-              <p className="text-xs text-indigo-400">
+              <p className="text-xs text-emerald-400">
                 Since {format(stats.trackingStart, 'MMM d, h:mm a')}
               </p>
             )}
@@ -388,7 +388,7 @@ export default function History() {
         <CardHeader>
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <CardTitle className="flex items-center gap-2">
-              <HistoryIcon className="w-6 h-6 text-indigo-600" />
+              <HistoryIcon className="w-6 h-6 text-emerald-600" />
               Command History
             </CardTitle>
             <Button
@@ -490,7 +490,7 @@ export default function History() {
                         {command.results.success_count || 0} succeeded, {command.results.failure_count || 0} failed
                         {command.execution_time && ` • ${command.execution_time}s`}
                         {command.status === 'completed' && (
-                          <span className="ml-2 text-indigo-500 font-medium">
+                          <span className="ml-2 text-emerald-500 font-medium">
                             ~{formatTimeSaved(minutesForCommand(command))} saved
                           </span>
                         )}

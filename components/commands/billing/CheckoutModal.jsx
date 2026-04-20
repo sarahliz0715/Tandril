@@ -120,7 +120,7 @@ export default function CheckoutModal({ isOpen, onClose, plan, isAnnual, onSucce
               </Button>
               <Button 
                 type="submit" 
-                className="flex-1 bg-indigo-600 hover:bg-indigo-700"
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700"
                 disabled={isProcessing}
               >
                 {isProcessing ? (

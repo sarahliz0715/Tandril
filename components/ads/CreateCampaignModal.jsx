@@ -118,7 +118,7 @@ export default function CreateCampaignModal({ isOpen, onClose, onSave }) {
 
                     <div>
                         <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
-                            <Target className="w-5 h-5 text-indigo-500" />
+                            <Target className="w-5 h-5 text-emerald-500" />
                             Ad Creative
                         </h3>
                         <div className="space-y-4 rounded-lg border bg-slate-50 p-4">

@@ -183,7 +183,7 @@ export default function WorkflowBuilder({ workflow: initialWorkflow, onSave, onC
                       <DropdownMenuContent className="w-64">
                          {Object.entries(nodeTypes).map(([type, { name, icon: Icon, description }]) => (
                             <DropdownMenuItem key={type} onClick={() => addNode(type)} className="items-start">
-                                <Icon className="w-5 h-5 mr-3 mt-1 text-indigo-500"/>
+                                <Icon className="w-5 h-5 mr-3 mt-1 text-emerald-500"/>
                                 <div>
                                     <p className="font-semibold">{name}</p>
                                     <p className="text-xs text-slate-500">{description}</p>

@@ -144,7 +144,7 @@ export default function Orders() {
         ['Order ID', 'Date', 'Customer', 'Email', 'Status', 'Total', 'Platform'].join(','),
         ...selectedOrders.map(order => [
           order.order_id,
-          format(new Date(order.order_date), 'yyyy-MM-dd'),
+          order.order_date ? format(new Date(order.order_date), 'yyyy-MM-dd') : '',
           order.customer_name,
           order.customer_email,
           order.status,
@@ -183,7 +183,7 @@ export default function Orders() {
       ['Order ID', 'Date', 'Customer', 'Email', 'Status', 'Total', 'Platform'].join(','),
       ...filteredOrders.map(order => [
         order.order_id,
-        format(new Date(order.order_date), 'yyyy-MM-dd'),
+        order.order_date ? format(new Date(order.order_date), 'yyyy-MM-dd') : '',
         order.customer_name,
         order.customer_email,
         order.status,
@@ -205,7 +205,7 @@ export default function Orders() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+        <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
       </div>
     );
   }
@@ -355,9 +355,8 @@ export default function Orders() {
 
       <ConfirmDialog
         isOpen={isOpen}
-        onConfirm={confirm}
+        config={config}
         onCancel={cancel}
-        {...config}
       />
     </div>
   );

@@ -8,8 +8,8 @@ export default function AutomationStats({ stats }) {
             <Card>
                 <CardContent className="p-6">
                     <div className="flex items-center gap-4">
-                        <div className="p-3 bg-indigo-100 rounded-lg">
-                            <Activity className="w-6 h-6 text-indigo-600" />
+                        <div className="p-3 bg-emerald-100 rounded-lg">
+                            <Activity className="w-6 h-6 text-emerald-600" />
                         </div>
                         <div>
                             <div className="text-sm text-slate-600">Total Automations</div>
@@ -50,8 +50,8 @@ export default function AutomationStats({ stats }) {
             <Card>
                 <CardContent className="p-6">
                     <div className="flex items-center gap-4">
-                        <div className="p-3 bg-purple-100 rounded-lg">
-                            <TrendingUp className="w-6 h-6 text-purple-600" />
+                        <div className="p-3 bg-green-100 rounded-lg">
+                            <TrendingUp className="w-6 h-6 text-green-600" />
                         </div>
                         <div>
                             <div className="text-sm text-slate-600">Success Rate</div>

@@ -106,7 +106,7 @@ export default function ContentGeneratorModal({ isOpen, onClose, selectedProduct
         <CardHeader className="border-b">
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
-              <Sparkles className="w-6 h-6 text-purple-600" />
+              <Sparkles className="w-6 h-6 text-green-600" />
               AI Content Generator
             </CardTitle>
             <Button variant="ghost" size="icon" onClick={onClose}>
@@ -131,7 +131,7 @@ export default function ContentGeneratorModal({ isOpen, onClose, selectedProduct
                     onClick={() => setContentType(type.value)}
                     className={`p-4 rounded-lg border-2 text-left transition-all ${
                       contentType === type.value
-                        ? 'border-purple-600 bg-purple-50'
+                        ? 'border-green-600 bg-green-50'
                         : 'border-slate-200 hover:border-slate-300'
                     }`}
                   >
@@ -152,7 +152,7 @@ export default function ContentGeneratorModal({ isOpen, onClose, selectedProduct
             <select
               value={tone}
               onChange={(e) => setTone(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
             >
               {tones.map((t) => (
                 <option key={t.value} value={t.value}>{t.label}</option>
@@ -166,7 +166,7 @@ export default function ContentGeneratorModal({ isOpen, onClose, selectedProduct
             <select
               value={targetAudience}
               onChange={(e) => setTargetAudience(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
             >
               {audiences.map((a) => (
                 <option key={a.value} value={a.value}>{a.label}</option>
@@ -181,7 +181,7 @@ export default function ContentGeneratorModal({ isOpen, onClose, selectedProduct
               id="applyToStore"
               checked={applyToStore}
               onChange={(e) => setApplyToStore(e.target.checked)}
-              className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+              className="w-4 h-4 text-green-600 rounded focus:ring-green-500"
             />
             <label htmlFor="applyToStore" className="flex-1 text-sm">
               <span className="font-medium text-slate-900">Apply changes to Shopify store</span>
@@ -234,7 +234,7 @@ export default function ContentGeneratorModal({ isOpen, onClose, selectedProduct
             <Button
               onClick={handleGenerate}
               disabled={isGenerating}
-              className="flex-1 bg-purple-600 hover:bg-purple-700"
+              className="flex-1 bg-green-600 hover:bg-green-700"
             >
               {isGenerating ? (
                 <>
