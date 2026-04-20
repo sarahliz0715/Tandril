@@ -257,7 +257,7 @@ export default function Analytics() {
         </div>
 
         {/* Key Metrics */}
-        <KeyMetrics metrics={metrics} />
+        <KeyMetrics metrics={metrics} timeRange={timeRange} />
 
         {/* Main Analytics Content */}
         {filteredOrders.length > 0 ? (
