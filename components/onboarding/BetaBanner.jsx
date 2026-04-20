@@ -22,29 +22,29 @@ export default function BetaBanner() {
   if (!isVisible) return null;
 
   return (
-    <Card className="bg-gradient-to-r from-purple-50 via-indigo-50 to-blue-50 border-purple-200 shadow-lg mb-6">
+    <Card className="bg-gradient-to-r from-green-50 via-emerald-50 to-blue-50 border-green-200 shadow-lg mb-6">
       <CardContent className="p-6">
         <div className="flex items-start justify-between">
           <div className="flex items-start gap-4">
-            <div className="p-3 bg-purple-100 rounded-xl">
-              <FlaskConical className="w-6 h-6 text-purple-600" />
+            <div className="p-3 bg-green-100 rounded-xl">
+              <FlaskConical className="w-6 h-6 text-green-600" />
             </div>
             <div className="space-y-2">
-              <h3 className="text-xl font-bold text-purple-900 flex items-center gap-2">
+              <h3 className="text-xl font-bold text-green-900 flex items-center gap-2">
                 You're part of the Tandril Beta!
-                <Sparkles className="w-5 h-5 text-purple-600" />
+                <Sparkles className="w-5 h-5 text-green-600" />
               </h3>
-              <p className="text-purple-800 leading-relaxed">
+              <p className="text-green-800 leading-relaxed">
                 Welcome to the exclusive beta program. You're experiencing cutting-edge AI automation 
                 that's shaping the future of e-commerce. Your feedback helps us build the perfect 
                 AI business partner.
               </p>
               <div className="flex items-center gap-6 mt-4">
-                <div className="flex items-center gap-2 text-sm text-purple-700">
+                <div className="flex items-center gap-2 text-sm text-green-700">
                   <Users className="w-4 h-4" />
                   <span className="font-medium">Founding User</span>
                 </div>
-                <div className="flex items-center gap-2 text-sm text-purple-700">
+                <div className="flex items-center gap-2 text-sm text-green-700">
                   <FlaskConical className="w-4 h-4" />
                   <span className="font-medium">Beta Access</span>
                 </div>
@@ -55,24 +55,24 @@ export default function BetaBanner() {
             variant="ghost"
             size="icon"
             onClick={handleDismiss}
-            className="text-purple-600 hover:bg-purple-100 -mt-1 -mr-1"
+            className="text-green-600 hover:bg-green-100 -mt-1 -mr-1"
           >
             <X className="w-5 h-5" />
           </Button>
         </div>
         
-        <div className="mt-6 pt-4 border-t border-purple-200">
+        <div className="mt-6 pt-4 border-t border-green-200">
           <div className="flex flex-col sm:flex-row gap-3">
             <Button 
               variant="outline"
               onClick={() => window.open('mailto:evensonsarah704@gmail.com?subject=Tandril Beta Feedback&body=Hi Sarah,%0A%0AHere is my feedback on Tandril:%0A%0A', '_blank')}
-              className="border-purple-300 text-purple-700 hover:bg-purple-100"
+              className="border-green-300 text-green-700 hover:bg-green-100"
             >
               Share Feedback
             </Button>
             <Button
               variant="outline"
-              className="border-purple-300 text-purple-700 hover:bg-purple-100"
+              className="border-green-300 text-green-700 hover:bg-green-100"
               onClick={() => window.open('mailto:evensonsarah704@gmail.com?subject=Tandril Support Request', '_blank')}
             >
               Get Support

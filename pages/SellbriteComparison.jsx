@@ -104,18 +104,18 @@ export default function SellbriteComparison() {
             <Badge variant="secondary" className="mt-4">You are the operator</Badge>
           </CardContent>
         </Card>
-        <Card className="border-2 border-indigo-400 bg-gradient-to-br from-indigo-50 to-purple-50">
+        <Card className="border-2 border-emerald-400 bg-gradient-to-br from-emerald-50 to-green-50">
           <CardHeader>
-            <CardTitle className="flex items-center gap-3 text-2xl text-indigo-800">
-              <Bot className="w-8 h-8 text-indigo-600" />
+            <CardTitle className="flex items-center gap-3 text-2xl text-emerald-800">
+              <Bot className="w-8 h-8 text-emerald-600" />
               Tandril: The AI Employee
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-indigo-900">
+            <p className="text-emerald-900">
               Tandril is an AI agent that takes commands and executes them for you. It automates complex tasks, provides strategic insights, and operates your e-commerce business autonomously. It's a new way of working.
             </p>
-            <Badge className="mt-4 bg-indigo-600 text-white">You are the strategist</Badge>
+            <Badge className="mt-4 bg-emerald-600 text-white">You are the strategist</Badge>
           </CardContent>
         </Card>
       </div>
@@ -146,7 +146,7 @@ export default function SellbriteComparison() {
         </CardContent>
       </Card>
 
-      <Card className="mt-12 bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-8 rounded-2xl">
+      <Card className="mt-12 bg-gradient-to-r from-blue-600 to-emerald-700 text-white p-8 rounded-2xl">
         <div className="flex flex-col md:flex-row items-center gap-6">
             <Sparkles className="w-16 h-16 text-yellow-300 flex-shrink-0" />
             <div>

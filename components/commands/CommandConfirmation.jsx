@@ -76,7 +76,7 @@ export default function CommandConfirmation({ command, onConfirm, onCancel, onEd
             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2 text-xl">
-                        <CheckCircle className="w-6 h-6 text-indigo-600" />
+                        <CheckCircle className="w-6 h-6 text-emerald-600" />
                         Confirm AI Action Plan
                     </DialogTitle>
                 </DialogHeader>
@@ -114,10 +114,10 @@ export default function CommandConfirmation({ command, onConfirm, onCancel, onEd
                     </Card>
 
                     {/* Target Platforms - Enhanced Display */}
-                    <Card className="border-indigo-200 bg-indigo-50">
+                    <Card className="border-emerald-200 bg-emerald-50">
                         <CardHeader className="pb-3">
                             <CardTitle className="text-base flex items-center gap-2">
-                                <Briefcase className="w-4 h-4 text-indigo-600" />
+                                <Briefcase className="w-4 h-4 text-emerald-600" />
                                 Target Platforms
                             </CardTitle>
                         </CardHeader>
@@ -127,7 +127,7 @@ export default function CommandConfirmation({ command, onConfirm, onCancel, onEd
                                     command.platform_targets.map((platform, index) => (
                                         <Badge 
                                             key={index}
-                                            className="bg-indigo-600 text-white px-3 py-1.5 text-sm hover:bg-indigo-700"
+                                            className="bg-emerald-600 text-white px-3 py-1.5 text-sm hover:bg-emerald-700"
                                         >
                                             {platform}
                                         </Badge>
@@ -155,7 +155,7 @@ export default function CommandConfirmation({ command, onConfirm, onCancel, onEd
                     {/* Execution Plan */}
                     <div>
                         <h3 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
-                            <List className="w-5 h-5 text-indigo-600" />
+                            <List className="w-5 h-5 text-emerald-600" />
                             Execution Plan:
                         </h3>
                         {command.actions_planned && Array.isArray(command.actions_planned) && command.actions_planned.length > 0 ? (
@@ -165,7 +165,7 @@ export default function CommandConfirmation({ command, onConfirm, onCancel, onEd
                                         <CardContent className="p-4">
                                             <div className="flex items-start gap-3">
                                                 <div className="mt-0.5">
-                                                    <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 text-xs font-bold">
+                                                    <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 text-xs font-bold">
                                                         {index + 1}
                                                     </div>
                                                 </div>
@@ -180,7 +180,7 @@ export default function CommandConfirmation({ command, onConfirm, onCancel, onEd
                                                     {action.parameters && (
                                                         <div className="mt-2 flex flex-wrap gap-1">
                                                             {(action.parameters.available !== undefined || action.parameters.quantity !== undefined) && (
-                                                                <Badge className="text-xs bg-indigo-100 text-indigo-700 border border-indigo-200">
+                                                                <Badge className="text-xs bg-emerald-100 text-emerald-700 border border-emerald-200">
                                                                     Qty → {action.parameters.available ?? action.parameters.quantity}
                                                                 </Badge>
                                                             )}
@@ -219,7 +219,7 @@ export default function CommandConfirmation({ command, onConfirm, onCancel, onEd
                     </Button>
                     <Button
                         onClick={onConfirm}
-                        className="bg-indigo-600 hover:bg-indigo-700"
+                        className="bg-emerald-600 hover:bg-emerald-700"
                     >
                         <CheckCircle className="w-4 h-4 mr-2" />
                         Execute Plan

@@ -32,7 +32,7 @@ export default function ActionNode({ config, onUpdate }) {
     return (
         <div className="space-y-3">
             <div className="flex items-center gap-2">
-                <Zap className="w-5 h-5 text-indigo-500" />
+                <Zap className="w-5 h-5 text-emerald-500" />
                 <h4 className="font-semibold">Action</h4>
             </div>
             <Select onValueChange={handleTypeChange} value={actionType}>

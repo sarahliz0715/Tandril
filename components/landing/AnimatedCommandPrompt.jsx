@@ -45,7 +45,7 @@ export default function AnimatedCommandPrompt() {
 
     return (
         <div className="bg-white rounded-xl shadow-2xl p-4 border border-slate-200 flex items-center gap-3">
-            <Bot className="w-6 h-6 text-indigo-500 flex-shrink-0" />
+            <Bot className="w-6 h-6 text-emerald-500 flex-shrink-0" />
             <p className="text-sm sm:text-base text-slate-700 font-medium whitespace-nowrap overflow-hidden">
                 {currentCommand}
                 <span className="animate-pulse">|</span>

@@ -153,7 +153,7 @@ export default function Calendar() {
   const eventColors = {
     sale: 'bg-green-100 text-green-800 border-green-200',
     marketing_campaign: 'bg-blue-100 text-blue-800 border-blue-200',
-    workflow_run: 'bg-purple-100 text-purple-800 border-purple-200',
+    workflow_run: 'bg-green-100 text-green-800 border-green-200',
     platform_update: 'bg-orange-100 text-orange-800 border-orange-200',
     manual_note: 'bg-slate-100 text-slate-800 border-slate-200',
     ad_campaign: 'bg-pink-100 text-pink-800 border-pink-200'
@@ -163,7 +163,7 @@ export default function Calendar() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+          <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
           <p className="text-slate-600">Loading calendar...</p>
         </div>
       </div>
@@ -177,7 +177,7 @@ export default function Calendar() {
         <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
-              <CalendarIcon className="w-8 h-8 text-indigo-600" />
+              <CalendarIcon className="w-8 h-8 text-emerald-600" />
               Calendar
             </h1>
             <p className="text-slate-600 mt-2">
@@ -236,8 +236,8 @@ export default function Calendar() {
                     onClick={() => handleDateClick(day)}
                     className={`
                       min-h-24 p-2 border rounded-lg cursor-pointer transition-all
-                      ${isToday ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200'}
-                      ${isSelected ? 'ring-2 ring-indigo-500' : ''}
+                      ${isToday ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'}
+                      ${isSelected ? 'ring-2 ring-emerald-500' : ''}
                       ${!isSameMonth(day, currentMonth) ? 'opacity-40' : ''}
                       hover:bg-slate-50
                     `}

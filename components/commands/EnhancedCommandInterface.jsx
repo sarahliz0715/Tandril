@@ -147,7 +147,7 @@ export default function EnhancedCommandInterface({ onRunCommand, isExecuting, pl
 
     return (
         <div className="space-y-6">
-            <Card className="bg-gradient-to-br from-blue-50 to-indigo-100 border-blue-200 shadow-lg">
+            <Card className="bg-gradient-to-br from-blue-50 to-emerald-100 border-blue-200 shadow-lg">
                 <CardHeader className="pb-4">
                     <CardTitle className="flex items-center gap-3 text-xl">
                         <Bot className="w-6 h-6 text-blue-600" />
@@ -289,7 +289,7 @@ export default function EnhancedCommandInterface({ onRunCommand, isExecuting, pl
             <Card>
                 <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-lg">
-                        <Sparkles className="w-5 h-5 text-purple-500" />
+                        <Sparkles className="w-5 h-5 text-green-500" />
                         Smart Templates
                     </CardTitle>
                     <p className="text-sm text-slate-600">High-impact commands for your business</p>
@@ -302,7 +302,7 @@ export default function EnhancedCommandInterface({ onRunCommand, isExecuting, pl
                             className="p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors group"
                         >
                             <div className="flex items-start gap-3">
-                                <template.icon className="w-5 h-5 text-purple-600 mt-0.5 flex-shrink-0" />
+                                <template.icon className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
                                 <div className="flex-1">
                                     <div className="flex items-center gap-2 mb-1">
                                         <span className="text-sm font-medium text-slate-700">{template.category}</span>

@@ -176,7 +176,7 @@ export default function VisualWorkflowEditor({ automation, onUpdate }) {
                     <Button
                         onClick={handleSave}
                         size="sm"
-                        className="bg-indigo-600 hover:bg-indigo-700"
+                        className="bg-emerald-600 hover:bg-emerald-700"
                     >
                         <Save className="w-4 h-4 mr-2" />
                         Save Workflow
@@ -282,19 +282,19 @@ function WorkflowNode({ node, isSelected, onClick, onUpdate, onDelete }) {
             <Card className={cn(
                 "w-[240px] border-2 transition-all",
                 isSelected 
-                    ? "border-indigo-500 shadow-lg" 
-                    : "border-slate-200 hover:border-indigo-300",
-                isTrigger && "bg-gradient-to-br from-purple-50 to-indigo-50"
+                    ? "border-emerald-500 shadow-lg" 
+                    : "border-slate-200 hover:border-emerald-300",
+                isTrigger && "bg-gradient-to-br from-green-50 to-emerald-50"
             )}>
                 <CardContent className="p-4">
                     <div className="flex items-start justify-between mb-3">
                         <div className={cn(
                             "p-2 rounded-lg",
-                            isTrigger ? "bg-purple-100" : "bg-indigo-100"
+                            isTrigger ? "bg-green-100" : "bg-emerald-100"
                         )}>
                             <Icon className={cn(
                                 "w-5 h-5",
-                                isTrigger ? "text-purple-600" : "text-indigo-600"
+                                isTrigger ? "text-green-600" : "text-emerald-600"
                             )} />
                         </div>
                         {!isTrigger && (
@@ -352,7 +352,7 @@ function NodeEditor({ node, onUpdate, onClose }) {
     const isTrigger = node.type === 'trigger';
 
     return (
-        <Card className="border-2 border-indigo-200 bg-indigo-50">
+        <Card className="border-2 border-emerald-200 bg-emerald-50">
             <CardContent className="p-4">
                 <div className="flex items-center justify-between mb-4">
                     <h3 className="font-semibold text-slate-900">

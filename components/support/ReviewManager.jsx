@@ -176,17 +176,17 @@ export default function ReviewManager({ reviews, onRefresh, user }) {
                                             size="sm"
                                             variant={review.has_responded ? 'outline' : 'default'}
                                             onClick={() => setSelectedReview(review)}
-                                            className={!review.has_responded ? 'bg-indigo-600 hover:bg-indigo-700' : ''}
+                                            className={!review.has_responded ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
                                         >
                                             {review.has_responded ? 'View Response' : 'Respond'}
                                         </Button>
                                     </div>
 
                                     {review.has_responded && review.response && (
-                                        <div className="mt-3 p-3 bg-indigo-50 rounded-lg border border-indigo-200">
-                                            <p className="text-xs font-semibold text-indigo-900 mb-1">Your Response:</p>
-                                            <p className="text-sm text-indigo-800">{review.response}</p>
-                                            <p className="text-xs text-indigo-600 mt-1">
+                                        <div className="mt-3 p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                                            <p className="text-xs font-semibold text-emerald-900 mb-1">Your Response:</p>
+                                            <p className="text-sm text-emerald-800">{review.response}</p>
+                                            <p className="text-xs text-emerald-600 mt-1">
                                                 {new Date(review.response_date).toLocaleDateString()}
                                             </p>
                                         </div>
@@ -227,12 +227,12 @@ export default function ReviewManager({ reviews, onRefresh, user }) {
                             </div>
 
                             {selectedReview.ai_suggested_response && (
-                                <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
-                                    <p className="text-sm font-semibold text-purple-900 mb-2 flex items-center gap-2">
+                                <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                                    <p className="text-sm font-semibold text-green-900 mb-2 flex items-center gap-2">
                                         <Sparkles className="w-4 h-4" />
                                         AI Suggested Response:
                                     </p>
-                                    <p className="text-sm text-purple-800">{selectedReview.ai_suggested_response}</p>
+                                    <p className="text-sm text-green-800">{selectedReview.ai_suggested_response}</p>
                                 </div>
                             )}
 
@@ -272,7 +272,7 @@ export default function ReviewManager({ reviews, onRefresh, user }) {
                             Close
                         </Button>
                         {!selectedReview?.has_responded && (
-                            <Button onClick={handleSendResponse} className="bg-indigo-600 hover:bg-indigo-700">
+                            <Button onClick={handleSendResponse} className="bg-emerald-600 hover:bg-emerald-700">
                                 <Send className="w-4 h-4 mr-2" />
                                 Post Response
                             </Button>

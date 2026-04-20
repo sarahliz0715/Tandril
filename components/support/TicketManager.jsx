@@ -109,8 +109,8 @@ export default function TicketManager({ tickets, onRefresh, user }) {
     const getStatusColor = (status) => {
         switch (status) {
             case 'new': return 'bg-blue-100 text-blue-800';
-            case 'open': return 'bg-indigo-100 text-indigo-800';
-            case 'pending_customer': return 'bg-purple-100 text-purple-800';
+            case 'open': return 'bg-emerald-100 text-emerald-800';
+            case 'pending_customer': return 'bg-green-100 text-green-800';
             case 'resolved': return 'bg-green-100 text-green-800';
             case 'closed': return 'bg-slate-100 text-slate-800';
             default: return 'bg-slate-100 text-slate-800';
@@ -310,14 +310,14 @@ export default function TicketManager({ tickets, onRefresh, user }) {
 
                             {/* AI Suggested Actions */}
                             {selectedTicket.ai_suggested_actions && selectedTicket.ai_suggested_actions.length > 0 && (
-                                <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
-                                    <p className="text-sm font-semibold text-purple-900 mb-2 flex items-center gap-2">
+                                <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                                    <p className="text-sm font-semibold text-green-900 mb-2 flex items-center gap-2">
                                         <Sparkles className="w-4 h-4" />
                                         AI Suggested Actions:
                                     </p>
                                     <ul className="space-y-1">
                                         {selectedTicket.ai_suggested_actions.map((action, idx) => (
-                                            <li key={idx} className="text-sm text-purple-800">
+                                            <li key={idx} className="text-sm text-green-800">
                                                 • {action.action}: {action.description}
                                             </li>
                                         ))}
@@ -370,7 +370,7 @@ export default function TicketManager({ tickets, onRefresh, user }) {
                             Close
                         </Button>
                         {selectedTicket?.status !== 'closed' && (
-                            <Button onClick={handleSendReply} className="bg-indigo-600 hover:bg-indigo-700">
+                            <Button onClick={handleSendReply} className="bg-emerald-600 hover:bg-emerald-700">
                                 <Send className="w-4 h-4 mr-2" />
                                 Send Reply
                             </Button>

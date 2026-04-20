@@ -51,7 +51,7 @@ export default function SupportAnalytics({ messages, reviews, tickets, stats }) 
                 <Card>
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2 text-lg">
-                            <Clock className="w-5 h-5 text-indigo-600" />
+                            <Clock className="w-5 h-5 text-emerald-600" />
                             Response Time Distribution
                         </CardTitle>
                     </CardHeader>
@@ -68,7 +68,7 @@ export default function SupportAnalytics({ messages, reviews, tickets, stats }) 
                                         </div>
                                         <div className="w-full bg-slate-200 rounded-full h-2">
                                             <div
-                                                className="bg-indigo-600 rounded-full h-2 transition-all"
+                                                className="bg-emerald-600 rounded-full h-2 transition-all"
                                                 style={{ width: `${percentage}%` }}
                                             />
                                         </div>
@@ -155,7 +155,7 @@ export default function SupportAnalytics({ messages, reviews, tickets, stats }) 
                 <Card>
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2 text-lg">
-                            <BarChart3 className="w-5 h-5 text-purple-600" />
+                            <BarChart3 className="w-5 h-5 text-green-600" />
                             Support Categories
                         </CardTitle>
                     </CardHeader>
@@ -174,7 +174,7 @@ export default function SupportAnalytics({ messages, reviews, tickets, stats }) 
                                             </div>
                                             <div className="w-full bg-slate-200 rounded-full h-2">
                                                 <div
-                                                    className="bg-purple-600 rounded-full h-2 transition-all"
+                                                    className="bg-green-600 rounded-full h-2 transition-all"
                                                     style={{ width: `${percentage}%` }}
                                                 />
                                             </div>
@@ -187,10 +187,10 @@ export default function SupportAnalytics({ messages, reviews, tickets, stats }) 
             </div>
 
             {/* Key Insights */}
-            <Card className="bg-gradient-to-br from-indigo-50 to-blue-50 border-indigo-200">
+            <Card className="bg-gradient-to-br from-emerald-50 to-blue-50 border-emerald-200">
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                        <TrendingUp className="w-5 h-5 text-indigo-600" />
+                        <TrendingUp className="w-5 h-5 text-emerald-600" />
                         Key Insights
                     </CardTitle>
                 </CardHeader>

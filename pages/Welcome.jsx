@@ -89,7 +89,7 @@ export default function Welcome() {
                 <Card className="mb-8">
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
-                            <Sparkles className="w-6 h-6 text-purple-600" />
+                            <Sparkles className="w-6 h-6 text-green-600" />
                             What's Next?
                         </CardTitle>
                         <CardDescription>
@@ -98,7 +98,7 @@ export default function Welcome() {
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <div className="flex items-start gap-4 p-4 bg-slate-50 rounded-lg border">
-                            <Zap className="w-6 h-6 text-indigo-600 flex-shrink-0 mt-1" />
+                            <Zap className="w-6 h-6 text-emerald-600 flex-shrink-0 mt-1" />
                             <div>
                                 <h4 className="font-semibold text-slate-900 mb-1">
                                     Connect Your Shopify Store
@@ -110,7 +110,7 @@ export default function Welcome() {
                         </div>
 
                         <div className="flex items-start gap-4 p-4 bg-slate-50 rounded-lg border">
-                            <Bot className="w-6 h-6 text-purple-600 flex-shrink-0 mt-1" />
+                            <Bot className="w-6 h-6 text-green-600 flex-shrink-0 mt-1" />
                             <div>
                                 <h4 className="font-semibold text-slate-900 mb-1">
                                     Meet Orion - Your AI Business Partner
@@ -142,7 +142,7 @@ export default function Welcome() {
                             <CardTitle>Your Current Plan</CardTitle>
                         </CardHeader>
                         <CardContent>
-                            <div className="flex items-center justify-between p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg border border-indigo-200">
+                            <div className="flex items-center justify-between p-4 bg-gradient-to-r from-emerald-50 to-green-50 rounded-lg border border-emerald-200">
                                 <div>
                                     <p className="text-sm text-slate-600">You're on the</p>
                                     <p className="text-2xl font-bold text-slate-900 capitalize">
@@ -177,7 +177,7 @@ export default function Welcome() {
                     </Button>
                     <p className="text-sm text-slate-500 mt-4">
                         Need help? Check out our{' '}
-                        <a href="mailto:evensonsarah704@gmail.com" className="text-indigo-600 hover:underline">
+                        <a href="mailto:evensonsarah704@gmail.com" className="text-emerald-600 hover:underline">
                             support
                         </a>
                     </p>

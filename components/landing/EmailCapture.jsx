@@ -82,7 +82,7 @@ export default function EmailCapture({ source = "landing_page", placeholder = "E
         <Button 
           type="submit" 
           disabled={isSubmitting || !email}
-          className="bg-indigo-600 hover:bg-indigo-700 px-8 py-3 text-lg"
+          className="bg-emerald-600 hover:bg-emerald-700 px-8 py-3 text-lg"
         >
           {isSubmitting ? (
             <>

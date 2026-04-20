@@ -43,22 +43,22 @@ export default function BetaBanner() {
     if (!isVisible) return null;
 
     return (
-        <div className="bg-gradient-to-r from-purple-50 via-indigo-50 to-blue-50 border border-purple-200 rounded-lg mb-6 shadow-sm overflow-hidden">
+        <div className="bg-gradient-to-r from-green-50 via-emerald-50 to-blue-50 border border-green-200 rounded-lg mb-6 shadow-sm overflow-hidden">
             <div 
                 className="flex items-center justify-between p-4 cursor-pointer" 
                 onClick={() => setIsExpanded(!isExpanded)}
             >
                 <div className="flex items-center gap-4">
-                    <div className="p-2 bg-purple-100 rounded-lg">
-                        <FlaskConical className="w-5 h-5 text-purple-600 flex-shrink-0" />
+                    <div className="p-2 bg-green-100 rounded-lg">
+                        <FlaskConical className="w-5 h-5 text-green-600 flex-shrink-0" />
                     </div>
                     <div className="flex items-center gap-3">
-                        <span className="text-lg font-bold text-purple-900 flex items-center gap-2">
+                        <span className="text-lg font-bold text-green-900 flex items-center gap-2">
                             You're a Tandril Beta User!
-                            <Sparkles className="w-4 h-4 text-purple-600" />
+                            <Sparkles className="w-4 h-4 text-green-600" />
                         </span>
                         {!isExpanded && (
-                            <span className="hidden sm:inline text-sm text-purple-800">
+                            <span className="hidden sm:inline text-sm text-green-800">
                                 Thank you for helping shape the future of AI e-commerce
                             </span>
                         )}
@@ -72,14 +72,14 @@ export default function BetaBanner() {
                             e.stopPropagation();
                             handleDismiss();
                         }}
-                        className="text-purple-600 hover:bg-purple-100 h-8 w-8"
+                        className="text-green-600 hover:bg-green-100 h-8 w-8"
                     >
                         <X className="w-4 h-4" />
                     </Button>
                     <Button 
                         variant="outline" 
                         size="sm"
-                        className="h-8 border-purple-300 bg-white/70 hover:bg-purple-100/50 text-purple-800 text-xs"
+                        className="h-8 border-green-300 bg-white/70 hover:bg-green-100/50 text-green-800 text-xs"
                         onClick={(e) => {
                             e.stopPropagation();
                             window.open('mailto:evensonsarah704@gmail.com?subject=Tandril Beta Feedback&body=Hi Sarah,%0A%0AHere is my feedback on Tandril:%0A%0A', '_blank');
@@ -88,7 +88,7 @@ export default function BetaBanner() {
                         <LifeBuoy className="w-3 h-3 mr-1.5" />
                         Feedback
                     </Button>
-                    <ChevronDown className={`w-5 h-5 text-purple-700 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
+                    <ChevronDown className={`w-5 h-5 text-green-700 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
                 </div>
             </div>
 
@@ -101,14 +101,14 @@ export default function BetaBanner() {
                         transition={{ duration: 0.3, ease: 'easeInOut' }}
                         className="overflow-hidden"
                     >
-                        <div className="px-4 pb-6 pt-2 border-t border-purple-200">
+                        <div className="px-4 pb-6 pt-2 border-t border-green-200">
                             <div className="grid md:grid-cols-2 gap-6">
                                 <div>
-                                    <h4 className="font-semibold text-purple-900 mb-2 flex items-center gap-2">
+                                    <h4 className="font-semibold text-green-900 mb-2 flex items-center gap-2">
                                         <Users className="w-4 h-4" />
                                         As a Beta User, You Get:
                                     </h4>
-                                    <ul className="text-sm text-purple-800 space-y-1">
+                                    <ul className="text-sm text-green-800 space-y-1">
                                         <li>• Early access to cutting-edge AI features</li>
                                         <li>• Direct input on product development</li>
                                         <li>• Priority support and feedback channels</li>
@@ -116,10 +116,10 @@ export default function BetaBanner() {
                                     </ul>
                                 </div>
                                 <div>
-                                    <h4 className="font-semibold text-purple-900 mb-2">
+                                    <h4 className="font-semibold text-green-900 mb-2">
                                         Help Us Improve:
                                     </h4>
-                                    <p className="text-sm text-purple-800 mb-3">
+                                    <p className="text-sm text-green-800 mb-3">
                                         Your experience and feedback directly shapes how Tandril evolves. 
                                         Every suggestion helps us build the perfect AI business partner.
                                     </p>
@@ -127,7 +127,7 @@ export default function BetaBanner() {
                                         <Button 
                                             size="sm"
                                             variant="outline"
-                                            className="text-xs border-purple-300 text-purple-700 hover:bg-purple-100"
+                                            className="text-xs border-green-300 text-green-700 hover:bg-green-100"
                                             onClick={() => window.open('mailto:evensonsarah704@gmail.com?subject=Tandril Beta Feedback&body=Hi Sarah,%0A%0AHere is my feedback on Tandril:%0A%0A', '_blank')}
                                         >
                                             Share Feedback
@@ -135,7 +135,7 @@ export default function BetaBanner() {
                                         <Button
                                             size="sm"
                                             variant="outline"
-                                            className="text-xs border-purple-300 text-purple-700 hover:bg-purple-100"
+                                            className="text-xs border-green-300 text-green-700 hover:bg-green-100"
                                             onClick={() => window.open('mailto:evensonsarah704@gmail.com?subject=Tandril Support Request', '_blank')}
                                         >
                                             Contact Support

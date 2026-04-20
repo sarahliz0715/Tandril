@@ -136,7 +136,7 @@ export default function DashboardAdvisor() {
                         <Button
                             type="submit"
                             size="icon"
-                            className="w-8 h-8 bg-indigo-600 hover:bg-indigo-700"
+                            className="w-8 h-8 bg-emerald-600 hover:bg-emerald-700"
                             disabled={!input.trim()}
                         >
                             <Send className="w-4 h-4" />

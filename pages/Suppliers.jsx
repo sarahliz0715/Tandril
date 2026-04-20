@@ -298,7 +298,7 @@ export default function Suppliers() {
                   {supplier.email && (
                     <div className="flex items-center gap-2 text-slate-600">
                       <Mail className="w-4 h-4" />
-                      <a href={`mailto:${supplier.email}`} className="hover:text-indigo-600">
+                      <a href={`mailto:${supplier.email}`} className="hover:text-emerald-600">
                         {supplier.email}
                       </a>
                     </div>
@@ -306,7 +306,7 @@ export default function Suppliers() {
                   {supplier.phone && (
                     <div className="flex items-center gap-2 text-slate-600">
                       <Phone className="w-4 h-4" />
-                      <a href={`tel:${supplier.phone}`} className="hover:text-indigo-600">
+                      <a href={`tel:${supplier.phone}`} className="hover:text-emerald-600">
                         {supplier.phone}
                       </a>
                     </div>
@@ -314,7 +314,7 @@ export default function Suppliers() {
                   {supplier.website && (
                     <div className="flex items-center gap-2 text-slate-600">
                       <Globe className="w-4 h-4" />
-                      <a href={supplier.website} target="_blank" rel="noopener noreferrer" className="hover:text-indigo-600">
+                      <a href={supplier.website} target="_blank" rel="noopener noreferrer" className="hover:text-emerald-600">
                         Website
                       </a>
                     </div>

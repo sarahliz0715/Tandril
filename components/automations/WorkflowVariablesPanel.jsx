@@ -58,7 +58,7 @@ export default function WorkflowVariablesPanel({ automation, onUpdate }) {
         const colors = {
             string: 'bg-blue-100 text-blue-800',
             number: 'bg-green-100 text-green-800',
-            boolean: 'bg-purple-100 text-purple-800',
+            boolean: 'bg-green-100 text-green-800',
             array: 'bg-orange-100 text-orange-800',
             object: 'bg-pink-100 text-pink-800'
         };
@@ -78,9 +78,9 @@ export default function WorkflowVariablesPanel({ automation, onUpdate }) {
         <Card>
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                    <Variable className="w-5 h-5 text-indigo-600" />
+                    <Variable className="w-5 h-5 text-emerald-600" />
                     Workflow Variables
-                    <Badge className="bg-indigo-100 text-indigo-800">
+                    <Badge className="bg-emerald-100 text-emerald-800">
                         {variables.length} custom
                     </Badge>
                 </CardTitle>
@@ -127,7 +127,7 @@ export default function WorkflowVariablesPanel({ automation, onUpdate }) {
                         <Button
                             size="sm"
                             onClick={() => setShowAddForm(!showAddForm)}
-                            className="bg-indigo-600 hover:bg-indigo-700"
+                            className="bg-emerald-600 hover:bg-emerald-700"
                         >
                             <Plus className="w-4 h-4 mr-2" />
                             Add Variable
@@ -136,7 +136,7 @@ export default function WorkflowVariablesPanel({ automation, onUpdate }) {
 
                     {/* Add Variable Form */}
                     {showAddForm && (
-                        <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-200 space-y-3">
+                        <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-200 space-y-3">
                             <div className="grid grid-cols-2 gap-3">
                                 <div className="space-y-2">
                                     <Label>Variable Name</Label>
@@ -195,7 +195,7 @@ export default function WorkflowVariablesPanel({ automation, onUpdate }) {
                                 <Button
                                     size="sm"
                                     onClick={handleAddVariable}
-                                    className="bg-indigo-600 hover:bg-indigo-700"
+                                    className="bg-emerald-600 hover:bg-emerald-700"
                                 >
                                     Add Variable
                                 </Button>
@@ -215,9 +215,9 @@ export default function WorkflowVariablesPanel({ automation, onUpdate }) {
                             {variables.map((variable) => (
                                 <div
                                     key={variable.id}
-                                    className="flex items-center gap-3 p-3 bg-white rounded-lg border border-slate-200 hover:border-indigo-300 transition-colors"
+                                    className="flex items-center gap-3 p-3 bg-white rounded-lg border border-slate-200 hover:border-emerald-300 transition-colors"
                                 >
-                                    <Variable className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+                                    <Variable className="w-4 h-4 text-emerald-600 flex-shrink-0" />
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 mb-1">
                                             <code className="text-sm font-mono text-slate-900">

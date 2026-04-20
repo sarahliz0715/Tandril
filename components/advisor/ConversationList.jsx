@@ -15,7 +15,7 @@ export default function ConversationList({ conversations, selectedConversationId
                 key={conversation.id}
                 className={`group relative p-3 rounded-lg cursor-pointer transition-colors ${
                   selectedConversationId === conversation.id
-                    ? 'bg-indigo-100 border border-indigo-200'
+                    ? 'bg-emerald-100 border border-emerald-200'
                     : 'hover:bg-slate-100 border border-transparent'
                 }`}
                 onClick={() => onConversationSelect(conversation.id)}
@@ -23,7 +23,7 @@ export default function ConversationList({ conversations, selectedConversationId
                 <div className="flex items-start gap-3">
                   <div className="flex-shrink-0 mt-1">
                     <MessageSquare className={`w-4 h-4 ${
-                      selectedConversationId === conversation.id ? 'text-indigo-600' : 'text-slate-400'
+                      selectedConversationId === conversation.id ? 'text-emerald-600' : 'text-slate-400'
                     }`} />
                   </div>
                   <div className="flex-1 min-w-0">

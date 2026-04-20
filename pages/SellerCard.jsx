@@ -71,7 +71,7 @@ export default function SellerCard() {
               <h1 className="text-3xl font-bold text-slate-900">Tandril Seller Card</h1>
               <p className="text-slate-600">Print these cards to share with sellers at your booth</p>
             </div>
-            <Button onClick={handlePrint} className="bg-indigo-600 hover:bg-indigo-700">
+            <Button onClick={handlePrint} className="bg-emerald-600 hover:bg-emerald-700">
               <Printer className="w-4 h-4 mr-2" />
               Print Cards
             </Button>

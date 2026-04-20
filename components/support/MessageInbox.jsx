@@ -84,7 +84,7 @@ export default function MessageInbox({ messages, onRefresh, user }) {
     const getStatusColor = (status) => {
         switch (status) {
             case 'new': return 'bg-blue-100 text-blue-800';
-            case 'ai_replied': return 'bg-purple-100 text-purple-800';
+            case 'ai_replied': return 'bg-green-100 text-green-800';
             case 'manually_replied': return 'bg-green-100 text-green-800';
             case 'resolved': return 'bg-slate-100 text-slate-800';
             default: return 'bg-slate-100 text-slate-800';
@@ -183,12 +183,12 @@ export default function MessageInbox({ messages, onRefresh, user }) {
                             </div>
 
                             {selectedMessage.ai_suggested_reply && (
-                                <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
-                                    <p className="text-sm font-semibold text-purple-900 mb-2 flex items-center gap-2">
+                                <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                                    <p className="text-sm font-semibold text-green-900 mb-2 flex items-center gap-2">
                                         <Sparkles className="w-4 h-4" />
                                         AI Suggested Response:
                                     </p>
-                                    <p className="text-sm text-purple-800">{selectedMessage.ai_suggested_reply}</p>
+                                    <p className="text-sm text-green-800">{selectedMessage.ai_suggested_reply}</p>
                                 </div>
                             )}
 
@@ -225,7 +225,7 @@ export default function MessageInbox({ messages, onRefresh, user }) {
                         <Button variant="outline" onClick={() => setSelectedMessage(null)}>
                             Cancel
                         </Button>
-                        <Button onClick={handleSendReply} className="bg-indigo-600 hover:bg-indigo-700">
+                        <Button onClick={handleSendReply} className="bg-emerald-600 hover:bg-emerald-700">
                             <Send className="w-4 h-4 mr-2" />
                             Send Response
                         </Button>

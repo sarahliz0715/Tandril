@@ -160,15 +160,15 @@ export default function ProfileSettings() {
                     </div>
 
                     {/* Business Niches Field */}
-                    <div className="space-y-3 p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg border border-indigo-200">
+                    <div className="space-y-3 p-4 bg-gradient-to-r from-emerald-50 to-green-50 rounded-lg border border-emerald-200">
                         <div className="flex items-center gap-2">
-                            <Sparkles className="w-4 h-4 text-indigo-600" />
-                            <Label className="font-semibold text-indigo-900">
+                            <Sparkles className="w-4 h-4 text-emerald-600" />
+                            <Label className="font-semibold text-emerald-900">
                                 Business Niches / Product Categories
                             </Label>
                         </div>
                         
-                        <p className="text-xs text-indigo-700">
+                        <p className="text-xs text-emerald-700">
                             Add all the niches or product categories you work with. This helps AI personalize market intelligence and insights.
                         </p>
 

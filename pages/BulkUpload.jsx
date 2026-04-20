@@ -161,7 +161,7 @@ export default function BulkUploadPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <FileSpreadsheet className="w-5 h-5 text-indigo-600" />
+            <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
             Need a Template?
           </CardTitle>
           <CardDescription>

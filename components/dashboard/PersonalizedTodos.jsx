@@ -49,7 +49,7 @@ export default function PersonalizedTodos({ user, platforms, alerts, recommendat
                 icon: Sparkles, // Changed from Zap
                 text: 'Connect your first store',
                 action: () => navigate(createPageUrl('Platforms')),
-                color: 'text-indigo-500'
+                color: 'text-emerald-500'
             });
         }
         

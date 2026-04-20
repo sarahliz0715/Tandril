@@ -22,9 +22,9 @@ export default function PlanCard({ plan, isCurrentPlan, onSelectPlan, isLoading 
     };
 
     return (
-        <Card className={`relative h-full ${plan.featured ? 'ring-2 ring-indigo-500 shadow-lg' : ''}`}>
+        <Card className={`relative h-full ${plan.featured ? 'ring-2 ring-emerald-500 shadow-lg' : ''}`}>
             {plan.featured && (
-                <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-indigo-600 text-white px-4 py-1">
+                <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-emerald-600 text-white px-4 py-1">
                     Most Popular
                 </Badge>
             )}

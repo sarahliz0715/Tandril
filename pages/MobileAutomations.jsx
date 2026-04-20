@@ -102,7 +102,7 @@ export default function MobileAutomationsPage() {
                 <div className="flex items-center justify-between">
                     <div>
                         <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-                            <Zap className="w-6 h-6 text-indigo-600" />
+                            <Zap className="w-6 h-6 text-emerald-600" />
                             Automations
                         </h1>
                         <p className="text-sm text-slate-600 mt-1">
@@ -112,7 +112,7 @@ export default function MobileAutomationsPage() {
                     <Button
                         onClick={() => navigate(createPageUrl('AutomationSetup'))}
                         size="sm"
-                        className="bg-indigo-600 hover:bg-indigo-700"
+                        className="bg-emerald-600 hover:bg-emerald-700"
                     >
                         <Plus className="w-4 h-4 mr-1" />
                         New
@@ -164,7 +164,7 @@ export default function MobileAutomationsPage() {
                         {!searchTerm && (
                             <Button
                                 onClick={() => navigate(createPageUrl('AutomationSetup'))}
-                                className="mt-4 bg-indigo-600 hover:bg-indigo-700"
+                                className="mt-4 bg-emerald-600 hover:bg-emerald-700"
                                 size="sm"
                             >
                                 <Plus className="w-4 h-4 mr-2" />
@@ -191,7 +191,7 @@ export default function MobileAutomationsPage() {
                 <Button
                     onClick={() => navigate(createPageUrl('AutomationMarketplace'))}
                     size="icon"
-                    className="h-12 w-12 rounded-full bg-purple-600 hover:bg-purple-700 shadow-lg"
+                    className="h-12 w-12 rounded-full bg-green-600 hover:bg-green-700 shadow-lg"
                 >
                     <TrendingUp className="w-5 h-5" />
                 </Button>

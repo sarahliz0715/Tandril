@@ -132,7 +132,7 @@ export default function AppearanceSettings() {
                                 <Label
                                     htmlFor={`theme-${id}`}
                                     className={`flex flex-col items-center justify-center rounded-md border-2 p-4 hover:bg-accent hover:text-accent-foreground cursor-pointer ${
-                                        settings.dashboard_layout.theme === id ? "border-indigo-500" : "border-muted"
+                                        settings.dashboard_layout.theme === id ? "border-emerald-500" : "border-muted"
                                     }`}
                                 >
                                     <Icon className="mb-3 h-6 w-6" />

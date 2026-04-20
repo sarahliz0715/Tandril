@@ -38,7 +38,7 @@ export default function CustomerProfilePanel({ customer, message }) {
                 {/* Customer Basic Info */}
                 <div className="flex items-center gap-4">
                     <Avatar className="w-16 h-16">
-                        <AvatarFallback className="bg-indigo-100 text-indigo-700 text-xl">
+                        <AvatarFallback className="bg-emerald-100 text-emerald-700 text-xl">
                             {customer.name ? customer.name.charAt(0).toUpperCase() : '?'}
                         </AvatarFallback>
                     </Avatar>

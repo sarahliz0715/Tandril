@@ -107,7 +107,7 @@ export default function FaireConnectButton({ onConnectionSuccess, disabled = fal
                 <DialogContent className="max-w-md">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
-                            <Package className="w-5 h-5 text-indigo-600" />
+                            <Package className="w-5 h-5 text-emerald-600" />
                             Connect Faire Wholesale
                         </DialogTitle>
                         <DialogDescription>
@@ -121,11 +121,11 @@ export default function FaireConnectButton({ onConnectionSuccess, disabled = fal
                     <div className="space-y-4 py-4">
                         {useOAuth ? (
                             <>
-                                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 space-y-3">
-                                    <p className="text-sm text-indigo-900">
+                                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 space-y-3">
+                                    <p className="text-sm text-emerald-900">
                                         <strong>Wholesale Platform:</strong> Faire connects brands with independent retailers.
                                     </p>
-                                    <p className="text-xs text-indigo-800">
+                                    <p className="text-xs text-emerald-800">
                                         You&apos;ll be redirected to Faire to authorize Tandril.
                                         We&apos;ll manage your products, orders, and inventory automatically.
                                     </p>

@@ -161,14 +161,14 @@ export default function MobileDashboard() {
                     value={stats.products.value}
                     change={stats.products.change}
                     icon={Package}
-                    color="bg-purple-500"
+                    color="bg-green-500"
                     onClick={() => navigate(createPageUrl('Inventory'))}
                 />
                 <StatCard
                     title="Platforms"
                     value={stats.platforms.value}
                     icon={Zap}
-                    color="bg-indigo-500"
+                    color="bg-emerald-500"
                     onClick={() => navigate(createPageUrl('Platforms'))}
                 />
             </div>

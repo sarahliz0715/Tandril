@@ -149,7 +149,7 @@ export default function CommandQueuePanel({ onExecuteQueue, connectedPlatforms }
                 <CardHeader>
                     <CardTitle className="flex items-center gap-3">
                         <div className="flex items-center gap-2">
-                            <Play className="w-5 h-5 text-indigo-600" />
+                            <Play className="w-5 h-5 text-emerald-600" />
                             Command Queue
                         </div>
                         <Badge variant="outline" className="ml-auto">
@@ -266,7 +266,7 @@ export default function CommandQueuePanel({ onExecuteQueue, connectedPlatforms }
                         <Button
                             onClick={executeQueue}
                             disabled={isExecuting || commands.length === 0 || !queueName.trim()}
-                            className="bg-indigo-600 hover:bg-indigo-700"
+                            className="bg-emerald-600 hover:bg-emerald-700"
                         >
                             {isExecuting ? (
                                 <>

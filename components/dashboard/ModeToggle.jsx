@@ -69,7 +69,7 @@ export default function ModeToggle({ user, onModeChange }) {
 
     return (
         <>
-            <Card className="bg-gradient-to-r from-indigo-50 to-purple-50 border-indigo-200">
+            <Card className="bg-gradient-to-r from-emerald-50 to-green-50 border-emerald-200">
                 <CardContent className="p-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">

@@ -83,7 +83,7 @@ export default function BetaAccessManager({ currentUser }) {
         <Card>
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                    <Sparkles className="w-5 h-5 text-purple-600" />
+                    <Sparkles className="w-5 h-5 text-green-600" />
                     Beta Access Management
                 </CardTitle>
                 <CardDescription>
@@ -113,9 +113,9 @@ export default function BetaAccessManager({ currentUser }) {
                         <div className="text-2xl font-bold text-slate-900">{allUsers.length}</div>
                         <div className="text-sm text-slate-600">Total Users</div>
                     </div>
-                    <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
-                        <div className="text-2xl font-bold text-purple-900">{betaUsers.length}</div>
-                        <div className="text-sm text-purple-700">Beta Testers</div>
+                    <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                        <div className="text-2xl font-bold text-green-900">{betaUsers.length}</div>
+                        <div className="text-sm text-green-700">Beta Testers</div>
                     </div>
                 </div>
 
@@ -137,7 +137,7 @@ export default function BetaAccessManager({ currentUser }) {
                                             {user.full_name || 'No Name'}
                                         </p>
                                         {user.shopify_beta_access && (
-                                            <Badge className="bg-purple-100 text-purple-800 border-purple-200">
+                                            <Badge className="bg-green-100 text-green-800 border-green-200">
                                                 <Sparkles className="w-3 h-3 mr-1" />
                                                 Beta
                                             </Badge>
@@ -164,7 +164,7 @@ export default function BetaAccessManager({ currentUser }) {
                                     size="sm"
                                     variant={user.shopify_beta_access ? "destructive" : "default"}
                                     onClick={() => toggleBetaAccess(user)}
-                                    className={user.shopify_beta_access ? "" : "bg-purple-600 hover:bg-purple-700"}
+                                    className={user.shopify_beta_access ? "" : "bg-green-600 hover:bg-green-700"}
                                 >
                                     {user.shopify_beta_access ? (
                                         <>

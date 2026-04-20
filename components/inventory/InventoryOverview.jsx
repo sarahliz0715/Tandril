@@ -9,7 +9,7 @@ import {
     Sparkles, BarChart3
 } from 'lucide-react';
 
-const MetricCard = ({ title, value, subtitle, icon: Icon, trend, trendValue, color = "text-indigo-600", bgColor = "bg-indigo-50" }) => (
+const MetricCard = ({ title, value, subtitle, icon: Icon, trend, trendValue, color = "text-emerald-600", bgColor = "bg-emerald-50" }) => (
     <Card className="bg-white/80 backdrop-blur-sm shadow-sm">
         <CardContent className="p-6">
             <div className="flex items-center justify-between">
@@ -36,7 +36,7 @@ const MetricCard = ({ title, value, subtitle, icon: Icon, trend, trendValue, col
 );
 
 const OpportunityCard = ({ title, description, impact, urgency, onTakeAction }) => (
-    <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+    <Card className="bg-gradient-to-r from-blue-50 to-emerald-50 border-blue-200">
         <CardContent className="p-4">
             <div className="flex items-start justify-between">
                 <div className="flex-1">
@@ -118,8 +118,8 @@ export default function InventoryOverview({ stats }) {
                     icon={BarChart3}
                     trend="up"
                     trendValue="Above industry avg"
-                    color="text-purple-600"
-                    bgColor="bg-purple-50"
+                    color="text-green-600"
+                    bgColor="bg-green-50"
                 />
                 <MetricCard
                     title="Avg Profit Margin"

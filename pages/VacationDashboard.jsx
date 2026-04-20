@@ -231,7 +231,7 @@ export default function VacationDashboard() {
 
   return (
     <>
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 p-6">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-emerald-50 p-6">
         <div className="max-w-6xl mx-auto">
           {/* Header */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
@@ -322,8 +322,8 @@ export default function VacationDashboard() {
             <Card className="bg-white/80 backdrop-blur-sm">
               <CardContent className="p-6">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-full bg-indigo-100">
-                    <Shield className="w-5 h-5 text-indigo-600" />
+                  <div className="p-2 rounded-full bg-emerald-100">
+                    <Shield className="w-5 h-5 text-emerald-600" />
                   </div>
                   <div>
                     <p className="text-2xl font-bold text-slate-900">{vacationStats.totalActions}</p>

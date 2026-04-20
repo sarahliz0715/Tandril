@@ -180,7 +180,7 @@ export default function OnboardingFlow() {
     const firstName = user?.full_name?.split(' ')[0] || 'friend';
 
     return (
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6 mb-6 border border-blue-200">
+      <div className="bg-gradient-to-r from-blue-50 to-emerald-50 rounded-xl p-6 mb-6 border border-blue-200">
         <div className="flex items-start gap-4">
           <AIAvatar size="lg" className="flex-shrink-0" />
           <div className="space-y-3">
@@ -268,8 +268,8 @@ export default function OnboardingFlow() {
             {renderOrionMessage()}
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="text-center p-4 bg-indigo-50 rounded-lg">
-                <Zap className="w-8 h-8 text-indigo-600 mx-auto mb-2" />
+              <div className="text-center p-4 bg-emerald-50 rounded-lg">
+                <Zap className="w-8 h-8 text-emerald-600 mx-auto mb-2" />
                 <h3 className="font-semibold text-gray-900">Automate Tasks</h3>
                 <p className="text-sm text-gray-600">"Optimize my top 20 products"</p>
               </div>
@@ -278,8 +278,8 @@ export default function OnboardingFlow() {
                 <h3 className="font-semibold text-gray-900">Grow Revenue</h3>
                 <p className="text-sm text-gray-600">"Find my growth opportunities"</p>
               </div>
-              <div className="text-center p-4 bg-purple-50 rounded-lg">
-                <MessageSquare className="w-8 h-8 text-purple-600 mx-auto mb-2" />
+              <div className="text-center p-4 bg-green-50 rounded-lg">
+                <MessageSquare className="w-8 h-8 text-green-600 mx-auto mb-2" />
                 <h3 className="font-semibold text-gray-900">Strategic Advice</h3>
                 <p className="text-sm text-gray-600">"What should I focus on today?"</p>
               </div>
@@ -301,19 +301,19 @@ export default function OnboardingFlow() {
             <RadioGroup value={experience} onValueChange={setExperience} className="space-y-4">
               <Label 
                 htmlFor="demo-mode" 
-                className="flex items-start space-x-4 p-6 border-2 rounded-xl cursor-pointer transition-all hover:border-indigo-300 has-[:checked]:bg-indigo-50 has-[:checked]:border-indigo-500"
+                className="flex items-start space-x-4 p-6 border-2 rounded-xl cursor-pointer transition-all hover:border-emerald-300 has-[:checked]:bg-emerald-50 has-[:checked]:border-emerald-500"
               >
                 <RadioGroupItem value="demo" id="demo-mode" className="mt-1" />
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
-                    <div className="p-2 bg-indigo-100 rounded-lg">
-                      <FlaskConical className="w-6 h-6 text-indigo-600" />
+                    <div className="p-2 bg-emerald-100 rounded-lg">
+                      <FlaskConical className="w-6 h-6 text-emerald-600" />
                     </div>
                     <div>
                       <span className="font-bold text-gray-900 text-lg">Demo Store Experience</span>
                       <div className="flex items-center gap-1 mt-1">
-                        <Sparkles className="w-4 h-4 text-indigo-500" />
-                        <span className="text-sm text-indigo-600 font-medium">Orion's recommendation</span>
+                        <Sparkles className="w-4 h-4 text-emerald-500" />
+                        <span className="text-sm text-emerald-600 font-medium">Orion's recommendation</span>
                       </div>
                     </div>
                   </div>
@@ -330,7 +330,7 @@ export default function OnboardingFlow() {
                       <Shield className="w-3 h-3" />
                       Instant setup
                     </span>
-                    <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded-full">
+                    <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">
                       <Bot className="w-3 h-3" />
                       Full Orion experience
                     </span>
@@ -430,7 +430,7 @@ export default function OnboardingFlow() {
         return (
             <div className="space-y-6">
                 {renderOrionMessage()}
-                <div className="relative rounded-xl border-2 border-dashed border-indigo-200 p-4">
+                <div className="relative rounded-xl border-2 border-dashed border-emerald-200 p-4">
                     <img src="https://images.unsplash.com/photo-1695425624996-5492931a74d5?w=600&auto=format&fit=crop" alt="Drag and drop illustration" className="rounded-lg aspect-video object-cover" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent rounded-lg"></div>
                     <div className="absolute bottom-4 left-4 text-white">
@@ -449,12 +449,12 @@ export default function OnboardingFlow() {
               <CheckCircle className="w-8 h-8 text-green-600" />
             </div>
             
-            <div className="bg-indigo-50 rounded-xl p-6 text-left">
-              <h3 className="font-bold text-indigo-900 mb-3 flex items-center gap-2">
+            <div className="bg-emerald-50 rounded-xl p-6 text-left">
+              <h3 className="font-bold text-emerald-900 mb-3 flex items-center gap-2">
                 <ArrowRight className="w-5 h-5" />
                 Here's what Orion suggests we do first:
               </h3>
-              <ul className="space-y-2 text-indigo-800">
+              <ul className="space-y-2 text-emerald-800">
                 <li className="flex items-start gap-2">
                   <span className="font-bold">1.</span>
                   <span>Connect your first platform so I can see your business</span>
@@ -493,10 +493,10 @@ export default function OnboardingFlow() {
   // 1. Initial fetch / general step transition loading
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 via-white to-green-50">
           <div className="flex flex-col items-center gap-4">
               <TandrilVineLogo className="h-12 w-auto" />
-              <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+              <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
               <p className="text-slate-600">Preparing your setup...</p>
           </div>
       </div>
@@ -506,7 +506,7 @@ export default function OnboardingFlow() {
   // 2. User is not authenticated (after initial loading is complete)
   if (!user) {
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50">
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 via-white to-green-50">
             <div className="text-center">
                 <TandrilVineLogo className="h-12 w-auto mx-auto mb-4" />
                 <p className="text-slate-600 mb-4">Authentication required</p>
@@ -533,8 +533,8 @@ export default function OnboardingFlow() {
               I'm setting up a complete business environment with products, orders, 
               and insights. Think of it as your personal business playground!
             </p>
-            <div className="bg-indigo-50 rounded-lg p-4">
-              <div className="flex items-center gap-2 text-indigo-700">
+            <div className="bg-emerald-50 rounded-lg p-4">
+              <div className="flex items-center gap-2 text-emerald-700">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span className="text-sm">Crafting your perfect demo experience...</span>
               </div>
@@ -546,7 +546,7 @@ export default function OnboardingFlow() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-indigo-50 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-emerald-50 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-2xl">
         <TandrilVineLogo className="mx-auto h-12 w-auto" />
       </div>
@@ -559,7 +559,7 @@ export default function OnboardingFlow() {
             </CardTitle>
             <div className="mt-4 w-full bg-gray-200 rounded-full h-2">
               <div 
-                className="bg-indigo-600 h-2 rounded-full transition-all duration-500 ease-out" 
+                className="bg-emerald-600 h-2 rounded-full transition-all duration-500 ease-out" 
                 style={{ width: `${progressPercentage}%` }}
               />
             </div>
@@ -586,7 +586,7 @@ export default function OnboardingFlow() {
               <Button 
                 onClick={handleNext} 
                 disabled={isLoading}
-                className="px-8 bg-indigo-600 hover:bg-indigo-700"
+                className="px-8 bg-emerald-600 hover:bg-emerald-700"
               >
                 {isLoading ? (
                   <Loader2 className="animate-spin w-4 h-4 mr-2" />

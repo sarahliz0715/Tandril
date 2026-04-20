@@ -41,10 +41,10 @@ export default function SmartAdGenerator({ onImageGenerated }) {
     };
 
     return (
-        <Card className="bg-gradient-to-br from-purple-50 via-indigo-50 to-blue-50 border-purple-200 shadow-lg">
+        <Card className="bg-gradient-to-br from-green-50 via-emerald-50 to-blue-50 border-green-200 shadow-lg">
             <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-xl">
-                    <Sparkles className="w-6 h-6 text-purple-600" />
+                    <Sparkles className="w-6 h-6 text-green-600" />
                     AI Ad Creative Studio
                 </CardTitle>
                 <CardDescription>
@@ -62,7 +62,7 @@ export default function SmartAdGenerator({ onImageGenerated }) {
                             className="min-h-[100px] bg-white"
                             disabled={isLoading}
                         />
-                        <Button onClick={handleGenerate} disabled={isLoading} className="w-full bg-purple-600 hover:bg-purple-700">
+                        <Button onClick={handleGenerate} disabled={isLoading} className="w-full bg-green-600 hover:bg-green-700">
                             {isLoading ? (
                                 <>
                                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />

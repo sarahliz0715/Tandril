@@ -398,10 +398,10 @@ export default function TriggerBuilder({ trigger, onUpdate }) {
 
             {/* Schedule Configuration Card - for 'schedule' trigger type */}
             {trigger.trigger_type === 'schedule' && (
-                <Card className="border-indigo-200 bg-indigo-50">
+                <Card className="border-emerald-200 bg-emerald-50">
                     <CardHeader>
                         <CardTitle className="text-lg flex items-center gap-2">
-                            <Clock className="w-5 h-5 text-indigo-600" />
+                            <Clock className="w-5 h-5 text-emerald-600" />
                             Schedule Configuration
                         </CardTitle>
                     </CardHeader>

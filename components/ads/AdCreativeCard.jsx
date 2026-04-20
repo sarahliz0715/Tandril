@@ -6,8 +6,8 @@ import { Eye, Edit, Trash2, Copy } from 'lucide-react';
 
 const formatColors = {
     image: 'bg-blue-100 text-blue-800',
-    video: 'bg-purple-100 text-purple-800',
-    carousel: 'bg-indigo-100 text-indigo-800',
+    video: 'bg-green-100 text-green-800',
+    carousel: 'bg-emerald-100 text-emerald-800',
     collection: 'bg-teal-100 text-teal-800',
     story: 'bg-pink-100 text-pink-800',
     reel: 'bg-rose-100 text-rose-800',

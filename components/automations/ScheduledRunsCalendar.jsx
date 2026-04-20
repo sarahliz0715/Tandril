@@ -100,7 +100,7 @@ export default function ScheduledRunsCalendar() {
         return (
             <Card>
                 <CardContent className="flex items-center justify-center py-12">
-                    <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+                    <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
                 </CardContent>
             </Card>
         );
@@ -111,7 +111,7 @@ export default function ScheduledRunsCalendar() {
             <Card>
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                        <Calendar className="w-5 h-5 text-indigo-600" />
+                        <Calendar className="w-5 h-5 text-emerald-600" />
                         Upcoming Scheduled Runs
                     </CardTitle>
                 </CardHeader>
@@ -139,7 +139,7 @@ export default function ScheduledRunsCalendar() {
             <Card>
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                        <Zap className="w-5 h-5 text-indigo-600" />
+                        <Zap className="w-5 h-5 text-emerald-600" />
                         Schedule Summary
                     </CardTitle>
                 </CardHeader>
@@ -199,7 +199,7 @@ function ScheduledRunCard({ trigger, onManualRun }) {
         const colors = {
             hourly: 'bg-blue-100 text-blue-800 border-blue-200',
             daily: 'bg-green-100 text-green-800 border-green-200',
-            weekly: 'bg-purple-100 text-purple-800 border-purple-200',
+            weekly: 'bg-green-100 text-green-800 border-green-200',
             monthly: 'bg-orange-100 text-orange-800 border-orange-200'
         };
         
@@ -254,7 +254,7 @@ function StatCard({ label, value, icon: Icon }) {
         <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
             <div className="flex items-center justify-between mb-2">
                 <span className="text-sm text-slate-600">{label}</span>
-                <Icon className="w-4 h-4 text-indigo-600" />
+                <Icon className="w-4 h-4 text-emerald-600" />
             </div>
             <p className="text-2xl font-bold text-slate-900">{value}</p>
         </div>

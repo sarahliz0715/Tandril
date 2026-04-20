@@ -61,7 +61,7 @@ export default function ExecutionTraceViewer({ trace }) {
         <Card>
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                    <Zap className="w-5 h-5 text-indigo-600" />
+                    <Zap className="w-5 h-5 text-emerald-600" />
                     Execution Trace
                     <Badge className="bg-slate-100 text-slate-800">
                         {trace.steps.length} steps

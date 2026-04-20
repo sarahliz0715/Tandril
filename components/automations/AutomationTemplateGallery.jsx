@@ -115,7 +115,7 @@ export default function AutomationTemplateGallery({ onSelectTemplate }) {
     if (loading) {
         return (
             <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+                <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
             </div>
         );
     }
@@ -241,8 +241,8 @@ function TemplateCard({ template, onUse, featured = false }) {
         <Card className={`group hover:shadow-lg transition-all duration-200 ${featured ? 'border-yellow-300 bg-gradient-to-br from-yellow-50 to-white' : ''}`}>
             <CardHeader className="pb-3">
                 <div className="flex items-start justify-between mb-2">
-                    <div className="p-2 rounded-lg bg-indigo-100">
-                        <CategoryIcon className="w-5 h-5 text-indigo-600" />
+                    <div className="p-2 rounded-lg bg-emerald-100">
+                        <CategoryIcon className="w-5 h-5 text-emerald-600" />
                     </div>
                     {featured && (
                         <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">
@@ -283,7 +283,7 @@ function TemplateCard({ template, onUse, featured = false }) {
                     </div>
                     <div className="space-y-1">
                         <div className="flex items-center gap-2 text-xs text-slate-600">
-                            <Zap className="w-3 h-3 text-indigo-600" />
+                            <Zap className="w-3 h-3 text-emerald-600" />
                             <span className="capitalize">{template.trigger_template?.trigger_type?.replace(/_/g, ' ')}</span>
                         </div>
                         <div className="flex items-center gap-2 text-xs text-slate-600">
@@ -295,7 +295,7 @@ function TemplateCard({ template, onUse, featured = false }) {
 
                 <Button
                     onClick={() => onUse(template)}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 group-hover:bg-indigo-700"
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 group-hover:bg-emerald-700"
                 >
                     <Sparkles className="w-4 h-4 mr-2" />
                     Use This Template

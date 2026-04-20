@@ -81,7 +81,7 @@ export default function StatsCards() {
             title: 'Inventory Items',
             value: stats.inventory,
             icon: TrendingUp,
-            color: 'text-purple-600'
+            color: 'text-green-600'
         },
         {
             title: 'Total Revenue',

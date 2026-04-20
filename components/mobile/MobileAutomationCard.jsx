@@ -44,7 +44,7 @@ export default function MobileAutomationCard({ automation, onToggle, onView, onE
                     <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
-                                <Zap className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+                                <Zap className="w-4 h-4 text-emerald-600 flex-shrink-0" />
                                 <h3 className="font-semibold text-slate-900 text-sm truncate">
                                     {automation.name}
                                 </h3>

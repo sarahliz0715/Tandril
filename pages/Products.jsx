@@ -108,7 +108,7 @@ export default function Products() {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+          <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
           <p className="text-slate-600">Loading products from Shopify...</p>
         </div>
       </div>
@@ -121,7 +121,7 @@ export default function Products() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
-            <Package className="w-8 h-8 text-indigo-600" />
+            <Package className="w-8 h-8 text-emerald-600" />
             Products
           </h1>
           <p className="text-slate-600 mt-1">View and manage your Shopify product catalog</p>
@@ -140,7 +140,7 @@ export default function Products() {
               <p className="text-sm text-slate-500">Total</p>
               <p className="text-2xl font-bold">{stats.total}</p>
             </div>
-            <Package className="w-8 h-8 text-indigo-400" />
+            <Package className="w-8 h-8 text-emerald-400" />
           </CardContent>
         </Card>
         <Card>

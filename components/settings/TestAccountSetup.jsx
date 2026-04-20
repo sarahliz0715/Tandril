@@ -52,7 +52,7 @@ export default function TestAccountSetup({ currentUser, onUpdate }) {
         <Card>
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                    <Sparkles className="w-5 h-5 text-purple-600" />
+                    <Sparkles className="w-5 h-5 text-green-600" />
                     Test Account Setup
                 </CardTitle>
                 <CardDescription>
@@ -75,7 +75,7 @@ export default function TestAccountSetup({ currentUser, onUpdate }) {
                                     <Badge className="bg-green-100 text-green-800 border-green-300">
                                         Beta Access
                                     </Badge>
-                                    <Badge className="bg-purple-100 text-purple-800 border-purple-300">
+                                    <Badge className="bg-green-100 text-green-800 border-green-300">
                                         Professional Tier
                                     </Badge>
                                     <Badge className="bg-blue-100 text-blue-800 border-blue-300">
@@ -101,7 +101,7 @@ export default function TestAccountSetup({ currentUser, onUpdate }) {
                         <Button
                             onClick={enableBetaMode}
                             disabled={isEnabling}
-                            className="w-full bg-purple-600 hover:bg-purple-700"
+                            className="w-full bg-green-600 hover:bg-green-700"
                         >
                             {isEnabling ? (
                                 <>

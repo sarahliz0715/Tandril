@@ -48,7 +48,7 @@ export default function CreateAdModal({ isOpen, onClose, onSave, campaigns, prod
             <DialogContent className="max-w-2xl">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
-                        <ImageIcon className="w-5 h-5 text-purple-600" />
+                        <ImageIcon className="w-5 h-5 text-green-600" />
                         Create New Ad Creative
                     </DialogTitle>
                     <DialogDescription>

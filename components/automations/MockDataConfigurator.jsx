@@ -146,7 +146,7 @@ export default function MockDataConfigurator({ automation, onDataChange }) {
         <Card>
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                    <FileJson className="w-5 h-5 text-indigo-600" />
+                    <FileJson className="w-5 h-5 text-emerald-600" />
                     Mock Trigger Data
                 </CardTitle>
             </CardHeader>

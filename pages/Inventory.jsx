@@ -224,7 +224,7 @@ export default function Inventory() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+        <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
       </div>
     );
   }
@@ -250,7 +250,7 @@ export default function Inventory() {
               setEditingItem(null);
               setShowAddModal(true);
             }}
-            className="bg-indigo-600 hover:bg-indigo-700"
+            className="bg-emerald-600 hover:bg-emerald-700"
           >
             <Plus className="w-4 h-4 mr-2" />
             Add Item

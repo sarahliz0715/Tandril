@@ -36,7 +36,7 @@ export default function PredictiveInsights({ orders, products, platforms }) {
                 <div className="space-y-4">
                     {insights.map((insight, index) => (
                         <div key={index} className="flex items-start gap-4 p-3 bg-slate-50 rounded-lg">
-                            <insight.icon className="w-6 h-6 text-indigo-500 mt-1 flex-shrink-0" />
+                            <insight.icon className="w-6 h-6 text-emerald-500 mt-1 flex-shrink-0" />
                             <div>
                                 <h4 className="font-semibold text-slate-800">{insight.title}</h4>
                                 <p className="text-sm text-slate-600">{insight.description}</p>

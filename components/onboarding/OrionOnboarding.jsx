@@ -143,13 +143,13 @@ export default function OrionOnboarding({ onComplete }) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50 p-4 md:p-8">
+    <div className="min-h-screen bg-gradient-to-br from-green-50 via-blue-50 to-pink-50 p-4 md:p-8">
       <div className="max-w-4xl mx-auto">
         {/* Header with Progress */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 flex items-center justify-center">
+              <div className="w-12 h-12 rounded-full bg-gradient-to-r from-green-600 to-blue-600 flex items-center justify-center">
                 <Sparkles className="w-6 h-6 text-white" />
               </div>
               <div>
@@ -190,7 +190,7 @@ export default function OrionOnboarding({ onComplete }) {
                   <div
                     className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
                       isActive
-                        ? 'bg-purple-600 text-white scale-110'
+                        ? 'bg-green-600 text-white scale-110'
                         : isComplete
                         ? 'bg-green-500 text-white'
                         : 'bg-slate-200 text-slate-400'
@@ -200,7 +200,7 @@ export default function OrionOnboarding({ onComplete }) {
                   </div>
                   <span
                     className={`text-xs font-medium ${
-                      isActive ? 'text-purple-600' : isComplete ? 'text-green-600' : 'text-slate-400'
+                      isActive ? 'text-green-600' : isComplete ? 'text-green-600' : 'text-slate-400'
                     }`}
                   >
                     {step.title}
@@ -224,11 +224,11 @@ export default function OrionOnboarding({ onComplete }) {
 
 function WelcomeStep({ onNext, onSkip }) {
   return (
-    <Card className="border-2 border-purple-200 shadow-xl">
+    <Card className="border-2 border-green-200 shadow-xl">
       <CardContent className="p-8 md:p-12">
         <div className="text-center space-y-6">
           {/* Orion Avatar */}
-          <div className="w-24 h-24 mx-auto rounded-full bg-gradient-to-r from-purple-600 to-blue-600 flex items-center justify-center animate-pulse">
+          <div className="w-24 h-24 mx-auto rounded-full bg-gradient-to-r from-green-600 to-blue-600 flex items-center justify-center animate-pulse">
             <Rocket className="w-12 h-12 text-white" />
           </div>
 
@@ -244,8 +244,8 @@ function WelcomeStep({ onNext, onSkip }) {
           </div>
 
           {/* What I'll Do */}
-          <div className="bg-purple-50 rounded-lg p-6 text-left max-w-xl mx-auto">
-            <h3 className="font-semibold text-purple-900 mb-4 flex items-center gap-2">
+          <div className="bg-green-50 rounded-lg p-6 text-left max-w-xl mx-auto">
+            <h3 className="font-semibold text-green-900 mb-4 flex items-center gap-2">
               <Sparkles className="w-5 h-5" />
               Here's what I'll help you with:
             </h3>
@@ -285,7 +285,7 @@ function WelcomeStep({ onNext, onSkip }) {
 
           {/* CTA */}
           <div className="flex flex-col sm:flex-row gap-3 justify-center pt-4">
-            <Button onClick={onNext} size="lg" className="bg-purple-600 hover:bg-purple-700">
+            <Button onClick={onNext} size="lg" className="bg-green-600 hover:bg-green-700">
               Let's Get Started!
               <ArrowRight className="w-5 h-5 ml-2" />
             </Button>
@@ -301,12 +301,12 @@ function WelcomeStep({ onNext, onSkip }) {
 
 function ConnectStep({ onConnected }) {
   return (
-    <Card className="border-2 border-purple-200 shadow-xl">
+    <Card className="border-2 border-green-200 shadow-xl">
       <CardContent className="p-8 md:p-12">
         <div className="text-center space-y-6">
           {/* Icon */}
-          <div className="w-20 h-20 mx-auto rounded-full bg-purple-100 flex items-center justify-center">
-            <Store className="w-10 h-10 text-purple-600" />
+          <div className="w-20 h-20 mx-auto rounded-full bg-green-100 flex items-center justify-center">
+            <Store className="w-10 h-10 text-green-600" />
           </div>
 
           {/* Message */}
@@ -348,7 +348,7 @@ function ConnectStep({ onConnected }) {
             <ShopifyConnectButton
               onSuccess={onConnected}
               size="lg"
-              className="bg-purple-600 hover:bg-purple-700"
+              className="bg-green-600 hover:bg-green-700"
             />
           </div>
 
@@ -363,15 +363,15 @@ function ConnectStep({ onConnected }) {
 
 function AnalyzeStep({ isLoading }) {
   return (
-    <Card className="border-2 border-purple-200 shadow-xl">
+    <Card className="border-2 border-green-200 shadow-xl">
       <CardContent className="p-8 md:p-12">
         <div className="text-center space-y-6">
           {/* Animated Icon */}
-          <div className="w-24 h-24 mx-auto rounded-full bg-purple-100 flex items-center justify-center">
+          <div className="w-24 h-24 mx-auto rounded-full bg-green-100 flex items-center justify-center">
             {isLoading ? (
-              <Loader2 className="w-12 h-12 text-purple-600 animate-spin" />
+              <Loader2 className="w-12 h-12 text-green-600 animate-spin" />
             ) : (
-              <Search className="w-12 h-12 text-purple-600" />
+              <Search className="w-12 h-12 text-green-600" />
             )}
           </div>
 
@@ -386,8 +386,8 @@ function AnalyzeStep({ isLoading }) {
           </div>
 
           {/* What I'm checking */}
-          <div className="bg-purple-50 rounded-lg p-6 text-left max-w-xl mx-auto">
-            <h3 className="font-semibold text-purple-900 mb-4">What I'm checking:</h3>
+          <div className="bg-green-50 rounded-lg p-6 text-left max-w-xl mx-auto">
+            <h3 className="font-semibold text-green-900 mb-4">What I'm checking:</h3>
             <div className="space-y-3">
               <AnalysisItem icon={Package} text="Product quality (images, descriptions, SEO)" />
               <AnalysisItem icon={TrendingUp} text="Sales performance and bestsellers" />
@@ -406,8 +406,8 @@ function AnalyzeStep({ isLoading }) {
 function AnalysisItem({ icon: Icon, text }) {
   return (
     <div className="flex items-center gap-3">
-      <div className="w-8 h-8 rounded-full bg-purple-200 flex items-center justify-center flex-shrink-0">
-        <Icon className="w-4 h-4 text-purple-700" />
+      <div className="w-8 h-8 rounded-full bg-green-200 flex items-center justify-center flex-shrink-0">
+        <Icon className="w-4 h-4 text-green-700" />
       </div>
       <span className="text-slate-700">{text}</span>
     </div>
@@ -420,7 +420,7 @@ function FindingsStep({ analysis, recommendations, onNext }) {
       <Card>
         <CardContent className="p-12">
           <div className="text-center">
-            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-3 text-purple-600" />
+            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-3 text-green-600" />
             <p className="text-slate-600">Loading findings...</p>
           </div>
         </CardContent>
@@ -429,13 +429,13 @@ function FindingsStep({ analysis, recommendations, onNext }) {
   }
 
   return (
-    <Card className="border-2 border-purple-200 shadow-xl">
+    <Card className="border-2 border-green-200 shadow-xl">
       <CardContent className="p-8 md:p-12">
         <div className="space-y-6">
           {/* Greeting */}
           <div className="text-center">
-            <div className="w-16 h-16 mx-auto rounded-full bg-purple-100 flex items-center justify-center mb-4">
-              <Lightbulb className="w-8 h-8 text-purple-600" />
+            <div className="w-16 h-16 mx-auto rounded-full bg-green-100 flex items-center justify-center mb-4">
+              <Lightbulb className="w-8 h-8 text-green-600" />
             </div>
             <h2 className="text-2xl font-bold text-slate-900 mb-2">
               Here's What I Found!
@@ -496,7 +496,7 @@ function FindingsStep({ analysis, recommendations, onNext }) {
           {/* Next Steps */}
           <div className="text-center pt-4">
             <p className="text-slate-700 mb-4">{recommendations.next_steps}</p>
-            <Button onClick={onNext} size="lg" className="bg-purple-600 hover:bg-purple-700">
+            <Button onClick={onNext} size="lg" className="bg-green-600 hover:bg-green-700">
               Show Me Quick Wins
               <ArrowRight className="w-5 h-5 ml-2" />
             </Button>
@@ -510,7 +510,7 @@ function FindingsStep({ analysis, recommendations, onNext }) {
 function StatCard({ label, value, icon: Icon }) {
   return (
     <div className="p-4 rounded-lg bg-white border border-slate-200 text-center">
-      <Icon className="w-6 h-6 mx-auto mb-2 text-purple-600" />
+      <Icon className="w-6 h-6 mx-auto mb-2 text-green-600" />
       <p className="text-2xl font-bold text-slate-900">{value}</p>
       <p className="text-xs text-slate-600">{label}</p>
     </div>
@@ -525,13 +525,13 @@ function QuickWinsStep({ recommendations, completedWins, onComplete, onNext }) {
   const allWinsCompleted = completedWins.length === recommendations.quick_wins.length;
 
   return (
-    <Card className="border-2 border-purple-200 shadow-xl">
+    <Card className="border-2 border-green-200 shadow-xl">
       <CardContent className="p-8 md:p-12">
         <div className="space-y-6">
           {/* Header */}
           <div className="text-center">
-            <div className="w-16 h-16 mx-auto rounded-full bg-purple-100 flex items-center justify-center mb-4">
-              <Target className="w-8 h-8 text-purple-600" />
+            <div className="w-16 h-16 mx-auto rounded-full bg-green-100 flex items-center justify-center mb-4">
+              <Target className="w-8 h-8 text-green-600" />
             </div>
             <h2 className="text-2xl font-bold text-slate-900 mb-2">
               Quick Wins - Let's Start Improving!
@@ -552,7 +552,7 @@ function QuickWinsStep({ recommendations, completedWins, onComplete, onNext }) {
                   className={`p-5 rounded-lg border-2 transition-all ${
                     isCompleted
                       ? 'bg-green-50 border-green-300'
-                      : 'bg-white border-slate-200 hover:border-purple-300'
+                      : 'bg-white border-slate-200 hover:border-green-300'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-4">
@@ -586,7 +586,7 @@ function QuickWinsStep({ recommendations, completedWins, onComplete, onNext }) {
                     ) : (
                       <Button
                         size="sm"
-                        className="bg-purple-600 hover:bg-purple-700"
+                        className="bg-green-600 hover:bg-green-700"
                         onClick={() => onComplete(index)}
                       >
                         Do This
@@ -606,7 +606,7 @@ function QuickWinsStep({ recommendations, completedWins, onComplete, onNext }) {
             <Button
               onClick={onNext}
               size="lg"
-              className="bg-purple-600 hover:bg-purple-700"
+              className="bg-green-600 hover:bg-green-700"
             >
               {allWinsCompleted ? 'All Done! Continue' : 'Skip to Automation Setup'}
               <ArrowRight className="w-5 h-5 ml-2" />
@@ -647,13 +647,13 @@ function AutomationStep({ recommendations, onNext }) {
   const automation = recommendations.recommended_automations[selectedAutomation];
 
   return (
-    <Card className="border-2 border-purple-200 shadow-xl">
+    <Card className="border-2 border-green-200 shadow-xl">
       <CardContent className="p-8 md:p-12">
         <div className="space-y-6">
           {/* Header */}
           <div className="text-center">
-            <div className="w-16 h-16 mx-auto rounded-full bg-purple-100 flex items-center justify-center mb-4">
-              <Zap className="w-8 h-8 text-purple-600" />
+            <div className="w-16 h-16 mx-auto rounded-full bg-green-100 flex items-center justify-center mb-4">
+              <Zap className="w-8 h-8 text-green-600" />
             </div>
             <h2 className="text-2xl font-bold text-slate-900 mb-2">
               Let's Set Up Your First Automation
@@ -664,13 +664,13 @@ function AutomationStep({ recommendations, onNext }) {
           </div>
 
           {/* Automation Details */}
-          <div className="bg-purple-50 rounded-lg p-6 border-2 border-purple-200">
+          <div className="bg-green-50 rounded-lg p-6 border-2 border-green-200">
             <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-full bg-purple-600 flex items-center justify-center flex-shrink-0">
+              <div className="w-12 h-12 rounded-full bg-green-600 flex items-center justify-center flex-shrink-0">
                 <Zap className="w-6 h-6 text-white" />
               </div>
               <div className="flex-1">
-                <h3 className="text-xl font-bold text-purple-900 mb-2">{automation.name}</h3>
+                <h3 className="text-xl font-bold text-green-900 mb-2">{automation.name}</h3>
                 <p className="text-slate-700 mb-3">{automation.description}</p>
                 <div className="bg-white rounded-lg p-3 mb-3">
                   <p className="text-sm font-medium text-slate-900 mb-1">Why This Helps You:</p>
@@ -711,7 +711,7 @@ function AutomationStep({ recommendations, onNext }) {
             <Button
               onClick={handleSetup}
               size="lg"
-              className="bg-purple-600 hover:bg-purple-700"
+              className="bg-green-600 hover:bg-green-700"
               disabled={isSettingUp}
             >
               {isSettingUp ? (
@@ -757,36 +757,36 @@ function CompleteStep({ onFinish }) {
           </div>
 
           {/* What's Next */}
-          <div className="bg-purple-50 rounded-lg p-6 text-left max-w-xl mx-auto">
-            <h3 className="font-semibold text-purple-900 mb-4">What I'll do for you:</h3>
+          <div className="bg-green-50 rounded-lg p-6 text-left max-w-xl mx-auto">
+            <h3 className="font-semibold text-green-900 mb-4">What I'll do for you:</h3>
             <ul className="space-y-3">
               <li className="flex items-start gap-3">
-                <div className="w-6 h-6 rounded-full bg-purple-200 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <span className="text-xs font-bold text-purple-700">1</span>
+                <div className="w-6 h-6 rounded-full bg-green-200 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="text-xs font-bold text-green-700">1</span>
                 </div>
                 <span className="text-slate-700">
                   <strong>Daily Briefings</strong> - Every morning I'll send you insights about your store
                 </span>
               </li>
               <li className="flex items-start gap-3">
-                <div className="w-6 h-6 rounded-full bg-purple-200 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <span className="text-xs font-bold text-purple-700">2</span>
+                <div className="w-6 h-6 rounded-full bg-green-200 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="text-xs font-bold text-green-700">2</span>
                 </div>
                 <span className="text-slate-700">
                   <strong>Growth Opportunities</strong> - I'll find ways to increase your revenue
                 </span>
               </li>
               <li className="flex items-start gap-3">
-                <div className="w-6 h-6 rounded-full bg-purple-200 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <span className="text-xs font-bold text-purple-700">3</span>
+                <div className="w-6 h-6 rounded-full bg-green-200 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="text-xs font-bold text-green-700">3</span>
                 </div>
                 <span className="text-slate-700">
                   <strong>Risk Alerts</strong> - I'll warn you about problems before they get serious
                 </span>
               </li>
               <li className="flex items-start gap-3">
-                <div className="w-6 h-6 rounded-full bg-purple-200 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <span className="text-xs font-bold text-purple-700">4</span>
+                <div className="w-6 h-6 rounded-full bg-green-200 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="text-xs font-bold text-green-700">4</span>
                 </div>
                 <span className="text-slate-700">
                   <strong>Smart Automations</strong> - Running in the background to save you time
@@ -813,7 +813,7 @@ function CompleteStep({ onFinish }) {
             <Button
               onClick={onFinish}
               size="lg"
-              className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+              className="bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700"
             >
               Go to Dashboard
               <Sparkles className="w-5 h-5 ml-2" />

@@ -25,11 +25,11 @@ import SupportModal from '@/components/support/SupportModal';
 
 const defaultNavigationItems = [
     { name: 'Dashboard', href: 'Dashboard', icon: LayoutDashboard, color: 'text-blue-600' },
-    { name: 'AI Advisor', href: 'AIAdvisor', icon: Bot, color: 'text-purple-600' },
+    { name: 'AI Advisor', href: 'AIAdvisor', icon: Bot, color: 'text-green-600' },
     { name: 'P&L Dashboard', href: 'FinancialDashboard', icon: DollarSign, color: 'text-green-600' },
     { name: 'Order Intelligence', href: 'OrderIntelligence', icon: AlertTriangle, color: 'text-red-600' },
     { name: 'Platforms', href: 'Platforms', icon: Briefcase, color: 'text-green-600' },
-    { name: 'Commands', href: 'Commands', icon: Command, color: 'text-indigo-600' },
+    { name: 'Commands', href: 'Commands', icon: Command, color: 'text-emerald-600' },
     { name: 'History', href: 'History', icon: History, color: 'text-slate-600' },
     { name: 'Workflows', href: 'Workflows', icon: Repeat, color: 'text-cyan-600' },
     { name: 'Custom Alerts', href: 'CustomAlerts', icon: Bell, color: 'text-amber-600' },
@@ -37,20 +37,20 @@ const defaultNavigationItems = [
     { name: 'Orders', href: 'Orders', icon: ShoppingCart, color: 'text-orange-600' },
     { name: 'Ads', href: 'Ads', icon: DollarSign, color: 'text-yellow-600' },
     { name: 'Intelligence', href: 'Intelligence', icon: TrendingUp, color: 'text-emerald-600' },
-    { name: 'Analytics', href: 'Analytics', icon: BarChart3, color: 'text-violet-600' },
+    { name: 'Analytics', href: 'Analytics', icon: BarChart3, color: 'text-emerald-600' },
     { name: 'Inventory', href: 'Inventory', icon: Package, color: 'text-amber-600' },
-    { name: 'Products', href: 'Products', icon: Package, color: 'text-indigo-600' },
+    { name: 'Products', href: 'Products', icon: Package, color: 'text-emerald-600' },
     { name: 'Suppliers', href: 'Suppliers', icon: Building2, color: 'text-slate-600' },
     { name: 'Purchase Orders', href: 'PurchaseOrders', icon: FileText, color: 'text-blue-600' },
 ];
 
 const betaNavigationItems = [
     { name: 'Dashboard', href: 'Dashboard', icon: LayoutDashboard, color: 'text-blue-600' },
-    { name: 'AI Advisor', href: 'AIAdvisor', icon: Bot, color: 'text-purple-600' },
+    { name: 'AI Advisor', href: 'AIAdvisor', icon: Bot, color: 'text-green-600' },
     { name: 'P&L Dashboard', href: 'FinancialDashboard', icon: DollarSign, color: 'text-green-600' },
     { name: 'Order Intelligence', href: 'OrderIntelligence', icon: AlertTriangle, color: 'text-red-600' },
     { name: 'Platforms', href: 'Platforms', icon: Briefcase, color: 'text-green-600' },
-    { name: 'Commands', href: 'Commands', icon: Command, color: 'text-indigo-600' },
+    { name: 'Commands', href: 'Commands', icon: Command, color: 'text-emerald-600' },
     { name: 'History', href: 'History', icon: History, color: 'text-slate-600' },
     { name: 'Workflows', href: 'Workflows', icon: Repeat, color: 'text-cyan-600' },
     { name: 'Custom Alerts', href: 'CustomAlerts', icon: Bell, color: 'text-amber-600' },
@@ -58,9 +58,9 @@ const betaNavigationItems = [
     { name: 'Orders', href: 'Orders', icon: ShoppingCart, color: 'text-orange-600' },
     { name: 'Ads', href: 'Ads', icon: DollarSign, color: 'text-yellow-600' },
     { name: 'Intelligence', href: 'Intelligence', icon: TrendingUp, color: 'text-emerald-600' },
-    { name: 'Analytics', href: 'Analytics', icon: BarChart3, color: 'text-violet-600' },
+    { name: 'Analytics', href: 'Analytics', icon: BarChart3, color: 'text-emerald-600' },
     { name: 'Inventory', href: 'Inventory', icon: Package, color: 'text-amber-600' },
-    { name: 'Products', href: 'Products', icon: Package, color: 'text-indigo-600' },
+    { name: 'Products', href: 'Products', icon: Package, color: 'text-emerald-600' },
     { name: 'Suppliers', href: 'Suppliers', icon: Building2, color: 'text-slate-600' },
     { name: 'Purchase Orders', href: 'PurchaseOrders', icon: FileText, color: 'text-blue-600' },
 ];
@@ -306,7 +306,7 @@ export default function Layout({ children, currentPageName }) {
                                                                                 className={`
                                                                                     flex items-center gap-3 px-3 py-2 rounded-lg transition-colors group
                                                                                     ${isActive
-                                                                                        ? 'bg-indigo-50 text-indigo-700'
+                                                                                        ? 'bg-emerald-50 text-emerald-700'
                                                                                         : 'text-slate-700 hover:bg-slate-50'
                                                                                     }
                                                                                     ${snapshot.isDragging ? 'shadow-lg' : ''}
@@ -316,7 +316,7 @@ export default function Layout({ children, currentPageName }) {
                                                                                 <div {...provided.dragHandleProps}>
                                                                                     <GripVertical className="w-4 h-4 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
                                                                                 </div>
-                                                                                <item.icon className={`w-5 h-5 flex-shrink-0 ${isActive ? 'text-indigo-600' : item.color || 'text-slate-600'}`} />
+                                                                                <item.icon className={`w-5 h-5 flex-shrink-0 ${isActive ? 'text-emerald-600' : item.color || 'text-slate-600'}`} />
                                                                                 <span className="font-medium">{item.name}</span>
                                                                             </Link>
                                                                         </div>
@@ -364,13 +364,13 @@ export default function Layout({ children, currentPageName }) {
                                                             className={`
                                                                 flex items-center gap-3 px-3 py-2 rounded-lg transition-colors
                                                                 ${isActive
-                                                                    ? 'bg-indigo-50 text-indigo-700'
+                                                                    ? 'bg-emerald-50 text-emerald-700'
                                                                     : 'text-slate-700 hover:bg-slate-50'
                                                                 }
                                                             `}
                                                             onClick={() => setSidebarOpen(false)}
                                                         >
-                                                            <item.icon className={`w-5 h-5 flex-shrink-0 ${isActive ? 'text-indigo-600' : 'text-slate-600'}`} />
+                                                            <item.icon className={`w-5 h-5 flex-shrink-0 ${isActive ? 'text-emerald-600' : 'text-slate-600'}`} />
                                                             <span className="font-medium">{item.name}</span>
                                                         </Link>
                                                     );
@@ -383,8 +383,8 @@ export default function Layout({ children, currentPageName }) {
                                         <Popover>
                                             <PopoverTrigger asChild>
                                                 <Button variant="ghost" className="w-full justify-start gap-3">
-                                                    <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center">
-                                                        <Users className="w-4 h-4 text-indigo-600" />
+                                                    <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center">
+                                                        <Users className="w-4 h-4 text-emerald-600" />
                                                     </div>
                                                     <div className="flex-1 text-left">
                                                         <p className="text-sm font-medium text-slate-900">{user?.full_name || 'User'}</p>

@@ -27,13 +27,13 @@ export default function ConditionalNode({ node, onEdit, onDelete, onAddBranch })
 
     return (
         <div className="relative">
-            <Card className="bg-gradient-to-br from-purple-50 to-indigo-50 border-purple-200 hover:shadow-lg transition-all">
+            <Card className="bg-gradient-to-br from-green-50 to-emerald-50 border-green-200 hover:shadow-lg transition-all">
                 <div className="p-4">
                     {/* Header */}
                     <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
-                            <div className="p-2 bg-purple-100 rounded-lg">
-                                <GitBranch className="w-4 h-4 text-purple-600" />
+                            <div className="p-2 bg-green-100 rounded-lg">
+                                <GitBranch className="w-4 h-4 text-green-600" />
                             </div>
                             <div>
                                 <h4 className="font-semibold text-slate-900 text-sm">
@@ -64,9 +64,9 @@ export default function ConditionalNode({ node, onEdit, onDelete, onAddBranch })
 
                     {/* Condition Display */}
                     {hasCondition ? (
-                        <div className="bg-white rounded-lg p-3 border border-purple-200 mb-3">
+                        <div className="bg-white rounded-lg p-3 border border-green-200 mb-3">
                             <div className="flex items-center gap-2 text-sm">
-                                <Badge className="bg-purple-100 text-purple-800 font-mono text-xs">
+                                <Badge className="bg-green-100 text-green-800 font-mono text-xs">
                                     IF
                                 </Badge>
                                 <span className="font-semibold text-slate-900">
@@ -76,7 +76,7 @@ export default function ConditionalNode({ node, onEdit, onDelete, onAddBranch })
                                     {getOperatorLabel(condition.operator)}
                                 </Badge>
                                 {condition.value !== undefined && condition.value !== '' && (
-                                    <span className="font-semibold text-indigo-600">
+                                    <span className="font-semibold text-emerald-600">
                                         {typeof condition.value === 'object' 
                                             ? JSON.stringify(condition.value)
                                             : String(condition.value)

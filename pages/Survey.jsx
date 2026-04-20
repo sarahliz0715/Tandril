@@ -59,7 +59,7 @@ export default function Survey() {
 
   if (submitted) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-green-50 flex items-center justify-center p-4">
         <Card className="max-w-lg w-full text-center">
           <CardContent className="pt-12 pb-12">
             <CheckCircle className="w-16 h-16 text-green-600 mx-auto mb-4" />
@@ -67,14 +67,14 @@ export default function Survey() {
             <p className="text-slate-600 mb-6">
               Your feedback helps us build tools that actually solve real problems for sellers like you.
             </p>
-            <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 mb-6">
-              <p className="text-sm text-indigo-800">
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 mb-6">
+              <p className="text-sm text-emerald-800">
                 Want to stay in the loop? We'll share updates as we build Tandril based on your feedback.
               </p>
             </div>
             <Button 
               onClick={() => window.location.href = 'https://tandril.com'}
-              className="bg-indigo-600 hover:bg-indigo-700"
+              className="bg-emerald-600 hover:bg-emerald-700"
             >
               Learn More About Tandril
             </Button>
@@ -85,7 +85,7 @@ export default function Survey() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 py-8 px-4">
+    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-green-50 py-8 px-4">
       <div className="max-w-2xl mx-auto">
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-3 mb-4">
@@ -100,7 +100,7 @@ export default function Survey() {
           <Card className="mb-6">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-indigo-600" />
+                <Sparkles className="w-5 h-5 text-emerald-600" />
                 Seller Pain Point Survey
               </CardTitle>
               <CardDescription>10 quick questions • 100% anonymous unless you share your email</CardDescription>
@@ -310,7 +310,7 @@ export default function Survey() {
           <Button 
             type="submit" 
             size="lg" 
-            className="w-full bg-indigo-600 hover:bg-indigo-700 text-lg h-12"
+            className="w-full bg-emerald-600 hover:bg-emerald-700 text-lg h-12"
             disabled={isSubmitting}
           >
             {isSubmitting ? 'Submitting...' : 'Submit Survey'}

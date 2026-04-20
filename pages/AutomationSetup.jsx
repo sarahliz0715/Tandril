@@ -198,7 +198,7 @@ export default function AutomationSetupPage() {
                             onClick={handleSave}
                             // Disable save button if key fields are missing
                             disabled={!currentAutomation.name || !currentAutomation.trigger_id || currentAutomation.action_chain?.length === 0}
-                            className="bg-indigo-600 hover:bg-indigo-700"
+                            className="bg-emerald-600 hover:bg-emerald-700"
                         >
                             <Save className="w-4 h-4 mr-2" />
                             Save Automation
@@ -260,7 +260,7 @@ export default function AutomationSetupPage() {
                                                     setJsonError(err.message);
                                                 }
                                             }}
-                                            className="w-full h-96 bg-gray-900 text-green-400 p-4 rounded-md font-mono text-sm resize-y border border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                            className="w-full h-96 bg-gray-900 text-green-400 p-4 rounded-md font-mono text-sm resize-y border border-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                             spellCheck={false}
                                         />
                                         {jsonError && (

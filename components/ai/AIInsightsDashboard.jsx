@@ -134,7 +134,7 @@ export default function AIInsightsDashboard({ compact = false }) {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
-              <Sparkles className="w-6 h-6 text-purple-600" />
+              <Sparkles className="w-6 h-6 text-green-600" />
               AI Insights & Recommendations
             </CardTitle>
             <Button onClick={loadInsights} variant="outline" size="sm">
@@ -192,7 +192,7 @@ export default function AIInsightsDashboard({ compact = false }) {
                     <div className="flex items-center gap-2">
                       <Button
                         size="sm"
-                        className="bg-purple-600 hover:bg-purple-700"
+                        className="bg-green-600 hover:bg-green-700"
                         onClick={() => {
                           // Navigate to Commands with pre-filled command
                           navigate(`/Commands?prompt=${encodeURIComponent(insight.command_suggestion)}`);

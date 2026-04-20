@@ -813,10 +813,10 @@ export default function AIBusinessCoach() {
 
               {/* Daily Focus */}
               {briefing.daily_focus && (
-                <Alert className="bg-purple-50 border-purple-200 relative">
+                <Alert className="bg-green-50 border-green-200 relative">
                   <Target className="w-4 h-4" />
                   <AlertTitle>Your Daily Focus</AlertTitle>
-                  <AlertDescription className="text-purple-900 pr-16">
+                  <AlertDescription className="text-green-900 pr-16">
                     {briefing.daily_focus}
                   </AlertDescription>
                   <div className="absolute top-3 right-3 flex gap-1">
@@ -834,7 +834,7 @@ export default function AIBusinessCoach() {
 
               {/* Motivation */}
               {briefing.motivation && (
-                <Card className="bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200">
+                <Card className="bg-gradient-to-r from-blue-50 to-green-50 border-blue-200">
                   <CardContent className="pt-6">
                     <p className="text-center text-slate-700 italic">{briefing.motivation}</p>
                   </CardContent>
@@ -845,7 +845,7 @@ export default function AIBusinessCoach() {
             <Card>
               <CardContent className="p-12">
                 <div className="flex flex-col items-center gap-4">
-                  <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
+                  <Loader2 className="w-8 h-8 animate-spin text-green-600" />
                   <p className="text-slate-600">Generating your daily briefing...</p>
                 </div>
               </CardContent>
@@ -1019,7 +1019,7 @@ export default function AIBusinessCoach() {
                 </div>
               ) : chatMessages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-center">
-                  <Zap className="w-16 h-16 text-purple-400 mb-4" />
+                  <Zap className="w-16 h-16 text-green-400 mb-4" />
                   <h3 className="text-lg font-semibold text-slate-900 mb-2">
                     Hey, I'm Orion — your business wingman 👋
                   </h3>
@@ -1028,25 +1028,25 @@ export default function AIBusinessCoach() {
                   </p>
                   <div className="mt-5 grid gap-2 w-full max-w-md">
                     <button
-                      className="text-sm text-left px-4 py-3 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-900 transition-colors border border-purple-100"
+                      className="text-sm text-left px-4 py-3 rounded-lg bg-green-50 hover:bg-green-100 text-green-900 transition-colors border border-green-100"
                       onClick={() => setChatInput("What's a quick overview of my store right now?")}
                     >
                       📊 Give me a quick overview of my store
                     </button>
                     <button
-                      className="text-sm text-left px-4 py-3 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-900 transition-colors border border-purple-100"
+                      className="text-sm text-left px-4 py-3 rounded-lg bg-green-50 hover:bg-green-100 text-green-900 transition-colors border border-green-100"
                       onClick={() => setChatInput('Do I have any products running low on stock?')}
                     >
                       📦 Do I have anything running low on stock?
                     </button>
                     <button
-                      className="text-sm text-left px-4 py-3 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-900 transition-colors border border-purple-100"
+                      className="text-sm text-left px-4 py-3 rounded-lg bg-green-50 hover:bg-green-100 text-green-900 transition-colors border border-green-100"
                       onClick={() => setChatInput('What are my best-selling products and what should I do with that info?')}
                     >
                       🚀 What are my best sellers and what should I do with them?
                     </button>
                     <button
-                      className="text-sm text-left px-4 py-3 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-900 transition-colors border border-purple-100"
+                      className="text-sm text-left px-4 py-3 rounded-lg bg-green-50 hover:bg-green-100 text-green-900 transition-colors border border-green-100"
                       onClick={() => setChatInput('What are the top 3 things I should focus on to grow my store this week?')}
                     >
                       🎯 What should I focus on this week?
@@ -1064,7 +1064,7 @@ export default function AIBusinessCoach() {
                         <div
                           className={`rounded-lg px-4 py-3 ${
                             msg.role === 'user'
-                              ? 'bg-purple-600 text-white'
+                              ? 'bg-green-600 text-white'
                               : 'bg-slate-100 text-slate-900'
                           }`}
                         >
@@ -1075,7 +1075,7 @@ export default function AIBusinessCoach() {
                               className="text-sm prose prose-sm prose-slate max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0"
                               components={{
                                 a: ({ children, ...props }) => (
-                                  <a {...props} target="_blank" rel="noopener noreferrer" className="text-purple-700 hover:underline">{children}</a>
+                                  <a {...props} target="_blank" rel="noopener noreferrer" className="text-green-700 hover:underline">{children}</a>
                                 ),
                               }}
                             >
@@ -1200,7 +1200,7 @@ export default function AIBusinessCoach() {
                   {isChatLoading && (
                     <div className="flex justify-start">
                       <div className="bg-slate-100 rounded-lg px-4 py-3">
-                        <Loader2 className="w-4 h-4 animate-spin text-purple-600" />
+                        <Loader2 className="w-4 h-4 animate-spin text-green-600" />
                       </div>
                     </div>
                   )}
@@ -1215,17 +1215,17 @@ export default function AIBusinessCoach() {
                   {uploadedFiles.map((file, idx) => (
                     <div
                       key={idx}
-                      className="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2 text-sm"
+                      className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm"
                     >
                       {file.type.startsWith('image/') ? (
-                        <ImageIcon className="w-4 h-4 text-purple-600" />
+                        <ImageIcon className="w-4 h-4 text-green-600" />
                       ) : (
-                        <FileText className="w-4 h-4 text-purple-600" />
+                        <FileText className="w-4 h-4 text-green-600" />
                       )}
-                      <span className="text-purple-900">{file.name}</span>
+                      <span className="text-green-900">{file.name}</span>
                       <button
                         onClick={() => removeFile(idx)}
-                        className="text-purple-600 hover:text-purple-800"
+                        className="text-green-600 hover:text-green-800"
                       >
                         <X className="w-3 h-3" />
                       </button>

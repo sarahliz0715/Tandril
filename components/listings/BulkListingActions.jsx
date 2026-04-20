@@ -43,10 +43,10 @@ export default function BulkListingActions({ selectedItems = [], onSuccess }) {
     ];
 
     return (
-        <Card className="mb-4 bg-indigo-50 border-indigo-200">
+        <Card className="mb-4 bg-emerald-50 border-emerald-200">
             <CardContent className="p-4 space-y-3">
                 <div className="flex justify-between items-center">
-                    <h3 className="font-semibold text-indigo-900">{selectedCount} listings selected</h3>
+                    <h3 className="font-semibold text-emerald-900">{selectedCount} listings selected</h3>
                 </div>
                 <div className="flex flex-wrap gap-2">
                     {quickCommands.map(cmd => (
