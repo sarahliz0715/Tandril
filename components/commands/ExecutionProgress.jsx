@@ -97,20 +97,62 @@ export default function ExecutionProgress({ command, onCancel }) {
                     </Alert>
                 )}
 
-                {command.status === 'completed' && command.results && (
-                    <Alert className="bg-green-50 border-green-200">
-                        <CheckCircle2 className="h-4 w-4 text-green-600" />
-                        <AlertDescription className="text-green-800">
-                            Completed! {command.results.success_count || 0} items processed successfully.
-                        </AlertDescription>
-                    </Alert>
-                )}
+                {command.status === 'completed' && (() => {
+                    const execResults = command.execution_results?.results || [];
+                    const queryResult = execResults.find(r => r.action === 'get_products' && r.success && r.result?.products);
+                    const successCount = execResults.filter(r => r.success).length;
+
+                    return (
+                        <>
+                            <Alert className="bg-green-50 border-green-200">
+                                <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                <AlertDescription className="text-green-800">
+                                    {queryResult
+                                        ? `Found ${queryResult.result.count || queryResult.result.products.length} product(s).`
+                                        : `Completed! ${successCount} action${successCount !== 1 ? 's' : ''} successful.`
+                                    }
+                                </AlertDescription>
+                            </Alert>
+
+                            {queryResult && queryResult.result.products.length > 0 && (
+                                <div className="border rounded-lg overflow-hidden mt-2">
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-slate-50">
+                                            <tr>
+                                                <th className="text-left p-3 font-medium text-slate-700">Product</th>
+                                                <th className="text-left p-3 font-medium text-slate-700">Variant</th>
+                                                <th className="text-right p-3 font-medium text-slate-700">Stock</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {queryResult.result.products.map((p, idx) => (
+                                                <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                                                    <td className="p-3 text-slate-900">{p.product_title || p.title}</td>
+                                                    <td className="p-3 text-slate-500">{p.variant_title || '—'}</td>
+                                                    <td className="p-3 text-right font-medium">
+                                                        <span className={(p.inventory_quantity ?? 0) < 5 ? 'text-red-600' : 'text-amber-600'}>
+                                                            {p.inventory_quantity ?? '—'}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+
+                            {queryResult && queryResult.result.products.length === 0 && (
+                                <p className="text-sm text-slate-500 text-center py-2">No products matched your query.</p>
+                            )}
+                        </>
+                    );
+                })()}
 
                 {command.status === 'failed' && (
                     <Alert className="bg-red-50 border-red-200">
                         <AlertTriangle className="h-4 w-4 text-red-600" />
                         <AlertDescription className="text-red-800">
-                            Command execution failed. {command.results?.details?.[0] || 'Please try again.'}
+                            Command execution failed. {command.execution_results?.error || command.results?.details?.[0] || 'Please try again.'}
                         </AlertDescription>
                     </Alert>
                 )}
