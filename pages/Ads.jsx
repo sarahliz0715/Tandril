@@ -334,6 +334,7 @@ export default function Ads() {
         <ProductAdGenerator
           onClose={() => setShowGeneratorModal(false)}
           onSuccess={handleAdGenerated}
+          campaigns={campaigns}
         />
       )}
 
