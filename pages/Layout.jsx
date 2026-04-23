@@ -134,7 +134,10 @@ export default function Layout({ children, currentPageName }) {
                 const publicPages = ['Home', 'Pricing', 'TermsOfService', 'PrivacyPolicy', 'EmailSignups', 'Survey', 'Login', 'Signup'];
                 if (!publicPages.includes(currentPageName)) {
                     console.log(`Redirecting from ${currentPageName} to Home due to authentication failure`);
-                    navigate(createPageUrl('Home'));
+                    toast.error('Session expired', {
+                        description: 'Please log in again to continue.',
+                    });
+                    navigate(createPageUrl('Login'));
                 }
             } finally {
                 setAuthCheckComplete(true);
