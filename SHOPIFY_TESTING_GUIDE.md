@@ -11,9 +11,21 @@ Use these step-by-step instructions to test the core Tandril experience with a c
 
 ---
 
-## Part 1 — Talk to Orion (AI Advisor)
+## Part 1 — Connect Your Shopify Store
 
-Orion is Tandril's AI business assistant. Start here — it's the fastest way to see what the app can do.
+1. Go to **Platforms** in the left sidebar
+2. Click **Connect Shopify**
+3. Enter your development store name (e.g. `my-store` — without `.myshopify.com`)
+4. You'll be taken to Shopify briefly to confirm the connection using your existing Shopify login
+5. You'll be brought back to Tandril automatically — the store will show as **Connected**
+
+> **Note:** No separate Shopify login prompt is shown if you're already logged into Shopify in your browser. This is expected behavior — Shopify confirms your existing session.
+
+---
+
+## Part 2 — Talk to Orion (AI Advisor)
+
+Orion is Tandril's AI business assistant. With your store connected, Orion has live access to your inventory, orders, and product data.
 
 **Navigate to:** AI Advisor (left sidebar)
 
@@ -37,18 +49,6 @@ Orion will confirm it can set that up and walk you through creating the alert wo
 > What's my best opportunity to grow sales this week?
 
 Orion will analyze your store data and provide strategic recommendations tailored to your current inventory and sales patterns.
-
----
-
-## Part 2 — Connect a Shopify Store (if not already connected)
-
-1. Go to **Platforms** in the left sidebar
-2. Click **Connect Shopify**
-3. Enter your development store name (e.g. `my-store` — without `.myshopify.com`)
-4. You'll be taken to Shopify briefly to confirm the connection using your existing Shopify login
-5. You'll be brought back to Tandril automatically — the store will show as **Connected**
-
-> **Note:** No separate Shopify login prompt is shown if you're already logged into Shopify in your browser. This is expected behavior — Shopify confirms your existing session.
 
 ---
 
