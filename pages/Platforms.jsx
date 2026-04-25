@@ -241,6 +241,23 @@ export default function Platforms() {
         loadData();
     }, [loadData]);
 
+    // Realtime subscription — reload whenever any platform row is inserted or updated
+    // so the page reflects connected status immediately without a manual refresh.
+    useEffect(() => {
+        const channel = supabase
+            .channel('platforms-changes')
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'platforms',
+            }, () => {
+                loadData();
+            })
+            .subscribe();
+
+        return () => { supabase.removeChannel(channel); };
+    }, [loadData]);
+
     // Handle platform disconnection with confirmation
     const handleDisconnect = useCallback(async (platform) => {
         await confirm({
