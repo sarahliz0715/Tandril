@@ -285,47 +285,77 @@ export default function AIBusinessCoach() {
     return action;
   };
 
+  const reportToOrion = async (results, errors, actions) => {
+    if (errors.length === 0) return;
+    const total = results.length + errors.length;
+    const lines = [`Action execution complete: ${results.length} of ${total} succeeded.`];
+    if (results.length > 0) {
+      lines.push('Succeeded:');
+      results.forEach(r => lines.push(`✅ ${r}`));
+    }
+    lines.push('Failed:');
+    errors.forEach(e => lines.push(`❌ ${e}`));
+    lines.push('\nPlease acknowledge what failed, explain what went wrong in plain English, and suggest what the user should do to fix it.');
+
+    setIsChatLoading(true);
+    try {
+      const response = await api.functions.chatWithCoach({
+        message: lines.join('\n'),
+        conversation_id: conversationId,
+      });
+      if (response?.success) {
+        const pendingActions = response.pending_actions?.length > 0
+          ? response.pending_actions
+          : response.pending_action ? [response.pending_action] : [];
+        setChatMessages(prev => [...prev, { role: 'assistant', content: response.response, pendingActions, queueIdx: 0 }]);
+        if (response.conversation_id) setConversationId(response.conversation_id);
+      }
+    } catch (e) {
+      console.error('[Orion] Failed to send action report:', e);
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
   const handleConfirmAction = async (messageIdx, action) => {
     const msg = chatMessages[messageIdx];
     const pendingActions = msg.pendingActions || [];
     const queueIdx = msg.queueIdx || 0;
+    const prevResults = msg.queueResults || [];
+    const prevErrors = msg.queueErrors || [];
 
     setChatMessages(prev => prev.map((m, i) => i === messageIdx ? { ...m, executing: true } : m));
     setIsChatLoading(true);
+
+    let allResults = [...prevResults];
+    let allErrors = [...prevErrors];
+    let isDone = false;
+
     try {
       const resolvedAction = await resolveAction(action);
       const result = await api.functions.chatWithCoach({ execute_action: resolvedAction });
       const resultMsg = result.execution_result?.message || 'Action completed successfully.';
       const newQueueIdx = queueIdx + 1;
-      const isDone = newQueueIdx >= pendingActions.length;
+      isDone = newQueueIdx >= pendingActions.length;
+      allResults = [...prevResults, resultMsg];
       setChatMessages(prev => prev.map((m, i) =>
-        i === messageIdx ? {
-          ...m,
-          executing: false,
-          queueIdx: newQueueIdx,
-          queueResults: [...(m.queueResults || []), resultMsg],
-          queueDone: isDone,
-        } : m
+        i === messageIdx ? { ...m, executing: false, queueIdx: newQueueIdx, queueResults: allResults, queueDone: isDone } : m
       ));
-      toast.success(isDone ? 'Done!' : `Step ${newQueueIdx} of ${pendingActions.length} complete`);
+      if (!isDone) toast.success(`Step ${newQueueIdx} of ${pendingActions.length} complete`);
     } catch (error) {
       console.error('[Orion] Action error:', error);
-      const queueIdx2 = chatMessages[messageIdx]?.queueIdx || 0;
-      const newQueueIdx = queueIdx2 + 1;
-      const isDone = newQueueIdx >= pendingActions.length;
+      const newQueueIdx = queueIdx + 1;
+      isDone = newQueueIdx >= pendingActions.length;
+      allErrors = [...prevErrors, error.message];
       setChatMessages(prev => prev.map((m, i) =>
-        i === messageIdx ? {
-          ...m,
-          executing: false,
-          queueIdx: newQueueIdx,
-          queueErrors: [...(m.queueErrors || []), error.message],
-          queueDone: isDone,
-        } : m
+        i === messageIdx ? { ...m, executing: false, queueIdx: newQueueIdx, queueErrors: allErrors, queueDone: isDone } : m
       ));
-      toast.error('Action failed');
+      if (!isDone) toast.error('Action failed');
     } finally {
       setIsChatLoading(false);
     }
+
+    if (isDone) await reportToOrion(allResults, allErrors, pendingActions);
   };
 
   const handleConfirmAll = async (messageIdx) => {
@@ -336,6 +366,9 @@ export default function AIBusinessCoach() {
     if (remaining.length === 0) return;
 
     setIsChatLoading(true);
+    const localResults = [];
+    const localErrors = [];
+
     for (let i = 0; i < remaining.length; i++) {
       const absoluteIdx = startIdx + i;
       setChatMessages(prev => prev.map((m, idx) =>
@@ -345,11 +378,14 @@ export default function AIBusinessCoach() {
         const resolvedAction = await resolveAction(remaining[i]);
         const result = await api.functions.chatWithCoach({ execute_action: resolvedAction });
         const resultMsg = result.execution_result?.message || 'Done';
+        localResults.push(resultMsg);
         setChatMessages(prev => prev.map((m, idx) =>
           idx === messageIdx ? { ...m, queueResults: [...(m.queueResults || []), resultMsg] } : m
         ));
       } catch (error) {
         console.error('[Orion] Action error:', error);
+        const label = remaining[i].product_name || `Action ${absoluteIdx + 1}`;
+        localErrors.push(`${label}: ${error.message}`);
         setChatMessages(prev => prev.map((m, idx) =>
           idx === messageIdx ? { ...m, queueErrors: [...(m.queueErrors || []), `Action ${absoluteIdx + 1}: ${error.message}`] } : m
         ));
@@ -359,7 +395,13 @@ export default function AIBusinessCoach() {
       idx === messageIdx ? { ...m, executing: false, queueIdx: pendingActions.length, queueDone: true } : m
     ));
     setIsChatLoading(false);
-    toast.success(`All ${remaining.length} actions completed`);
+
+    const fc = localResults.length, ec = localErrors.length;
+    if (ec === 0) toast.success(`All ${remaining.length} actions completed`);
+    else if (fc === 0) toast.error(`All ${remaining.length} actions failed`);
+    else toast.warning(`${fc} completed, ${ec} failed`);
+
+    await reportToOrion(localResults, localErrors, remaining);
   };
 
   const handleCancelAction = (messageIdx) => {
