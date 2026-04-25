@@ -1,51 +1,52 @@
 -- Schedule background alert checking and daily briefings
 --
--- BEFORE RUNNING THIS MIGRATION, set these two database settings once in the
--- Supabase SQL editor (Project Settings > SQL Editor):
+-- BEFORE RUNNING: replace the two placeholders below with your actual values:
 --
---   ALTER DATABASE postgres SET app.settings.supabase_url   = 'https://YOUR_PROJECT_ID.supabase.co';
---   ALTER DATABASE postgres SET app.settings.cron_secret    = 'YOUR_CRON_SECRET';
+--   YOUR_SUPABASE_URL  → find in Supabase Dashboard → Project Settings → API → Project URL
+--                        example: https://abcdefghijkl.supabase.co
 --
--- The CRON_SECRET must match the CRON_SECRET Supabase secret set on your edge functions.
--- Generate a random value: openssl rand -hex 32
--- Add it in: Supabase Dashboard → Edge Functions → Secrets → CRON_SECRET
+--   YOUR_CRON_SECRET   → any random string you choose (e.g. run: openssl rand -hex 32)
+--                        must match the CRON_SECRET value you set in:
+--                        Supabase Dashboard → Edge Functions → Secrets → CRON_SECRET
 
 -- Enable required extensions
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 CREATE EXTENSION IF NOT EXISTS pg_net;
 
 -- ─── check-alerts every 15 minutes ───────────────────────────────────────────
+SELECT cron.unschedule('tandril-check-alerts') WHERE EXISTS (
+  SELECT 1 FROM cron.job WHERE jobname = 'tandril-check-alerts'
+);
+
 SELECT cron.schedule(
   'tandril-check-alerts',
   '*/15 * * * *',
   $$
   SELECT net.http_post(
-    url     := current_setting('app.settings.supabase_url') || '/functions/v1/check-alerts',
-    headers := jsonb_build_object(
-      'Content-Type',   'application/json',
-      'x-cron-secret',  current_setting('app.settings.cron_secret')
-    ),
+    url     := 'YOUR_SUPABASE_URL/functions/v1/check-alerts',
+    headers := '{"Content-Type":"application/json","x-cron-secret":"YOUR_CRON_SECRET"}'::jsonb,
     body    := '{}'::jsonb
   );
   $$
 );
 
 -- ─── daily briefing at 8:00 AM UTC every day ─────────────────────────────────
+SELECT cron.unschedule('tandril-daily-briefing') WHERE EXISTS (
+  SELECT 1 FROM cron.job WHERE jobname = 'tandril-daily-briefing'
+);
+
 SELECT cron.schedule(
   'tandril-daily-briefing',
   '0 8 * * *',
   $$
   SELECT net.http_post(
-    url     := current_setting('app.settings.supabase_url') || '/functions/v1/daily-briefing-cron',
-    headers := jsonb_build_object(
-      'Content-Type',   'application/json',
-      'x-cron-secret',  current_setting('app.settings.cron_secret')
-    ),
+    url     := 'YOUR_SUPABASE_URL/functions/v1/daily-briefing-cron',
+    headers := '{"Content-Type":"application/json","x-cron-secret":"YOUR_CRON_SECRET"}'::jsonb,
     body    := '{}'::jsonb
   );
   $$
 );
 
--- View scheduled jobs:  SELECT * FROM cron.job;
--- View run history:     SELECT * FROM cron.job_run_details ORDER BY start_time DESC LIMIT 20;
--- Remove a job:         SELECT cron.unschedule('tandril-check-alerts');
+-- Verify:        SELECT jobname, schedule, active FROM cron.job;
+-- View history:  SELECT * FROM cron.job_run_details ORDER BY start_time DESC LIMIT 20;
+-- Remove:        SELECT cron.unschedule('tandril-check-alerts');
