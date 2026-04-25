@@ -50,12 +50,35 @@ export default function AIBusinessCoach() {
   const [isRecording, setIsRecording] = useState(false);
   const [conversationId, setConversationId] = useState(null);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [voiceRate, setVoiceRate] = useState(1.15);
   const chatEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
   const loadedTabsRef = useRef(new Set());
   const lastSentFilesRef = useRef([]);
   const lastSpokenIdxRef = useRef(-1);
+
+  const getBestVoice = () => {
+    const voices = window.speechSynthesis.getVoices();
+    // Prefer natural-sounding English voices in priority order
+    const preferred = [
+      'Google US English',
+      'Microsoft Aria Online (Natural)',
+      'Microsoft Jenny Online (Natural)',
+      'Microsoft Guy Online (Natural)',
+      'Samantha',
+      'Karen',
+      'Daniel',
+      'Google UK English Female',
+      'Google UK English Male',
+    ];
+    for (const name of preferred) {
+      const match = voices.find(v => v.name === name);
+      if (match) return match;
+    }
+    // Fall back to any English voice
+    return voices.find(v => v.lang.startsWith('en')) || voices[0] || null;
+  };
 
   const stripMarkdown = (text) => text
     .replace(/#{1,6}\s/g, '')
@@ -75,11 +98,13 @@ export default function AIBusinessCoach() {
       if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(stripMarkdown(last.content));
-        utterance.rate = 1.0;
+        utterance.rate = voiceRate;
+        const voice = getBestVoice();
+        if (voice) utterance.voice = voice;
         window.speechSynthesis.speak(utterance);
       }
     }
-  }, [chatMessages, voiceEnabled]);
+  }, [chatMessages, voiceEnabled, voiceRate]);
 
   useEffect(() => {
     return () => { if ('speechSynthesis' in window) window.speechSynthesis.cancel(); };
@@ -1037,6 +1062,22 @@ export default function AIBusinessCoach() {
                   Ask Orion Anything
                 </CardTitle>
                 <div className="flex items-center gap-2">
+                  {voiceEnabled && (
+                    <div className="flex items-center gap-1 text-xs text-slate-500">
+                      <span>🐢</span>
+                      <input
+                        type="range"
+                        min="0.7"
+                        max="1.6"
+                        step="0.05"
+                        value={voiceRate}
+                        onChange={e => setVoiceRate(parseFloat(e.target.value))}
+                        className="w-20 accent-emerald-600"
+                        title={`Speed: ${voiceRate.toFixed(2)}x`}
+                      />
+                      <span>🐇</span>
+                    </div>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -1045,7 +1086,7 @@ export default function AIBusinessCoach() {
                       setVoiceEnabled(v => !v);
                     }}
                     title={voiceEnabled ? 'Mute Orion' : 'Enable voice responses'}
-                    className={voiceEnabled ? 'text-emerald-600' : 'text-slate-400 hover:text-slate-600'}
+                    className={voiceEnabled ? 'text-emerald-600' : 'text-slate-400 hover:text-slate600'}
                   >
                     {voiceEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
                   </Button>
