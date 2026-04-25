@@ -32,7 +32,7 @@ Orion is Tandril's AI business assistant. With your store connected, Orion has l
 ### Suggested conversation flow:
 
 **Message 1:**
-> Show me my low stock products
+Click the **"Do I have anything running low on stock?"** prompt that appears on the Orion home screen.
 
 Orion will pull live inventory data from your connected Shopify store and display a table of products with their current stock levels.
 
