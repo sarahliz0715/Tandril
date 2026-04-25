@@ -52,8 +52,8 @@ export default function ShopifyConnectButton({ onConnectionSuccess }) {
             if (response.data?.authorization_url) {
                 console.log('🔵 [Shopify] Redirecting to:', response.data.authorization_url);
 
-                toast.success("Redirecting to Shopify...", {
-                    description: "Please authorize Tandril in the next window"
+                toast.success("Connecting to Shopify...", {
+                    description: "Taking you to Shopify — you'll be brought right back automatically"
                 });
 
                 // Add a small delay to show the toast
@@ -109,7 +109,7 @@ export default function ShopifyConnectButton({ onConnectionSuccess }) {
                 <DialogHeader>
                     <DialogTitle>Connect Your Shopify Store</DialogTitle>
                     <DialogDescription>
-                        Enter your Shopify store name to connect. You'll be redirected to Shopify to authorize the connection.
+                        Enter your Shopify store name. We'll use your existing Shopify login to connect — no extra approval steps needed.
                     </DialogDescription>
                 </DialogHeader>
                 
@@ -168,9 +168,9 @@ export default function ShopifyConnectButton({ onConnectionSuccess }) {
                         <AlertTitle className="text-blue-900">What happens next?</AlertTitle>
                         <AlertDescription className="text-blue-700 text-sm">
                             <ol className="list-decimal list-inside space-y-1 mt-2">
-                                <li>You'll be redirected to Shopify</li>
-                                <li>Review and approve the permissions</li>
-                                <li>You'll be redirected back to Tandril</li>
+                                <li>You'll be briefly taken to Shopify in this same tab</li>
+                                <li>Shopify confirms your existing login (no extra steps if you're already logged in)</li>
+                                <li>You'll be brought back here automatically</li>
                                 <li>Your store will be connected and ready to use!</li>
                             </ol>
                         </AlertDescription>

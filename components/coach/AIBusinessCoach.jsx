@@ -26,7 +26,9 @@ import {
   FileText,
   Image as ImageIcon,
   Copy,
-  PlayCircle
+  PlayCircle,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/apiClient';
@@ -47,11 +49,41 @@ export default function AIBusinessCoach() {
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [isRecording, setIsRecording] = useState(false);
   const [conversationId, setConversationId] = useState(null);
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
   const chatEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
   const loadedTabsRef = useRef(new Set());
   const lastSentFilesRef = useRef([]);
+  const lastSpokenIdxRef = useRef(-1);
+
+  const stripMarkdown = (text) => text
+    .replace(/#{1,6}\s/g, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/`(.+?)`/g, '$1')
+    .replace(/\[(.+?)\]\(.+?\)/g, '$1')
+    .replace(/^\s*[-*+]\s/gm, '')
+    .replace(/^\s*\d+\.\s/gm, '')
+    .trim();
+
+  useEffect(() => {
+    if (!voiceEnabled || chatMessages.length === 0) return;
+    const last = chatMessages[chatMessages.length - 1];
+    if (last.role === 'assistant' && chatMessages.length - 1 > lastSpokenIdxRef.current) {
+      lastSpokenIdxRef.current = chatMessages.length - 1;
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(stripMarkdown(last.content));
+        utterance.rate = 1.0;
+        window.speechSynthesis.speak(utterance);
+      }
+    }
+  }, [chatMessages, voiceEnabled]);
+
+  useEffect(() => {
+    return () => { if ('speechSynthesis' in window) window.speechSynthesis.cancel(); };
+  }, []);
 
   // Load most recent conversation history on mount
   useEffect(() => {
@@ -1004,11 +1036,25 @@ export default function AIBusinessCoach() {
                   <Zap className="w-4 h-4" />
                   Ask Orion Anything
                 </CardTitle>
-                {chatMessages.length > 0 && (
-                  <Button variant="outline" size="sm" onClick={startNewConversation}>
-                    + New Chat
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      if (voiceEnabled) window.speechSynthesis.cancel();
+                      setVoiceEnabled(v => !v);
+                    }}
+                    title={voiceEnabled ? 'Mute Orion' : 'Enable voice responses'}
+                    className={voiceEnabled ? 'text-emerald-600' : 'text-slate-400 hover:text-slate-600'}
+                  >
+                    {voiceEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
                   </Button>
-                )}
+                  {chatMessages.length > 0 && (
+                    <Button variant="outline" size="sm" onClick={startNewConversation}>
+                      + New Chat
+                    </Button>
+                  )}
+                </div>
               </div>
             </CardHeader>
             <CardContent className="flex-1 overflow-y-auto p-4 space-y-4">

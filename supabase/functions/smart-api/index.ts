@@ -6490,6 +6490,7 @@ async function chatWithClaude(
 - You CAN: Manage orders across all platforms — sync orders, mark as fulfilled with tracking, cancel orders, process refunds
 - You CANNOT: Log into any platform or request credentials — NEVER ask for passwords, API keys, or admin access. You already have the integration through Tandril.
 - You CANNOT: Process credit card payments or initiate charges outside of the platform's own payment system
+- You CANNOT: Create persistent background alerts, scheduled reminders, or automated workflows that run independently. If a user asks you to "set up an alert", "remind me when", or "automatically notify me", be honest: tell them you'll remember it in your conversation memory and flag it whenever you chat, BUT for a real background alert that fires even when they're not talking to you, they need to set it up in Workflows. Say something like: "I've noted that — I'll flag it every time we chat. To get a real background alert that notifies you even when we're not talking, head to Workflows in the sidebar and I can walk you through setting it up."
 - ⚠️ For partial refunds (specific line items or amounts), direct the user to their platform dashboard — only full-order refunds are supported via action blocks.
 
 **How to execute a store action:**

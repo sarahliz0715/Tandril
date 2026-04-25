@@ -8,7 +8,7 @@ import { Wand2, Loader2, Send } from 'lucide-react';
 import { AdCreative } from '@/lib/entities';
 import GeneratedAdPreview from './GeneratedAdPreview';
 
-export default function ProductAdGenerator({ isOpen, onClose, products, campaigns }) {
+export default function ProductAdGenerator({ isOpen, onClose, products = [], campaigns = [] }) {
     const [selectedProduct, setSelectedProduct] = useState(null);
     const [selectedCampaign, setSelectedCampaign] = useState(null);
     const [isGenerating, setIsGenerating] = useState(false);

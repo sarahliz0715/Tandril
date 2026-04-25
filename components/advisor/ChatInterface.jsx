@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { agentSDK } from "@/agents";
 import { User } from '@/lib/entities';
 import { useNavigate } from 'react-router-dom';
@@ -6,7 +6,7 @@ import { createPageUrl } from '@/utils';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Send, Loader2, Bot } from 'lucide-react';
+import { Send, Loader2, Bot, Volume2, VolumeX } from 'lucide-react';
 import { toast } from 'sonner';
 import MessageBubble from './MessageBubble';
 import AIAvatar from './AIAvatar';
@@ -235,6 +235,42 @@ export default function ChatInterface({ conversationId, initialPrompt, onPromptU
         }
     }, [initialPrompt, onPromptUsed, setInput]);
     
+    const [voiceEnabled, setVoiceEnabled] = useState(false);
+    const lastSpokenIndexRef = useRef(-1);
+
+    const stripMarkdown = (text) => text
+        .replace(/#{1,6}\s/g, '')
+        .replace(/\*\*(.+?)\*\*/g, '$1')
+        .replace(/\*(.+?)\*/g, '$1')
+        .replace(/`(.+?)`/g, '$1')
+        .replace(/\[(.+?)\]\(.+?\)/g, '$1')
+        .replace(/^\s*[-*+]\s/gm, '')
+        .replace(/^\s*\d+\.\s/gm, '')
+        .trim();
+
+    const speakText = useCallback((text) => {
+        if (!('speechSynthesis' in window)) return;
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(stripMarkdown(text));
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
+        window.speechSynthesis.speak(utterance);
+    }, []);
+
+    useEffect(() => {
+        if (!voiceEnabled || messages.length === 0) return;
+        const lastMsg = messages[messages.length - 1];
+        if (lastMsg.role === 'assistant' && messages.length - 1 > lastSpokenIndexRef.current) {
+            lastSpokenIndexRef.current = messages.length - 1;
+            speakText(lastMsg.content);
+        }
+    }, [messages, voiceEnabled, speakText]);
+
+    useEffect(() => {
+        return () => { if ('speechSynthesis' in window) window.speechSynthesis.cancel(); };
+    }, []);
+
     // Ref for controlling scroll behavior
     const scrollAreaRef = React.useRef(null);
 
@@ -258,13 +294,24 @@ export default function ChatInterface({ conversationId, initialPrompt, onPromptU
                         <AIAvatar />
                         <div>
                             <h3 className="text-lg font-semibold text-slate-900">
-                                {/* Display conversation name or default for new/Orion */}
                                 {conversationId === 'new' ? 'New Conversation' : conversation?.metadata?.name || 'Orion'}
                             </h3>
                             <p className="text-xs text-slate-500">Your strategic business partner</p>
                         </div>
                     </div>
                 </div>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                        if (voiceEnabled) window.speechSynthesis.cancel();
+                        setVoiceEnabled(v => !v);
+                    }}
+                    title={voiceEnabled ? 'Mute Orion' : 'Enable voice responses'}
+                    className={voiceEnabled ? 'text-emerald-600' : 'text-slate-400 hover:text-slate-600'}
+                >
+                    {voiceEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+                </Button>
             </div>
             
             <ScrollArea className="flex-1 p-4 sm:p-6" ref={scrollAreaRef}>
