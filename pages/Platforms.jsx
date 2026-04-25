@@ -94,12 +94,10 @@ export default function Platforms() {
                         id: toastId,
                         description: `${shopifyShop} is now connected.`
                     });
-                    if (mounted) loadData();
+                    loadData();
                 })
                 .catch((err) => {
-                    // Always update the toast so the spinner doesn't spin forever.
-                    // Only update React state if the component is still mounted.
-                    if (mounted) setShopifyError(err.message);
+                    setShopifyError(err.message);
                     toast.error('Shopify connection failed', {
                         id: toastId,
                         description: err.message,
