@@ -23,7 +23,7 @@ SELECT cron.schedule(
   '*/15 * * * *',
   $$
   SELECT net.http_post(
-    url     := 'YOUR_SUPABASE_URL/functions/v1/check-alerts',
+    url     := 'https://biksocozipayckfuzzul.supabase.co/functions/v1/check-alerts',
     headers := '{"Content-Type":"application/json","x-cron-secret":"YOUR_CRON_SECRET"}'::jsonb,
     body    := '{}'::jsonb
   );
@@ -40,7 +40,7 @@ SELECT cron.schedule(
   '0 8 * * *',
   $$
   SELECT net.http_post(
-    url     := 'YOUR_SUPABASE_URL/functions/v1/daily-briefing-cron',
+    url     := 'https://biksocozipayckfuzzul.supabase.co/functions/v1/daily-briefing-cron',
     headers := '{"Content-Type":"application/json","x-cron-secret":"YOUR_CRON_SECRET"}'::jsonb,
     body    := '{}'::jsonb
   );
