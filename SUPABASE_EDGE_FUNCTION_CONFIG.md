@@ -1,5 +1,47 @@
 # Supabase Edge Function Configuration Guide
 
+## Email Setup (Resend)
+
+Tandril uses [Resend](https://resend.com) to send transactional emails (beta invitations, etc.) via the `send-beta-invite` Edge Function.
+
+### Step 1: Add DNS Records at Your Domain Registrar
+
+Log into your DNS provider (Cloudflare, GoDaddy, Namecheap, etc.) and add these three records. Replace `{YOUR_DOMAIN}` with your actual domain (e.g. `omamahills.com`).
+
+| Type | Name | Value | TTL | Priority |
+|------|------|-------|-----|----------|
+| TXT | `resend._domainkey.{YOUR_DOMAIN}` | `p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC88Ir3FFZRj8HclYo63sv8ZdbMjxZL9ziH4bsXO14fQdcHGz8d5Pkodpra9seLHRd3bPDOVsBz67qTfMeK/f066DMxjOj2mjUuNEARWDDslgTU/2l+RAhVvhGVFDUdaFKe+1F8mgF0bTARrRkjVXlyOclDvRBZd6eC+WtVdf6s9QIDAQAB` | Auto | — |
+| MX | `send.{YOUR_DOMAIN}` | `feedback-smtp.us-east-1.amazonses.com` | Auto | 10 |
+| TXT | `send.{YOUR_DOMAIN}` | `v=spf1 include:amazonses.com ~all` | Auto | — |
+
+After saving, return to **Resend > Domains** and click **Verify**. DNS propagation can take up to 48 hours but is usually much faster.
+
+### Step 2: Get Your Resend API Key
+
+1. Go to [Resend > API Keys](https://resend.com/api-keys)
+2. Click **Create API Key**
+3. Copy the key (starts with `re_`)
+
+### Step 3: Set Secrets in Supabase
+
+Go to **Supabase Dashboard → Edge Functions → Manage secrets** and add:
+
+| Secret | Value |
+|--------|-------|
+| `RESEND_API_KEY` | Your Resend API key (`re_...`) |
+| `RESEND_FROM_EMAIL` | `Tandril <noreply@send.{YOUR_DOMAIN}>` |
+| `APP_URL` | Your frontend URL (e.g. `https://tandril.vercel.app`) |
+
+### Step 4: Deploy the Edge Function
+
+```bash
+supabase functions deploy send-beta-invite
+```
+
+Or via the Supabase Dashboard: create a new Edge Function named `send-beta-invite` and paste the contents of `supabase/functions/send-beta-invite/index.ts`.
+
+---
+
 ## OAuth Callback Functions (Shopify, eBay)
 
 OAuth callback functions receive redirects from external services (Shopify, eBay) and **do not have JWT authentication** because they're browser redirects. These functions need to be publicly accessible.

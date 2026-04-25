@@ -21,7 +21,7 @@ export default function BetaInviteModal({ isOpen, onClose }) {
 
         setIsSending(true);
         try {
-            const response = await api.functions.invoke('sendBetaInvite', { email });
+            const response = await api.functions.invoke('send-beta-invite', { email });
             
             if (response.data.success) {
                 setInviteUrl(response.data.invite_url);
