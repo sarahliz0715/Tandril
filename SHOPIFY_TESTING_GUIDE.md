@@ -39,9 +39,9 @@ Orion will pull live inventory data from your connected Shopify store and displa
 ---
 
 **Message 2** *(follow-up from Orion's response)*:
-> Yes — alert me when any product drops below 5 units
+> Which of these should I reorder first?
 
-Orion will confirm it can set that up and walk you through creating the alert workflow. This tests Orion's ability to take action based on conversation context.
+Orion will prioritize the low-stock items based on sales velocity and current levels, giving you a clear reorder recommendation.
 
 ---
 
