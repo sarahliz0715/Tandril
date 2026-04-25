@@ -295,7 +295,7 @@ export default function AIBusinessCoach() {
     }
     lines.push('Failed:');
     errors.forEach(e => lines.push(`❌ ${e}`));
-    lines.push('\nPlease acknowledge what failed, explain what went wrong in plain English, and suggest what the user should do to fix it.');
+    lines.push('\nPlease tell the user what failed and why in plain English, and give them a concrete next step. Do NOT say "I\'ve flagged it" or "I\'ve noted it" — those imply a background notification was created, which is not true. Just explain the error directly and suggest what to do.');
 
     setIsChatLoading(true);
     try {
