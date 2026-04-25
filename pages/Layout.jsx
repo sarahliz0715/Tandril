@@ -22,6 +22,7 @@ import { createPageUrl } from '@/utils';
 import ErrorBoundary from "@/ErrorBoundary";
 import { useBetaAccess } from "@/components/common/BetaGate";
 import SupportModal from '@/components/support/SupportModal';
+import NotificationBell from '@/components/notifications/NotificationBell';
 
 const defaultNavigationItems = [
     { name: 'Dashboard', href: 'Dashboard', icon: LayoutDashboard, color: 'text-blue-600' },
@@ -235,6 +236,7 @@ export default function Layout({ children, currentPageName }) {
                                         <Menu className="h-6 w-6" />
                                     </Button>
                                     <TandrilVineLogo className="h-8" />
+                                    <NotificationBell />
                                 </div>
                             </div>
 
@@ -255,6 +257,7 @@ export default function Layout({ children, currentPageName }) {
                                     <div className="flex items-center justify-between p-6 border-b border-slate-200">
                                         <TandrilVineLogo className="h-8" />
                                         <div className="flex items-center gap-1">
+                                            <NotificationBell />
                                             {/* Desktop collapse button */}
                                             <Button
                                                 variant="ghost"
