@@ -714,11 +714,21 @@ async function getEbayClientForActions(supabaseClient: any, userId: string) {
     }
   }
 
+  const marketplaceLanguage: Record<string, string> = {
+    EBAY_US: 'en-US', EBAY_GB: 'en-GB', EBAY_AU: 'en-AU', EBAY_CA: 'en-CA',
+    EBAY_DE: 'de-DE', EBAY_FR: 'fr-FR', EBAY_IT: 'it-IT', EBAY_ES: 'es-ES',
+    EBAY_AT: 'de-AT', EBAY_BE_NL: 'nl-BE', EBAY_BE_FR: 'fr-BE', EBAY_CH: 'de-CH',
+    EBAY_HK: 'zh-HK', EBAY_IN: 'en-IN', EBAY_IE: 'en-IE', EBAY_MY: 'en-MY',
+    EBAY_NL: 'nl-NL', EBAY_PH: 'en-PH', EBAY_PL: 'pl-PL', EBAY_SG: 'en-SG',
+  };
+  const contentLanguage = marketplaceLanguage[marketplaceId] || 'en-US';
+
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${accessToken}`,
     'Content-Type': 'application/json',
+    'Content-Language': contentLanguage,
     'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
-    'Accept-Language': 'en-US',
+    'Accept-Language': contentLanguage,
   };
 
   return { platform, apiBase, marketplaceId, headers };
