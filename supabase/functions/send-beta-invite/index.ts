@@ -4,6 +4,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
 serve(async (req) => {
@@ -28,7 +29,14 @@ serve(async (req) => {
       throw new Error('Unauthorized');
     }
 
-    const { email } = await req.json();
+    let body: { email?: string } = {};
+    try {
+      const text = await req.text();
+      if (text) body = JSON.parse(text);
+    } catch {
+      // body stays empty
+    }
+    const { email } = body;
 
     if (!email || !email.includes('@')) {
       throw new Error('Invalid email address');
