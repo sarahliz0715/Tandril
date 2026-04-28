@@ -5,6 +5,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { Zap } from 'lucide-react';
 
 const actionTypes = {
+    inventory_email: { label: "Email Inventory Report", fields: [
+        { name: 'recipient', type: 'text', placeholder: 'your@email.com' },
+        { name: 'threshold', type: 'number', placeholder: 'Low stock threshold (e.g. 10)' },
+    ]},
     ai_command: { label: "Run AI Command", fields: [{ name: 'command', type: 'textarea', placeholder: 'e.g., Update SEO for all products...' }] },
     send_email: { label: "Send Email", fields: [
         { name: 'recipient', type: 'text', placeholder: 'recipient@example.com or {{customer.email}}' },
