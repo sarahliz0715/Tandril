@@ -122,7 +122,6 @@ export default function CreateWorkflowModal({ onClose, onSuccess }) {
                 trigger_type: triggerType,
                 trigger_config: triggerConfig,
                 nodes,
-                commands: workflowType === 'command' ? commands.filter(c => c.trim()) : [],
                 platforms: [platform],
                 is_active: false,
                 ...(triggerType === 'schedule' && cron ? { next_run_at: calcNextRunAt(cron) } : {}),
