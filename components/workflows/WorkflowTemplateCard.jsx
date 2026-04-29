@@ -28,7 +28,7 @@ export default function WorkflowTemplateCard({ template, onUse, onRun }) {
     };
 
     // Get number of actions
-    const actionCount = workflowData.actions?.length || workflowData.commands?.length || workflowData.nodes?.length || 0;
+    const actionCount = workflowData.actions?.length || 0;
 
     return (
         <Card className="hover:shadow-lg transition-shadow">
