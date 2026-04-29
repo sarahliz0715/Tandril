@@ -182,7 +182,7 @@ export default function Home() {
 
             {/* Hero Section */}
             <main className="overflow-hidden">
-                <div className="py-20 sm:py-28 text-center">
+                <div className="py-10 sm:py-16 text-center">
                     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
                         {/* Large Centered Logo with flanking text */}
                         <div className="flex items-center justify-center gap-6 mb-8">
