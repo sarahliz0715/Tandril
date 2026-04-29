@@ -93,7 +93,7 @@ serve(async (req) => {
 });
 
 async function executeWorkflowActions(workflow: any, supabase: any): Promise<any[]> {
-  const nodes: any[] = workflow.nodes || [];
+  const nodes: any[] = workflow.actions || workflow.nodes || [];
   const actionNodes = nodes.filter((n: any) => n.type === 'action');
   const results = [];
 

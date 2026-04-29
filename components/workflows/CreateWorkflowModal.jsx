@@ -112,7 +112,7 @@ export default function CreateWorkflowModal({ onClose, onSuccess }) {
                 ? { cron, label: scheduleOptions.find(o => o.value === cron)?.label }
                 : {};
 
-            const nodes = workflowType === 'action' && actionType
+            const actions = workflowType === 'action' && actionType
                 ? [{ type: 'action', config: { action_type: actionType, ...actionConfig } }]
                 : [];
 
@@ -121,7 +121,7 @@ export default function CreateWorkflowModal({ onClose, onSuccess }) {
                 description,
                 trigger_type: triggerType,
                 trigger_config: triggerConfig,
-                nodes,
+                actions,
                 platforms: [platform],
                 is_active: false,
                 ...(triggerType === 'schedule' && cron ? { next_run_at: calcNextRunAt(cron) } : {}),
