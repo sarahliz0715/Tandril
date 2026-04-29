@@ -28,7 +28,7 @@ const getNodeComponent = (node) => {
 export default function WorkflowBuilder({ workflow: initialWorkflow, onSave, onClose }) {
     const [workflow, setWorkflow] = useState({
         ...initialWorkflow,
-        nodes: initialWorkflow.nodes || [], // Ensure nodes is always an array
+        actions: initialWorkflow.actions || [], // Ensure actions is always an array
         trigger_config: initialWorkflow.trigger_config || {}
     });
     const [isSaving, setIsSaving] = useState(false);
@@ -38,11 +38,11 @@ export default function WorkflowBuilder({ workflow: initialWorkflow, onSave, onC
     };
 
     const updateNode = (nodeId, newConfig) => {
-        const nodes = workflow.nodes || [];
-        const newNodes = nodes.map(node =>
+        const actions = workflow.actions || [];
+        const newNodes = actions.map(node =>
             node.id === nodeId ? { ...node, config: newConfig } : node
         );
-        updateWorkflow('nodes', newNodes);
+        updateWorkflow('actions', newNodes);
     };
     
     const updateTrigger = (newConfig) => {
@@ -55,23 +55,23 @@ export default function WorkflowBuilder({ workflow: initialWorkflow, onSave, onC
             type: type,
             config: {}
         };
-        const currentNodes = workflow.nodes || [];
-        updateWorkflow('nodes', [...currentNodes, newNode]);
+        const currentNodes = workflow.actions || [];
+        updateWorkflow('actions', [...currentNodes, newNode]);
     };
 
     const removeNode = (nodeId) => {
-        const currentNodes = workflow.nodes || [];
-        updateWorkflow('nodes', currentNodes.filter(node => node.id !== nodeId));
+        const currentNodes = workflow.actions || [];
+        updateWorkflow('actions', currentNodes.filter(node => node.id !== nodeId));
     };
 
     const handleDragEnd = (result) => {
         if (!result.destination) return;
 
-        const items = Array.from(workflow.nodes || []);
+        const items = Array.from(workflow.actions || []);
         const [reorderedItem] = items.splice(result.source.index, 1);
         items.splice(result.destination.index, 0, reorderedItem);
 
-        updateWorkflow('nodes', items);
+        updateWorkflow('actions', items);
     };
 
     const handleSave = async () => {
@@ -93,8 +93,8 @@ export default function WorkflowBuilder({ workflow: initialWorkflow, onSave, onC
         condition: { name: "Condition", icon: Settings, description: "Create a branch in your workflow based on data." }
     };
 
-    // Ensure nodes is always an array
-    const workflowNodes = workflow.nodes || [];
+    // Ensure actions is always an array
+    const workflowNodes = workflow.actions || [];
 
     return (
         <div className="min-h-screen bg-slate-50">
@@ -135,7 +135,7 @@ export default function WorkflowBuilder({ workflow: initialWorkflow, onSave, onC
                     <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider pt-4">Actions</h2>
                     
                     <DragDropContext onDragEnd={handleDragEnd}>
-                        <Droppable droppableId="nodes">
+                        <Droppable droppableId="actions">
                             {(provided) => (
                                 <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-3">
                                     {workflowNodes.map((node, index) => {

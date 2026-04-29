@@ -12,7 +12,10 @@ const triggerTypes = {
 
 const scheduleOptions = [
     { value: '0 * * * *', label: 'Every Hour' },
+    { value: '0 6 * * *', label: 'Every Day at 6 AM' },
+    { value: '0 8 * * *', label: 'Every Day at 8 AM' },
     { value: '0 9 * * *', label: 'Every Day at 9 AM' },
+    { value: '0 12 * * *', label: 'Every Day at 12 PM' },
     { value: '0 9 * * 1', label: 'Every Monday at 9 AM' },
 ];
 

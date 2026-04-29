@@ -29,6 +29,34 @@ import { handleAuthError } from '@/utils/authHelpers';
 import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 import { NoDataEmptyState } from '../components/common/EmptyState';
 
+function calcNextRunAt(cron) {
+  const now = new Date();
+  const parts = cron.trim().split(' ');
+  const minute = parseInt(parts[0]);
+  const hour = parseInt(parts[1]);
+  const dayOfWeek = parts[4] !== '*' ? parseInt(parts[4]) : null;
+
+  const next = new Date(now);
+  next.setSeconds(0, 0);
+
+  if (dayOfWeek !== null) {
+    // Weekly — find next occurrence of that weekday
+    const daysUntil = (dayOfWeek - now.getDay() + 7) % 7 || 7;
+    next.setDate(next.getDate() + daysUntil);
+    next.setHours(isNaN(hour) ? 9 : hour, isNaN(minute) ? 0 : minute, 0, 0);
+  } else if (parts[1] === '*') {
+    // Hourly
+    next.setMinutes(isNaN(minute) ? 0 : minute, 0, 0);
+    if (next <= now) next.setHours(next.getHours() + 1);
+  } else {
+    // Daily
+    next.setHours(isNaN(hour) ? 9 : hour, isNaN(minute) ? 0 : minute, 0, 0);
+    if (next <= now) next.setDate(next.getDate() + 1);
+  }
+
+  return next.toISOString();
+}
+
 export default function Workflows() {
   const [workflows, setWorkflows] = useState([]);
   const [templates, setTemplates] = useState([]);
@@ -118,7 +146,11 @@ export default function Workflows() {
       variant: 'default',
       onConfirm: async () => {
         try {
-          await AIWorkflow.update(workflow.id, { is_active: isActivating });
+          const updates = { is_active: isActivating };
+          if (isActivating && workflow.trigger_type === 'schedule' && workflow.trigger_config?.cron) {
+            updates.next_run_at = calcNextRunAt(workflow.trigger_config.cron);
+          }
+          await AIWorkflow.update(workflow.id, updates);
           toast.success(`Workflow ${isActivating ? 'activated' : 'paused'}`);
           loadData();
         } catch (error) {
@@ -165,13 +197,14 @@ export default function Workflows() {
 
   // Handle run workflow manually
   const handleRunWorkflow = useCallback(async (workflow) => {
-    toast.info("Starting workflow execution...");
-    
+    toast.info("Running workflow...");
+
     try {
-      const { data } = await api.functions.invoke('executeWorkflow', {
+      const result = await api.functions.invoke('execute-scheduled-workflows', {
         workflow_id: workflow.id
       });
-      
+      const data = result?.data ?? result;
+
       if (data?.success) {
         toast.success("Workflow executed successfully");
         loadData();
@@ -180,11 +213,11 @@ export default function Workflows() {
       }
     } catch (error) {
       console.error('Failed to run workflow:', error);
-      
+
       if (handleAuthError(error, navigate)) {
         return;
       }
-      
+
       toast.error("Failed to run workflow", {
         description: error.message
       });
@@ -385,7 +418,6 @@ export default function Workflows() {
         </TabsContent>
 
         <TabsContent value="templates" className="space-y-4">
-          {console.log('🔍 [Workflows RENDER] templates state:', templates, 'length:', templates.length)}
           {templates.length === 0 ? (
             <Card className="p-12">
               <div className="text-center">

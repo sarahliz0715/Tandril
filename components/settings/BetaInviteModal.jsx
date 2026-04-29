@@ -22,13 +22,14 @@ export default function BetaInviteModal({ isOpen, onClose }) {
         setIsSending(true);
         try {
             const response = await api.functions.invoke('send-beta-invite', { email });
-            
-            if (response.data.success) {
-                setInviteUrl(response.data.invite_url);
+            const result = response?.data ?? response;
+
+            if (result.success) {
+                setInviteUrl(result.invite_url);
                 toast.success(`Beta invitation sent to ${email}!`);
                 setEmail('');
             } else {
-                toast.error(response.data.error || 'Failed to send invitation');
+                toast.error(result.error || 'Failed to send invitation');
             }
         } catch (error) {
             console.error('Error sending beta invite:', error);
