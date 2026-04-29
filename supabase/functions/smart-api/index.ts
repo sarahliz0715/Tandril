@@ -714,11 +714,21 @@ async function getEbayClientForActions(supabaseClient: any, userId: string) {
     }
   }
 
+  const marketplaceLanguage: Record<string, string> = {
+    EBAY_US: 'en-US', EBAY_GB: 'en-GB', EBAY_AU: 'en-AU', EBAY_CA: 'en-CA',
+    EBAY_DE: 'de-DE', EBAY_FR: 'fr-FR', EBAY_IT: 'it-IT', EBAY_ES: 'es-ES',
+    EBAY_AT: 'de-AT', EBAY_BE_NL: 'nl-BE', EBAY_BE_FR: 'fr-BE', EBAY_CH: 'de-CH',
+    EBAY_HK: 'zh-HK', EBAY_IN: 'en-IN', EBAY_IE: 'en-IE', EBAY_MY: 'en-MY',
+    EBAY_NL: 'nl-NL', EBAY_PH: 'en-PH', EBAY_PL: 'pl-PL', EBAY_SG: 'en-SG',
+  };
+  const contentLanguage = marketplaceLanguage[marketplaceId] || 'en-US';
+
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${accessToken}`,
     'Content-Type': 'application/json',
+    'Content-Language': contentLanguage,
     'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
-    'Accept-Language': 'en-US',
+    'Accept-Language': contentLanguage,
   };
 
   return { platform, apiBase, marketplaceId, headers };
@@ -6490,7 +6500,7 @@ async function chatWithClaude(
 - You CAN: Manage orders across all platforms — sync orders, mark as fulfilled with tracking, cancel orders, process refunds
 - You CANNOT: Log into any platform or request credentials — NEVER ask for passwords, API keys, or admin access. You already have the integration through Tandril.
 - You CANNOT: Process credit card payments or initiate charges outside of the platform's own payment system
-- You CANNOT: Create persistent background alerts, scheduled reminders, or automated workflows that run independently. If a user asks you to "set up an alert", "remind me when", or "automatically notify me", be honest: tell them you'll remember it in your conversation memory and flag it whenever you chat, BUT for a real background alert that fires even when they're not talking to you, they need to set it up in Workflows. Say something like: "I've noted that — I'll flag it every time we chat. To get a real background alert that notifies you even when we're not talking, head to Workflows in the sidebar and I can walk you through setting it up."
+- You CANNOT: Create persistent background alerts, scheduled reminders, or automated monitoring that runs independently while the user is away. You are a conversational AI — you only run when the user is actively chatting with you. You do NOT monitor the store in the background. NEVER say "I'll flag it automatically" or "I'll alert you when" or "I'll notify you" — because you cannot. When a user asks to be notified or alerted about something (e.g. "alert me when stock drops below 5"), be honest and helpful: "I can't monitor that in the background on my own — but you can set up a real alert in Custom Alerts (in the sidebar) that will notify you by email or in-app whenever that threshold is hit. Want me to walk you through creating it?" Do NOT promise to monitor anything automatically.
 - ⚠️ For partial refunds (specific line items or amounts), direct the user to their platform dashboard — only full-order refunds are supported via action blocks.
 
 **How to execute a store action:**
@@ -7317,7 +7327,7 @@ ${mode === 'demo/test' ?
 - Never pretend to take actions you can't take` :
   `- Use the real store data above to give specific, grounded advice
 - Answer questions about products, stock, orders, and revenue directly from the data above
-- Proactively flag low stock, pricing opportunities, and trends you spot
+- Proactively mention low stock, pricing opportunities, and trends you spot in the conversation (but NEVER say "I've flagged it" or "I've noted it" as if a notification was created — just say it directly in your response)
 - When asked to DO something in the store (add/update inventory, change prices, create products, rename/SEO-update titles, update descriptions, update SEO meta title/description, update URL handles, add images, update image alt text for SEO, set metafields like material or care instructions, update tags), generate ORION_ACTION block(s) as described above — the user will confirm before anything executes. For image uploads always use type "upload_image", never "update_product". For image alt text use "update_image_alt". For metafields use "update_metafield". For SEO meta title/description use "update_seo_listing". For product description use "update_description". For URL slug use "update_url_handle". Never tell the user you "can't" perform supported actions — you CAN, and you do it through the action block.
 - When asked to "SEO optimize" any product, always follow the Full SEO Optimization Workflow above — do ALL 8 elements in a single multi_action, not just the title or just the metafields. Ask for the product name if ambiguous, then generate the full multi_action immediately.
 - Use multi_action when asked to make several changes to the SAME product (e.g. "update the title, alt text, and material on the tie dye shirt" → one multi_action block)
