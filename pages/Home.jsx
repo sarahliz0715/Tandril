@@ -185,17 +185,17 @@ export default function Home() {
                 <div className="py-10 sm:py-16 text-center">
                     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
                         {/* Large Centered Logo with flanking text */}
-                        <div className="flex items-center justify-center gap-6 mb-8">
-                            <span className="text-2xl sm:text-3xl font-bold text-green-600 italic tracking-tight hidden sm:block">For sellers</span>
-                            <div className="flex flex-col items-center">
+                        <div className="flex items-center justify-between w-full mb-8">
+                            <span className="text-4xl sm:text-5xl font-bold text-green-600 tracking-tight hidden sm:block">For sellers</span>
+                            <div className="flex flex-col items-center mx-4">
                                 <img src="/tandril-logo.png" alt="Tandril Logo" className="h-32 w-auto mb-4" />
                                 <h1 className="text-5xl sm:text-6xl font-extrabold text-slate-900 tracking-tight">
                                     Tandril
                                 </h1>
                             </div>
-                            <span className="text-2xl sm:text-3xl font-bold text-green-600 italic tracking-tight hidden sm:block">by sellers</span>
+                            <span className="text-4xl sm:text-5xl font-bold text-green-600 tracking-tight hidden sm:block">by sellers</span>
                         </div>
-                        <p className="text-xl sm:text-2xl font-semibold text-green-600 italic mb-2 sm:hidden">For sellers, by sellers</p>
+                        <p className="text-2xl font-bold text-green-600 mb-2 sm:hidden">For sellers, by sellers</p>
 
                         <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-slate-900 tracking-tight leading-tight mb-6">
                             Your E-commerce Operations, <span className="text-green-600">Automated.</span>
