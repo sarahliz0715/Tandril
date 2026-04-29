@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { PlatformRequest } from '@/lib/entities';
+import { PlatformRequest, User } from '@/lib/entities';
+import { api } from '@/lib/apiClient';
 import {
   Dialog,
   DialogContent,
@@ -30,7 +31,17 @@ export default function RequestPlatformModal({ open, onOpenChange }) {
         setIsSubmitting(true);
         
         try {
-            await PlatformRequest.create(formData);
+            const [, user] = await Promise.allSettled([
+                PlatformRequest.create(formData),
+                User.me()
+            ]);
+            const submittedBy = user.status === 'fulfilled' ? (user.value?.email || user.value?.full_name || 'Unknown') : 'Unknown';
+
+            api.functions.invoke('notify-platform-request', {
+                ...formData,
+                submitted_by: submittedBy
+            }).catch(() => {}); // fire and forget — don't block the user
+
             toast.success("Platform request submitted! We'll review it and get back to you.");
             onOpenChange(false);
             setFormData({

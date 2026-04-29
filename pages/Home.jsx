@@ -192,6 +192,10 @@ export default function Home() {
                             </h1>
                         </div>
 
+                        <div className="inline-block mb-4 px-4 py-1.5 bg-green-50 border border-green-200 rounded-full text-green-700 text-sm font-semibold tracking-wide">
+                            For sellers, by sellers.
+                        </div>
+
                         <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-slate-900 tracking-tight leading-tight mb-6">
                             Your E-commerce Operations, <span className="text-green-600">Automated.</span>
                         </h2>
