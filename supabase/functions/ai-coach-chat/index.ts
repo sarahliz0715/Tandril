@@ -11,6 +11,32 @@ const corsHeaders = {
   'Access-Control-Max-Age': '86400',
 };
 
+// --- Inlined decryption helpers (cannot import _shared in dashboard-deployed functions) ---
+const _ALGORITHM = 'AES-GCM';
+const _KEY_LENGTH = 256;
+const _IV_LENGTH = 12;
+
+async function _getEncryptionKey(): Promise<CryptoKey> {
+  const secret = Deno.env.get('ENCRYPTION_SECRET');
+  if (!secret) throw new Error('ENCRYPTION_SECRET environment variable not set');
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(secret), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: encoder.encode('tandril-encryption-salt-v1'), iterations: 100000, hash: 'SHA-256' },
+    keyMaterial, { name: _ALGORITHM, length: _KEY_LENGTH }, false, ['encrypt', 'decrypt']
+  );
+}
+
+async function decryptToken(ciphertext: string): Promise<string> {
+  const key = await _getEncryptionKey();
+  const combined = Uint8Array.from(atob(ciphertext), (c) => c.charCodeAt(0));
+  const iv = combined.slice(0, _IV_LENGTH);
+  const data = combined.slice(_IV_LENGTH);
+  const decrypted = await crypto.subtle.decrypt({ name: _ALGORITHM, iv }, key, data);
+  return new TextDecoder().decode(decrypted);
+}
+// --- End decryption helpers ---
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders, status: 200 });
@@ -338,8 +364,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
   try {
     // Try to detect and decrypt if encrypted (base64 length heuristic)
     if (accessToken && accessToken.length > 50 && !accessToken.startsWith('shpat_') && !accessToken.startsWith('shpca_')) {
-      const { decrypt } = await import('../_shared/encryption.ts');
-      accessToken = await decrypt(accessToken);
+      accessToken = await decryptToken(accessToken);
     }
   } catch (e) {
     console.warn('[Orion] Token decryption failed, using as-is:', e.message);
