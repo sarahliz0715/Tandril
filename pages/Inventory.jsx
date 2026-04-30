@@ -26,6 +26,7 @@ import InventoryTable from '../components/inventory/InventoryTable';
 import InventoryItemFormModal from '../components/inventory/InventoryItemFormModal';
 import SmartInventoryActions from '../components/inventory/SmartInventoryActions';
 import InventoryAnalytics from '../components/inventory/InventoryAnalytics';
+import SyncLinksPanel from '../components/inventory/SyncLinksPanel';
 import { handleAuthError } from '@/utils/authHelpers';
 import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 import { NoDataEmptyState, NoResultsEmptyState } from '../components/common/EmptyState';
@@ -365,6 +366,8 @@ export default function Inventory() {
           <InventoryAnalytics inventory={inventory} />
         </>
       )}
+
+      <SyncLinksPanel />
 
       <InventoryItemFormModal
         isOpen={showAddModal}
