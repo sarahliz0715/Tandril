@@ -260,6 +260,58 @@ export default function AIBusinessCoach() {
     return action;
   };
 
+  const calcNextRunAt = (cron) => {
+    const now = new Date();
+    const parts = cron.trim().split(' ');
+    const minute = parseInt(parts[0]);
+    const hour = parseInt(parts[1]);
+    const dayOfWeek = parts[4] !== '*' ? parseInt(parts[4]) : null;
+    const next = new Date(now);
+    next.setSeconds(0, 0);
+    if (dayOfWeek !== null) {
+      const daysUntil = (dayOfWeek - now.getDay() + 7) % 7 || 7;
+      next.setDate(next.getDate() + daysUntil);
+      next.setHours(isNaN(hour) ? 9 : hour, isNaN(minute) ? 0 : minute, 0, 0);
+    } else if (parts[1] === '*') {
+      next.setMinutes(isNaN(minute) ? 0 : minute, 0, 0);
+      if (next <= now) next.setHours(next.getHours() + 1);
+    } else {
+      next.setHours(isNaN(hour) ? 9 : hour, isNaN(minute) ? 0 : minute, 0, 0);
+      if (next <= now) next.setDate(next.getDate() + 1);
+    }
+    return next.toISOString();
+  };
+
+  const executeOrionAction = async (resolvedAction) => {
+    if (resolvedAction.type === 'create_workflow') {
+      const cron = resolvedAction.cron || '0 9 * * *';
+      const scheduleLabels = {
+        '0 * * * *': 'Every Hour', '0 6 * * *': 'Every Day at 6 AM',
+        '0 8 * * *': 'Every Day at 8 AM', '0 9 * * *': 'Every Day at 9 AM',
+        '0 12 * * *': 'Every Day at 12 PM', '0 9 * * 1': 'Every Monday at 9 AM',
+      };
+      const triggerType = resolvedAction.trigger_type || 'schedule';
+      const payload = {
+        name: resolvedAction.name,
+        description: resolvedAction.description || '',
+        trigger_type: triggerType,
+        trigger_config: triggerType === 'schedule' ? { cron, label: scheduleLabels[cron] || cron } : {},
+        actions: [{ type: 'action', config: {
+          action_type: resolvedAction.action_type || 'inventory_email',
+          recipient: resolvedAction.recipient || '',
+          ...(resolvedAction.low_stock_threshold !== undefined ? { threshold: resolvedAction.low_stock_threshold } : {}),
+          ...(resolvedAction.subject ? { subject: resolvedAction.subject } : {}),
+        }}],
+        platforms: ['shopify'],
+        is_active: false,
+        ...(triggerType === 'schedule' ? { next_run_at: calcNextRunAt(cron) } : {}),
+      };
+      await api.entities.AIWorkflow.create(payload);
+      return { execution_result: { message: `Workflow "${resolvedAction.name}" created! Go to Workflows in the sidebar to activate it.` } };
+    }
+    return api.functions.chatWithCoach({ execute_action: resolvedAction });
+  };
+
   const handleConfirmAction = async (messageIdx, action) => {
     const msg = chatMessages[messageIdx];
     const pendingActions = msg.pendingActions || [];
@@ -269,7 +321,7 @@ export default function AIBusinessCoach() {
     setIsChatLoading(true);
     try {
       const resolvedAction = await resolveAction(action);
-      const result = await api.functions.chatWithCoach({ execute_action: resolvedAction });
+      const result = await executeOrionAction(resolvedAction);
       const resultMsg = result.execution_result?.message || 'Action completed successfully.';
       const newQueueIdx = queueIdx + 1;
       const isDone = newQueueIdx >= pendingActions.length;
@@ -318,7 +370,7 @@ export default function AIBusinessCoach() {
       ));
       try {
         const resolvedAction = await resolveAction(remaining[i]);
-        const result = await api.functions.chatWithCoach({ execute_action: resolvedAction });
+        const result = await executeOrionAction(resolvedAction);
         const resultMsg = result.execution_result?.message || 'Done';
         setChatMessages(prev => prev.map((m, idx) =>
           idx === messageIdx ? { ...m, queueResults: [...(m.queueResults || []), resultMsg] } : m
@@ -387,6 +439,17 @@ export default function AIBusinessCoach() {
           fields: [
             { label: 'Product', value: action.product_name || action.sku },
           ],
+        };
+      case 'create_workflow':
+        return {
+          icon: '⚙️', title: 'Create Workflow',
+          fields: [
+            { label: 'Name', value: action.name },
+            { label: 'Schedule', value: action.cron || action.trigger_type },
+            { label: 'Action', value: action.action_type },
+            action.recipient && { label: 'Email', value: action.recipient },
+            action.low_stock_threshold !== undefined && { label: 'Low stock threshold', value: `${action.low_stock_threshold} units` },
+          ].filter(Boolean),
         };
       case 'update_metafield':
         return {
