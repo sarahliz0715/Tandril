@@ -64,6 +64,34 @@ serve(async (req) => {
       await supabase.from('platforms').insert(platformData);
     }
 
+    // Initial product sync
+    try {
+      const productsRes = await fetch(
+        `${store_url}/api/products?output_format=JSON&display=[id,name,reference,price,active,quantity]&limit=100`,
+        { headers: { 'Authorization': `Basic ${encoded}` } }
+      );
+      if (productsRes.ok) {
+        const productsData = await productsRes.json();
+        const rows = (productsData.products || []).map((p: any) => ({
+          user_id: user.id,
+          platform_type: 'prestashop',
+          title: p.name?.[0]?.value || p.name || 'Unnamed',
+          sku: p.reference || `ps-${p.id}`,
+          price: parseFloat(p.price || '0'),
+          inventory_quantity: parseInt(p.quantity || '0', 10),
+          status: p.active === '1' || p.active === true ? 'active' : 'inactive',
+          vendor: '',
+          product_type: '',
+        }));
+        if (rows.length > 0) {
+          await supabase.from('products').upsert(rows, { onConflict: 'user_id,platform_type,sku' });
+        }
+        console.log(`[prestashop-connect] Synced ${rows.length} products`);
+      }
+    } catch (syncErr: any) {
+      console.warn('[prestashop-connect] Product sync failed (non-critical):', syncErr.message);
+    }
+
     return new Response(
       JSON.stringify({ success: true, name: platformData.name }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
