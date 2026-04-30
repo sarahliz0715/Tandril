@@ -1,15 +1,39 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { decrypt, isEncrypted } from '../_shared/encryption.ts';
+
+// --- Inlined encryption helpers ---
+const ALGORITHM = 'AES-GCM';
+const KEY_LENGTH = 256;
+const IV_LENGTH = 12;
+
+async function getEncryptionKey(): Promise<CryptoKey> {
+  const secret = Deno.env.get('ENCRYPTION_SECRET');
+  if (!secret) throw new Error('ENCRYPTION_SECRET environment variable not set');
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(secret), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: encoder.encode('tandril-encryption-salt-v1'), iterations: 100000, hash: 'SHA-256' },
+    keyMaterial, { name: ALGORITHM, length: KEY_LENGTH }, false, ['encrypt', 'decrypt']
+  );
+}
+
+async function decrypt(encrypted: string): Promise<string> {
+  const key = await getEncryptionKey();
+  const combined = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0));
+  const decrypted = await crypto.subtle.decrypt({ name: ALGORITHM, iv: combined.slice(0, IV_LENGTH) }, key, combined.slice(IV_LENGTH));
+  return new TextDecoder().decode(decrypted);
+}
+
+function isEncrypted(value: string): boolean {
+  try { return atob(value).length > IV_LENGTH; } catch { return false; }
+}
+// --- End encryption helpers ---
 
 const SHOPIFY_API_VERSION = '2024-01';
 
-// Verify the request genuinely came from Shopify
 async function verifyShopifyHmac(body: string, hmacHeader: string, secret: string): Promise<boolean> {
   const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    'raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-  );
+  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
   const computed = btoa(String.fromCharCode(...new Uint8Array(sig)));
   return computed === hmacHeader;
@@ -23,7 +47,6 @@ serve(async (req) => {
 
     const rawBody = await req.text();
 
-    // Only handle order creation/payment topics
     if (!['orders/create', 'orders/paid'].includes(topic)) {
       return new Response('ok', { status: 200 });
     }
@@ -33,7 +56,6 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Look up the platform by shop domain to get the user and webhook secret
     const { data: platform } = await supabase
       .from('platforms')
       .select('*')
@@ -47,7 +69,6 @@ serve(async (req) => {
       return new Response('ok', { status: 200 });
     }
 
-    // Verify HMAC using the platform's access token as the secret (Shopify standard)
     let token = platform.access_token;
     if (token && isEncrypted(token)) token = await decrypt(token);
 
@@ -63,28 +84,23 @@ serve(async (req) => {
     const order = JSON.parse(rawBody);
     console.log(`[shopify-order-webhook] Processing order ${order.id} for ${shopDomain}`);
 
-    // Collect all line items with SKUs and their final quantities
     const skuUpdates: { sku: string; quantity: number }[] = [];
 
     for (const lineItem of order.line_items ?? []) {
       const sku = lineItem.sku;
       if (!sku) continue;
 
-      // Fetch current inventory from Shopify for this variant
       const variantRes = await fetch(
         `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/variants/${lineItem.variant_id}.json`,
         { headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' } }
       );
-
       if (!variantRes.ok) continue;
       const { variant } = await variantRes.json();
 
-      // Get inventory level
       const invRes = await fetch(
         `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/inventory_levels.json?inventory_item_ids=${variant.inventory_item_id}`,
         { headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' } }
       );
-
       if (!invRes.ok) continue;
       const { inventory_levels } = await invRes.json();
       const totalQty = (inventory_levels ?? []).reduce((sum: number, l: any) => sum + (l.available ?? 0), 0);
@@ -92,11 +108,8 @@ serve(async (req) => {
       skuUpdates.push({ sku, quantity: totalQty });
     }
 
-    if (skuUpdates.length === 0) {
-      return new Response('ok', { status: 200 });
-    }
+    if (skuUpdates.length === 0) return new Response('ok', { status: 200 });
 
-    // Trigger cross-platform sync for each SKU
     const syncUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/sync-inventory-levels`;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
@@ -105,12 +118,8 @@ serve(async (req) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceRoleKey}` },
         body: JSON.stringify({
-          user_id: platform.user_id,
-          sku,
-          new_quantity: quantity,
-          source_platform_id: platform.id,
-          source_platform_type: 'shopify',
-          triggered_by: 'webhook',
+          user_id: platform.user_id, sku, new_quantity: quantity,
+          source_platform_id: platform.id, source_platform_type: 'shopify', triggered_by: 'webhook',
         }),
       })
     ));
@@ -119,7 +128,6 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('[shopify-order-webhook] Error:', error.message);
-    // Always return 200 to Shopify to prevent retries on our own errors
     return new Response('ok', { status: 200 });
   }
 });

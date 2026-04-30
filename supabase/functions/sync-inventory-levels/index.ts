@@ -1,12 +1,39 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { decrypt, isEncrypted } from '../_shared/encryption.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
+
+// --- Inlined encryption helpers ---
+const ALGORITHM = 'AES-GCM';
+const KEY_LENGTH = 256;
+const IV_LENGTH = 12;
+
+async function getEncryptionKey(): Promise<CryptoKey> {
+  const secret = Deno.env.get('ENCRYPTION_SECRET');
+  if (!secret) throw new Error('ENCRYPTION_SECRET environment variable not set');
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(secret), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: encoder.encode('tandril-encryption-salt-v1'), iterations: 100000, hash: 'SHA-256' },
+    keyMaterial, { name: ALGORITHM, length: KEY_LENGTH }, false, ['encrypt', 'decrypt']
+  );
+}
+
+async function decrypt(encrypted: string): Promise<string> {
+  const key = await getEncryptionKey();
+  const combined = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0));
+  const decrypted = await crypto.subtle.decrypt({ name: ALGORITHM, iv: combined.slice(0, IV_LENGTH) }, key, combined.slice(IV_LENGTH));
+  return new TextDecoder().decode(decrypted);
+}
+
+function isEncrypted(value: string): boolean {
+  try { return atob(value).length > IV_LENGTH; } catch { return false; }
+}
+// --- End encryption helpers ---
 
 const SHOPIFY_API_VERSION = '2024-01';
 
@@ -30,7 +57,6 @@ serve(async (req) => {
 
     console.log(`[sync-inventory-levels] SKU=${sku} qty=${new_quantity} user=${user_id}`);
 
-    // Find all platform links for this SKU, excluding the source platform
     const { data: links, error: linksError } = await supabase
       .from('platform_product_links')
       .select('*, platforms(*)')
@@ -41,7 +67,6 @@ serve(async (req) => {
     if (linksError) throw new Error(`Failed to fetch product links: ${linksError.message}`);
 
     if (!links || links.length === 0) {
-      console.log(`[sync-inventory-levels] No linked platforms found for SKU=${sku}`);
       return new Response(
         JSON.stringify({ success: true, synced: 0, message: 'No linked platforms for this SKU' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -79,7 +104,6 @@ serve(async (req) => {
 
       syncResults.push(result);
 
-      // Update last_synced_at
       if (result.success) {
         await supabase
           .from('platform_product_links')
@@ -88,14 +112,10 @@ serve(async (req) => {
       }
     }
 
-    // Write audit log
     await supabase.from('inventory_sync_log').insert({
-      user_id,
-      sku,
-      source_platform_type,
+      user_id, sku, source_platform_type,
       source_platform_id: source_platform_id ?? null,
-      new_quantity,
-      synced_platforms: syncResults,
+      new_quantity, synced_platforms: syncResults,
       triggered_by: triggered_by ?? 'manual',
     });
 
@@ -118,8 +138,6 @@ serve(async (req) => {
 
 async function syncShopify(platform: any, link: any, qty: number, token: string, result: any) {
   const shopDomain = platform.shop_domain;
-
-  // Get the variant's inventory_item_id
   const variantRes = await fetch(
     `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/variants/${link.platform_variant_id}.json`,
     { headers: { 'X-Shopify-Access-Token': token } }
@@ -127,7 +145,6 @@ async function syncShopify(platform: any, link: any, qty: number, token: string,
   if (!variantRes.ok) throw new Error(`Shopify variant fetch failed: ${variantRes.status}`);
   const { variant } = await variantRes.json();
 
-  // Get primary location
   const locRes = await fetch(
     `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/locations.json`,
     { headers: { 'X-Shopify-Access-Token': token } }
@@ -137,7 +154,6 @@ async function syncShopify(platform: any, link: any, qty: number, token: string,
   const locationId = locations?.[0]?.id;
   if (!locationId) throw new Error('No Shopify location found');
 
-  // Set inventory level
   const setRes = await fetch(
     `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/inventory_levels/set.json`,
     {
@@ -147,7 +163,6 @@ async function syncShopify(platform: any, link: any, qty: number, token: string,
     }
   );
   if (!setRes.ok) throw new Error(`Shopify inventory set failed: ${setRes.status}`);
-
   return { ...result, success: true };
 }
 
@@ -166,6 +181,5 @@ async function syncWooCommerce(platform: any, link: any, qty: number, token: str
     body: JSON.stringify({ stock_quantity: qty, manage_stock: true }),
   });
   if (!res.ok) throw new Error(`WooCommerce update failed: ${res.status}`);
-
   return { ...result, success: true };
 }
