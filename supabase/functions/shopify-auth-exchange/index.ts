@@ -8,7 +8,6 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { encrypt } from '../_shared/encryption.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -17,13 +16,40 @@ const corsHeaders = {
   'Access-Control-Max-Age': '86400',
 };
 
+// --- Inlined encryption helpers ---
+const ALGORITHM = 'AES-GCM';
+const KEY_LENGTH = 256;
+const IV_LENGTH = 12;
+
+async function getEncryptionKey(): Promise<CryptoKey> {
+  const secret = Deno.env.get('ENCRYPTION_SECRET');
+  if (!secret) throw new Error('ENCRYPTION_SECRET environment variable not set');
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(secret), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: encoder.encode('tandril-encryption-salt-v1'), iterations: 100000, hash: 'SHA-256' },
+    keyMaterial, { name: ALGORITHM, length: KEY_LENGTH }, false, ['encrypt', 'decrypt']
+  );
+}
+
+async function encrypt(plaintext: string): Promise<string> {
+  const key = await getEncryptionKey();
+  const encoder = new TextEncoder();
+  const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
+  const ciphertext = await crypto.subtle.encrypt({ name: ALGORITHM, iv }, key, encoder.encode(plaintext));
+  const combined = new Uint8Array(iv.length + ciphertext.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(ciphertext), iv.length);
+  return btoa(String.fromCharCode(...combined));
+}
+// --- End encryption helpers ---
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders, status: 200 });
   }
 
   try {
-    // Require user JWT - this function is always called from the authenticated frontend
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       throw new Error('Missing authorization header');
@@ -48,7 +74,6 @@ serve(async (req) => {
 
     console.log(`[Shopify Exchange] Processing for shop=${shop} user=${user.id}`);
 
-    // Use service role for privileged operations (state lookup, platform upsert)
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     if (!serviceRoleKey) throw new Error('Server configuration error');
 
@@ -69,11 +94,8 @@ serve(async (req) => {
 
     if (stateError || !oauthState) {
       console.warn('[Shopify Exchange] State validation failed (continuing anyway):', stateError?.message);
-      // Non-fatal: proceed without state validation if the table is missing or state expired.
-      // The code itself is single-use (Shopify invalidates it after exchange), so this is safe.
     }
 
-    // Exchange code for access token
     const shopifyApiKey = Deno.env.get('SHOPIFY_API_KEY');
     const shopifyApiSecret = Deno.env.get('SHOPIFY_API_SECRET');
 
@@ -99,7 +121,6 @@ serve(async (req) => {
     const { access_token, scope } = await tokenResponse.json();
     if (!access_token) throw new Error('No access token received from Shopify');
 
-    // Get store name
     let shopName = shop;
     try {
       const shopInfoResponse = await fetch(`https://${shop}/admin/api/2024-01/shop.json`, {
@@ -111,7 +132,6 @@ serve(async (req) => {
       }
     } catch (_) { /* non-fatal */ }
 
-    // Encrypt and store
     const encryptedToken = await encrypt(access_token);
 
     const { data: platform, error: platformError } = await adminClient
@@ -134,7 +154,21 @@ serve(async (req) => {
       throw new Error(`Failed to store platform: ${platformError.message}`);
     }
 
-    // Clean up the used state
+    // Register order webhook for real-time inventory sync
+    try {
+      const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/shopify-order-webhook`;
+      await fetch(`https://${shop}/admin/api/2024-01/webhooks.json`, {
+        method: 'POST',
+        headers: { 'X-Shopify-Access-Token': access_token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          webhook: { topic: 'orders/paid', address: webhookUrl, format: 'json' }
+        }),
+      });
+      console.log(`[Shopify Exchange] Registered orders/paid webhook for ${shop}`);
+    } catch (webhookErr) {
+      console.warn(`[Shopify Exchange] Webhook registration failed: ${webhookErr.message}`);
+    }
+
     await adminClient.from('oauth_states').delete().eq('state', state);
 
     console.log(`[Shopify Exchange] Successfully connected ${shop} for user ${user.id}`);
