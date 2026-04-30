@@ -182,18 +182,19 @@ export default function Home() {
 
             {/* Hero Section */}
             <main className="overflow-hidden">
-                <div className="py-20 sm:py-28 text-center">
+                <div className="py-10 sm:py-16 text-center">
                     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-                        {/* Large Centered Logo */}
+                        {/* Logo above, then flanking text on same row as title */}
                         <div className="flex flex-col items-center mb-8">
-                            <img src="/tandril-logo.png" alt="Tandril Logo" className="h-32 w-auto mb-4" />
-                            <h1 className="text-5xl sm:text-6xl font-extrabold text-slate-900 tracking-tight">
-                                Tandril
-                            </h1>
-                        </div>
-
-                        <div className="inline-block mb-4 px-4 py-1.5 bg-green-50 border border-green-200 rounded-full text-green-700 text-sm font-semibold tracking-wide">
-                            For sellers, by sellers.
+                            <img src="/tandril-logo.png" alt="Tandril Logo" className="h-32 w-auto mb-3" />
+                            <div className="flex items-center justify-between w-full">
+                                <span className="text-xl sm:text-2xl font-bold text-green-600 tracking-tight hidden sm:block">For sellers</span>
+                                <h1 className="text-5xl sm:text-6xl font-extrabold text-slate-900 tracking-tight mx-6">
+                                    Tandril
+                                </h1>
+                                <span className="text-xl sm:text-2xl font-bold text-green-600 tracking-tight hidden sm:block">by sellers</span>
+                            </div>
+                            <p className="text-xl font-bold text-green-600 mt-2 sm:hidden">For sellers, by sellers</p>
                         </div>
 
                         <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-slate-900 tracking-tight leading-tight mb-6">

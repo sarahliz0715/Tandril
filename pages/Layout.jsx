@@ -14,6 +14,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import InactivityManager from "@/components/auth/InactivityManager";
 import ActivityTracker from "@/components/auth/ActivityTracker";
 import { User } from '@/lib/entities';
+import { supabase } from '@/lib/supabaseClient';
 import GlobalCommandBar from "@/components/commands/GlobalCommandBar";
 import { Toaster } from "@/components/ui/toaster";
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -89,62 +90,81 @@ export default function Layout({ children, currentPageName }) {
     const { hasBetaAccess } = useBetaAccess(user);
 
     useEffect(() => {
-        const fetchUser = async () => {
-            try {
-                let currentUser;
-                // After an OAuth redirect (e.g. Shopify) the Supabase client needs time
-                // to restore the session from localStorage and refresh the token.
-                // Retry up to 10× with 300 ms gaps (= up to 3 s) before treating the
-                // user as unauthenticated.
-                const maxAttempts = 10;
-                for (let i = 0; i < maxAttempts; i++) {
-                    try {
-                        currentUser = await User.me();
-                        break;
-                    } catch (err) {
-                        if (err.name === 'AuthSessionMissingError' && i < maxAttempts - 1) {
-                            await new Promise(r => setTimeout(r, 300));
-                            continue;
-                        }
-                        throw err;
-                    }
+        let mounted = true;
+        let authHandled = false;
+
+        const publicPages = ['Home', 'Pricing', 'TermsOfService', 'PrivacyPolicy', 'EmailSignups', 'Survey', 'Login', 'Signup'];
+        const excludedFromOnboarding = ['Onboarding', 'Home', 'ShopifyCallback', 'TermsOfService', 'PrivacyPolicy', 'Pricing', 'EmailSignups', 'Survey'];
+
+        const applySession = async (session) => {
+            if (!mounted || authHandled) return;
+            authHandled = true;
+
+            if (!session) {
+                setUser(null);
+                setAuthCheckComplete(true);
+                if (!publicPages.includes(currentPageName)) {
+                    console.log('User not authenticated in layout');
+                    console.log(`Redirecting from ${currentPageName} to Home due to authentication failure`);
+                    toast.error('Session expired', { description: 'Please log in again to continue.' });
+                    navigate(createPageUrl('Login'));
                 }
+                return;
+            }
+
+            try {
+                const currentUser = await User.me();
+                if (!mounted) return;
                 setUser(currentUser);
 
-                const excludedPages = ['Onboarding', 'Home', 'ShopifyCallback', 'TermsOfService', 'PrivacyPolicy', 'Pricing', 'EmailSignups', 'Survey'];
-
-                if (currentUser && !currentUser.onboarding_completed && !excludedPages.includes(currentPageName)) {
+                if (currentUser && !currentUser.onboarding_completed && !excludedFromOnboarding.includes(currentPageName)) {
                     console.log('User needs to complete onboarding, redirecting...');
                     navigate(createPageUrl('Onboarding'));
                 }
 
-                // Protect admin-only pages (if any are added in the future)
                 const adminOnlyPages = [];
                 const isAdmin = currentUser?.isAdmin || currentUser?.role === 'admin' || currentUser?.role === 'owner';
-
                 if (adminOnlyPages.includes(currentPageName) && !isAdmin) {
                     console.log(`Redirecting from ${currentPageName} - admin access required`);
-                    toast.error('Access Denied', {
-                        description: 'This page is only accessible to administrators.'
-                    });
+                    toast.error('Access Denied', { description: 'This page is only accessible to administrators.' });
                     navigate(createPageUrl('Dashboard'));
                 }
             } catch (error) {
+                if (!mounted) return;
                 console.log('User not authenticated in layout');
-
-                const publicPages = ['Home', 'Pricing', 'TermsOfService', 'PrivacyPolicy', 'EmailSignups', 'Survey', 'Login', 'Signup'];
+                setUser(null);
                 if (!publicPages.includes(currentPageName)) {
                     console.log(`Redirecting from ${currentPageName} to Home due to authentication failure`);
-                    toast.error('Session expired', {
-                        description: 'Please log in again to continue.',
-                    });
+                    toast.error('Session expired', { description: 'Please log in again to continue.' });
                     navigate(createPageUrl('Login'));
                 }
             } finally {
-                setAuthCheckComplete(true);
+                if (mounted) setAuthCheckComplete(true);
             }
         };
-        fetchUser();
+
+        // onAuthStateChange with INITIAL_SESSION fires after the session is fully restored
+        // from localStorage (including any token refresh). This is much more reliable than
+        // polling getSession() after a full-page OAuth redirect.
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+            if (event === 'INITIAL_SESSION') {
+                applySession(session);
+            } else if (event === 'SIGNED_OUT') {
+                authHandled = false;
+                applySession(null);
+            }
+        });
+
+        // Fallback for SPA navigation: INITIAL_SESSION won't re-fire after the first
+        // page load, so getSession() handles subsequent route changes.
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            if (session) applySession(session);
+        });
+
+        return () => {
+            mounted = false;
+            subscription.unsubscribe();
+        };
     }, [currentPageName, navigate]);
 
     useEffect(() => {
