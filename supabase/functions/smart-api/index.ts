@@ -1070,8 +1070,43 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             ? 'https://api.sandbox.ebay.com'
             : 'https://api.ebay.com';
           const marketplaceId = creds.marketplace_id || 'EBAY_US';
+
+          // Refresh token if expired or within 5 min of expiry
+          let activeToken = creds.access_token;
+          const tokenExpiresAt = meta.token_expires_at ? new Date(meta.token_expires_at).getTime() : 0;
+          if (tokenExpiresAt > 0 && Date.now() > tokenExpiresAt - 5 * 60 * 1000) {
+            try {
+              const ebayClientId = Deno.env.get('EBAY_CLIENT_ID');
+              const ebayClientSecret = Deno.env.get('EBAY_CLIENT_SECRET');
+              if (ebayClientId && ebayClientSecret && creds.refresh_token) {
+                const tokenUrl = meta.environment === 'sandbox'
+                  ? 'https://api.sandbox.ebay.com/identity/v1/oauth2/token'
+                  : 'https://api.ebay.com/identity/v1/oauth2/token';
+                const refreshRes = await fetch(tokenUrl, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Authorization': `Basic ${btoa(`${ebayClientId}:${ebayClientSecret}`)}`,
+                  },
+                  body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: creds.refresh_token }).toString(),
+                });
+                if (refreshRes.ok) {
+                  const refreshData = await refreshRes.json();
+                  activeToken = refreshData.access_token;
+                  // Persist refreshed token
+                  await supabaseClient.from('platforms').update({
+                    credentials: { ...creds, access_token: activeToken },
+                    metadata: { ...meta, token_expires_at: new Date(Date.now() + (refreshData.expires_in || 7200) * 1000).toISOString() },
+                  }).eq('id', ebayPlatform.id);
+                }
+              }
+            } catch (refreshErr: any) {
+              console.warn('[smart-api] eBay token refresh failed:', refreshErr.message);
+            }
+          }
+
           const ebayHeaders: Record<string, string> = {
-            'Authorization': `Bearer ${creds.access_token}`,
+            'Authorization': `Bearer ${activeToken}`,
             'Content-Type': 'application/json',
             'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
             'Accept-Language': 'en-US',
