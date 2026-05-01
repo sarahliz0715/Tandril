@@ -487,6 +487,15 @@ export default function AIBusinessCoach() {
             { label: 'Product', value: action.product_name || action.sku },
           ],
         };
+      case 'remember':
+        return {
+          icon: '🧠', title: 'Save to Memory',
+          fields: [
+            { label: 'Remember', value: action.value },
+            action.category && { label: 'Category', value: (action.category || '').replace(/_/g, ' ') },
+            action.confidence === 1.0 && { label: 'Source', value: 'You stated this explicitly' },
+          ].filter(Boolean),
+        };
       case 'create_workflow':
         return {
           icon: '⚙️', title: 'Create Workflow',
