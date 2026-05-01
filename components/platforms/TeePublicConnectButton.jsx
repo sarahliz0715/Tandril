@@ -7,7 +7,7 @@ import { Palette, AlertCircle, Loader2 } from 'lucide-react';
 import { api } from '@/lib/apiClient';
 import { toast } from 'sonner';
 
-export default function TeePublicConnectButton({ onSuccess }) {
+export default function TeePublicConnectButton({ onConnectionSuccess }) {
     const [isConnecting, setIsConnecting] = useState(false);
     const [isOpen, setIsOpen] = useState(false);
     const [storeUsername, setStoreUsername] = useState('');
@@ -27,7 +27,7 @@ export default function TeePublicConnectButton({ onSuccess }) {
             toast.success('TeePublic connected successfully!');
             setIsOpen(false);
             setStoreUsername('');
-            onSuccess?.();
+            onConnectionSuccess?.();
         } catch (err) {
             setError(err.message);
         } finally {

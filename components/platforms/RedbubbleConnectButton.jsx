@@ -7,7 +7,7 @@ import { Palette, AlertCircle, Loader2 } from 'lucide-react';
 import { api } from '@/lib/apiClient';
 import { toast } from 'sonner';
 
-export default function RedbubbleConnectButton({ onSuccess }) {
+export default function RedbubbleConnectButton({ onConnectionSuccess }) {
     const [isConnecting, setIsConnecting] = useState(false);
     const [isOpen, setIsOpen] = useState(false);
     const [storeUsername, setStoreUsername] = useState('');
@@ -27,7 +27,7 @@ export default function RedbubbleConnectButton({ onSuccess }) {
             toast.success('Redbubble connected successfully!');
             setIsOpen(false);
             setStoreUsername('');
-            onSuccess?.();
+            onConnectionSuccess?.();
         } catch (err) {
             setError(err.message);
         } finally {

@@ -657,6 +657,107 @@ async function fetchEbayDataForOrion(platform: any): Promise<{ products: any[], 
   return { products, orders };
 }
 
+async function fetchShopifyDataForOrion(platform: any): Promise<{ products: any[], orders: any[] }> {
+  const shopDomain = platform.shop_domain || platform.domain;
+  if (!shopDomain) return { products: [], orders: [] };
+
+  let accessToken = platform.access_token;
+  try {
+    if (accessToken && accessToken.length > 50 && !accessToken.startsWith('shpat_') && !accessToken.startsWith('shpca_')) {
+      accessToken = await decryptToken(accessToken);
+    }
+  } catch (_) { /* use as-is if decrypt fails */ }
+
+  const headers = { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' };
+  const base = `https://${shopDomain}/admin/api/2024-01`;
+  const products: any[] = [];
+  const orders: any[] = [];
+
+  const productsRes = await fetch(`${base}/products.json?limit=250&status=active`, { headers });
+  if (productsRes.ok) {
+    const data = await productsRes.json();
+    for (const p of data.products || []) {
+      const v = p.variants?.[0];
+      products.push({
+        title: p.title,
+        sku: v?.sku || `shopify-${p.id}`,
+        price: parseFloat(v?.price || '0'),
+        inventory_quantity: v?.inventory_quantity ?? 0,
+        status: p.status,
+        vendor: p.vendor || '',
+        product_type: p.product_type || '',
+        platform_type: 'shopify',
+      });
+    }
+  }
+
+  const ordersRes = await fetch(`${base}/orders.json?status=any&limit=25`, { headers });
+  if (ordersRes.ok) {
+    const data = await ordersRes.json();
+    for (const o of data.orders || []) {
+      orders.push({
+        id: o.id,
+        order_number: o.order_number || o.name,
+        created_at: o.created_at,
+        total_price: parseFloat(o.total_price || '0'),
+        financial_status: o.financial_status,
+        fulfillment_status: o.fulfillment_status,
+        line_items: (o.line_items || []).map((i: any) => ({ title: i.title, quantity: i.quantity })),
+        platform_type: 'shopify',
+      });
+    }
+  }
+
+  return { products, orders };
+}
+
+async function fetchWooDataForOrion(platform: any): Promise<{ products: any[], orders: any[] }> {
+  const storeUrl = platform.store_url;
+  const { consumer_key, consumer_secret } = platform.credentials || {};
+  if (!storeUrl || !consumer_key || !consumer_secret) return { products: [], orders: [] };
+
+  const auth = btoa(`${consumer_key}:${consumer_secret}`);
+  const headers = { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/json' };
+  const products: any[] = [];
+  const orders: any[] = [];
+
+  const productsRes = await fetch(`${storeUrl}/wp-json/wc/v3/products?per_page=100&status=publish`, { headers });
+  if (productsRes.ok) {
+    const wooProducts = await productsRes.json();
+    for (const p of wooProducts) {
+      products.push({
+        title: p.name,
+        sku: p.sku || `woo-${p.id}`,
+        price: parseFloat(p.price || p.regular_price || '0'),
+        inventory_quantity: p.stock_quantity ?? 0,
+        status: p.status === 'publish' ? 'active' : p.status,
+        vendor: '',
+        product_type: p.categories?.[0]?.name || '',
+        platform_type: 'woocommerce',
+      });
+    }
+  }
+
+  const ordersRes = await fetch(`${storeUrl}/wp-json/wc/v3/orders?per_page=25`, { headers });
+  if (ordersRes.ok) {
+    const wooOrders = await ordersRes.json();
+    for (const o of wooOrders) {
+      orders.push({
+        id: o.id,
+        order_number: o.number,
+        created_at: o.date_created,
+        total_price: parseFloat(o.total || '0'),
+        financial_status: o.payment_method ? 'paid' : 'pending',
+        fulfillment_status: o.status === 'completed' ? 'fulfilled' : 'unfulfilled',
+        line_items: (o.line_items || []).map((i: any) => ({ title: i.name, quantity: i.quantity })),
+        platform_type: 'woocommerce',
+      });
+    }
+  }
+
+  return { products, orders };
+}
+
 async function getUserStoreContext(supabaseClient: any, userId: string) {
   const { data: platforms } = await supabaseClient
     .from('platforms')
@@ -664,6 +765,41 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     .eq('user_id', userId)
     .eq('is_active', true);
 
+  // Fetch live data from all supported platforms in parallel
+  const liveResults = await Promise.all(
+    (platforms || []).map(async (platform: any) => {
+      try {
+        if (platform.platform_type === 'shopify' && platform.access_token) {
+          const data = await fetchShopifyDataForOrion(platform);
+          return { ...data, platformType: 'shopify' };
+        }
+        if (platform.platform_type === 'ebay' && platform.credentials?.access_token) {
+          const data = await fetchEbayDataForOrion(platform);
+          return { ...data, platformType: 'ebay' };
+        }
+        if (platform.platform_type === 'woocommerce' && platform.credentials?.consumer_key) {
+          const data = await fetchWooDataForOrion(platform);
+          return { ...data, platformType: 'woocommerce' };
+        }
+      } catch (e: any) {
+        console.warn(`[Orion] ${platform.platform_type} live fetch failed:`, e.message);
+      }
+      return null;
+    })
+  );
+
+  const liveProducts: any[] = [];
+  const liveOrders: any[] = [];
+  const livePlatformTypes = new Set<string>();
+  for (const result of liveResults) {
+    if (result) {
+      liveProducts.push(...result.products);
+      liveOrders.push(...result.orders);
+      livePlatformTypes.add(result.platformType);
+    }
+  }
+
+  // Read DB for platforms we didn't fetch live (avoids stale duplicates)
   const { data: dbProducts, count: productCount } = await supabaseClient
     .from('products')
     .select('*', { count: 'exact' })
@@ -678,25 +814,17 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     .order('created_at', { ascending: false })
     .limit(25);
 
-  // Fetch live eBay data for any connected eBay platforms
-  let ebayProducts: any[] = [];
-  let ebayOrders: any[] = [];
-  for (const platform of (platforms || [])) {
-    if (platform.platform_type === 'ebay' && platform.credentials?.access_token) {
-      try {
-        const ebayData = await fetchEbayDataForOrion(platform);
-        ebayProducts = ebayProducts.concat(ebayData.products);
-        ebayOrders = ebayOrders.concat(ebayData.orders);
-      } catch (e: any) {
-        console.warn('[Orion] eBay data fetch failed:', e.message);
-      }
-    }
-  }
+  const filteredDbProducts = (dbProducts || []).filter(
+    (p: any) => !livePlatformTypes.has(p.platform_type || '')
+  );
+  const filteredDbOrders = (dbOrders || []).filter(
+    (o: any) => !livePlatformTypes.has(o.platform_type || o.platform || '')
+  );
 
-  const products = [...(dbProducts || []), ...ebayProducts];
-  const orders = [...(dbOrders || []), ...ebayOrders];
-  const totalProducts = (productCount || 0) + ebayProducts.length;
-  const totalOrders = (orderCount || 0) + ebayOrders.length;
+  const products = [...filteredDbProducts, ...liveProducts];
+  const orders = [...filteredDbOrders, ...liveOrders];
+  const totalProducts = filteredDbProducts.length + liveProducts.length + Math.max(0, (productCount || 0) - (dbProducts?.length || 0));
+  const totalOrders = filteredDbOrders.length + liveOrders.length;
 
   const totalRevenue = orders.reduce((sum, o) => sum + (parseFloat(o.total_price) || 0), 0);
   const avgOrderValue = orders.length > 0 ? totalRevenue / orders.length : 0;

@@ -61,6 +61,35 @@ serve(async (req) => {
       await supabase.from('platforms').insert(platformData);
     }
 
+    // Initial product sync
+    try {
+      const productsRes = await fetch(
+        `https://merchant.wish.com/api/v3/product?access_token=${encodeURIComponent(access_token)}&limit=100&offset=0`
+      );
+      if (productsRes.ok) {
+        const productsData = await productsRes.json();
+        if (productsData.code === 0) {
+          const rows = (productsData.data || []).map((p: any) => ({
+            user_id: user.id,
+            platform_type: 'wish',
+            title: p.name || 'Unnamed',
+            sku: p.variants?.[0]?.sku || `wish-${p.id}`,
+            price: parseFloat(p.variants?.[0]?.price || p.price || '0'),
+            inventory_quantity: p.variants?.[0]?.inventory ?? 0,
+            status: p.is_enabled ? 'active' : 'inactive',
+            vendor: '',
+            product_type: p.tags?.[0] || '',
+          }));
+          if (rows.length > 0) {
+            await supabase.from('products').upsert(rows, { onConflict: 'user_id,platform_type,sku' });
+            console.log(`[wish-connect] Synced ${rows.length} products`);
+          }
+        }
+      }
+    } catch (syncErr: any) {
+      console.warn('[wish-connect] Product sync failed (non-critical):', syncErr.message);
+    }
+
     return new Response(
       JSON.stringify({ success: true, name: platformData.name }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
