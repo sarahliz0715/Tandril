@@ -1021,6 +1021,11 @@ async function chatWithClaude(
     ? `\n**What I Know About This Business (from past conversations):**\n${formatMemory(memoryNotes)}\n`
     : '';
 
+  const actionablePlatforms = (storeContext.platforms || [])
+    .filter((p: any) => ['shopify', 'woocommerce'].includes(p.platform_type))
+    .map((p: any) => p.platform_type === 'shopify' ? 'Shopify' : 'WooCommerce');
+  const hasMultipleActionablePlatforms = actionablePlatforms.length >= 2;
+
   const systemPrompt = `You are Orion, an AI business wingman for e-commerce sellers. You're sharp, direct, and genuinely invested in their success. You remember past conversations and build on what you've learned over time.
 
 **CRITICAL - What you can and cannot do:**
@@ -1075,7 +1080,13 @@ To create a Tandril workflow (scheduled automation — e.g. low-stock email, dai
     - "0 12 * * *" = Every Day at 12 PM
     - "0 9 * * 1" = Every Monday at 9 AM
   Always ask for the user's email before generating a create_workflow action if you don't already know it.
+${hasMultipleActionablePlatforms ? `
+**Multi-platform execution:**
+You are connected to multiple actionable stores: **${actionablePlatforms.join(' and ')}**. When the user asks to update something "on all stores", "everywhere", "across platforms", or when your recommendation is to apply the same change to all connected stores, include a "platforms" array listing all applicable platforms:
+[ORION_ACTION:{"type":"update_price","platforms":["shopify","woocommerce"],"product_name":"Product Title","sku":"SKU-001","price":34.99}]
 
+IMPORTANT: When you generate a multi-platform action, always tell the user which stores you can execute on by name — for example: "I can execute this on your **Shopify** store and **WooCommerce** store. Want me to update all stores, or just some?" The user will see checkboxes to select which stores to update before anything executes. Only use the "platforms" array for actions that genuinely make sense on both platforms. For platform-specific products or features, use the single "platform" field as before.
+` : ''}
 Rules for actions:
 - Always include the SKU when you have it — it's the most reliable way to find the product
 - Only one action block per response

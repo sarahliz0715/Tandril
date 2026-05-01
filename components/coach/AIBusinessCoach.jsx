@@ -50,6 +50,7 @@ export default function AIBusinessCoach() {
   const [isRecording, setIsRecording] = useState(false);
   const [conversationId, setConversationId] = useState(null);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [platformSelections, setPlatformSelections] = useState({});
   const chatEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
@@ -389,6 +390,52 @@ export default function AIBusinessCoach() {
     toast.success(`All ${remaining.length} actions completed`);
   };
 
+  const handleConfirmMultiPlatform = async (messageIdx, action, selectedPlatforms) => {
+    if (!selectedPlatforms || selectedPlatforms.length === 0) return;
+    const msg = chatMessages[messageIdx];
+    const pendingActions = msg.pendingActions || [];
+    const queueIdx = msg.queueIdx || 0;
+
+    setChatMessages(prev => prev.map((m, i) => i === messageIdx ? { ...m, executing: true } : m));
+    setIsChatLoading(true);
+
+    const newResults = [];
+    const newErrors = [];
+
+    for (const platform of selectedPlatforms) {
+      try {
+        const resolvedAction = await resolveAction({ ...action, platform });
+        const result = await executeOrionAction(resolvedAction);
+        const resultMsg = result.execution_result?.message || `Updated on ${getPlatformLabel(platform)}`;
+        newResults.push(resultMsg);
+      } catch (error) {
+        console.error(`[Orion] Action error on ${platform}:`, error);
+        newErrors.push(`${getPlatformLabel(platform)}: ${error.message}`);
+      }
+    }
+
+    const newQueueIdx = queueIdx + 1;
+    const isDone = newQueueIdx >= pendingActions.length;
+    setChatMessages(prev => prev.map((m, i) =>
+      i === messageIdx ? {
+        ...m,
+        executing: false,
+        queueIdx: newQueueIdx,
+        queueResults: [...(m.queueResults || []), ...newResults],
+        queueErrors: [...(m.queueErrors || []), ...newErrors],
+        queueDone: isDone,
+      } : m
+    ));
+    setIsChatLoading(false);
+    if (newErrors.length === 0) {
+      toast.success(isDone ? 'All done!' : `Step ${newQueueIdx} of ${pendingActions.length} complete`);
+    } else if (newResults.length > 0) {
+      toast.success(`${newResults.length} succeeded, ${newErrors.length} failed`);
+    } else {
+      toast.error('Action failed on all selected stores');
+    }
+  };
+
   const handleCancelAction = (messageIdx) => {
     setChatMessages(prev => prev.map((m, i) =>
       i === messageIdx ? { ...m, actionCancelled: true } : m
@@ -642,6 +689,11 @@ export default function AIBusinessCoach() {
             .map(([k, v]) => ({ label: k, value: String(v) })),
         };
     }
+  };
+
+  const getPlatformLabel = (p) => {
+    const labels = { shopify: 'Shopify', woocommerce: 'WooCommerce', ebay: 'eBay', faire: 'Faire', etsy: 'Etsy', amazon: 'Amazon' };
+    return labels[p] || (p ? p.charAt(0).toUpperCase() + p.slice(1) : p);
   };
 
   const readFileAsBase64 = (file) =>
@@ -1232,6 +1284,11 @@ export default function AIBusinessCoach() {
                           if (!currentAction) return null;
                           const info = getActionInfo(currentAction);
                           const remainingCount = total - queueIdx;
+                          const isMultiPlatform = Array.isArray(currentAction.platforms) && currentAction.platforms.length > 1;
+                          const selectionKey = `${idx}-${queueIdx}`;
+                          const selectedPlatforms = isMultiPlatform
+                            ? (platformSelections[selectionKey] ?? currentAction.platforms)
+                            : null;
 
                           return (
                             <div className="mt-3 rounded-xl border border-amber-200 bg-white shadow-sm overflow-hidden">
@@ -1268,12 +1325,55 @@ export default function AIBusinessCoach() {
                                 ))}
                               </div>
 
+                              {/* Platform selection for multi-platform actions */}
+                              {isMultiPlatform && !isExecuting && (
+                                <div className="px-4 py-3 border-t border-amber-100 bg-amber-50/50 space-y-2">
+                                  <div className="flex items-center justify-between mb-1">
+                                    <p className="text-xs font-semibold text-amber-800">Execute on:</p>
+                                    <button
+                                      onClick={() => {
+                                        const allChecked = (platformSelections[selectionKey] ?? currentAction.platforms).length === currentAction.platforms.length;
+                                        setPlatformSelections(prev => ({
+                                          ...prev,
+                                          [selectionKey]: allChecked ? [] : [...currentAction.platforms],
+                                        }));
+                                      }}
+                                      className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                                    >
+                                      {(selectedPlatforms?.length ?? currentAction.platforms.length) === currentAction.platforms.length ? 'Deselect all' : 'Select all'}
+                                    </button>
+                                  </div>
+                                  {currentAction.platforms.map(p => (
+                                    <label key={p} className="flex items-center gap-2 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedPlatforms?.includes(p) ?? true}
+                                        onChange={() => {
+                                          setPlatformSelections(prev => {
+                                            const current = prev[selectionKey] ?? currentAction.platforms;
+                                            const updated = current.includes(p)
+                                              ? current.filter(x => x !== p)
+                                              : [...current, p];
+                                            return { ...prev, [selectionKey]: updated };
+                                          });
+                                        }}
+                                        className="w-4 h-4 rounded accent-green-600"
+                                      />
+                                      <span className="text-sm text-slate-700">{getPlatformLabel(p)}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              )}
+
                               {/* Buttons */}
                               {!isExecuting ? (
                                 <div className="flex gap-2 px-4 py-3 bg-slate-50 border-t border-slate-100 flex-wrap">
                                   <button
-                                    onClick={() => handleConfirmAction(idx, currentAction)}
-                                    className="px-4 py-2 text-sm font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                                    onClick={() => isMultiPlatform
+                                      ? handleConfirmMultiPlatform(idx, currentAction, selectedPlatforms ?? currentAction.platforms)
+                                      : handleConfirmAction(idx, currentAction)}
+                                    disabled={isMultiPlatform && (selectedPlatforms ?? currentAction.platforms).length === 0}
+                                    className="px-4 py-2 text-sm font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                   >
                                     {total > 1 && queueIdx < total - 1 ? 'Confirm & Next →' : 'Confirm & Execute'}
                                   </button>
