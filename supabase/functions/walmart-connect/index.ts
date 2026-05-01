@@ -94,6 +94,39 @@ serve(async (req) => {
 
     console.log(`[walmart-connect] Connected for user ${user.id}`);
 
+    // Initial product sync
+    try {
+      const itemsRes = await fetch('https://marketplace.walmartapis.com/v3/items?limit=100', {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'WM_SEC.ACCESS_TOKEN': accessToken,
+          'WM_QOS.CORRELATION_ID': crypto.randomUUID(),
+          'WM_SVC.NAME': 'Tandril',
+          'Accept': 'application/json',
+        },
+      });
+      if (itemsRes.ok) {
+        const itemsData = await itemsRes.json();
+        const rows = (itemsData.ItemResponse || []).map((item: any) => ({
+          user_id: user.id,
+          platform_type: 'walmart',
+          title: item.itemName || item.productName || 'Unnamed',
+          sku: item.sku || `wm-${item.itemId}`,
+          price: parseFloat(item.price?.amount || item.salePrice || '0'),
+          inventory_quantity: item.inventoryCount ?? 0,
+          status: item.publishedStatus === 'PUBLISHED' ? 'active' : 'inactive',
+          vendor: item.brand || '',
+          product_type: item.productType || '',
+        }));
+        if (rows.length > 0) {
+          await supabase.from('products').upsert(rows, { onConflict: 'user_id,platform_type,sku' });
+          console.log(`[walmart-connect] Synced ${rows.length} products`);
+        }
+      }
+    } catch (syncErr: any) {
+      console.warn('[walmart-connect] Product sync failed (non-critical):', syncErr.message);
+    }
+
     return new Response(
       JSON.stringify({ success: true, name: platformData.name }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }

@@ -106,11 +106,11 @@ export default function PlatformCard({
       case 'etsy':
         return <EtsyConnectButton onConnectionSuccess={onConnectionSuccess} disabled={isAtLimit} />;
       case 'printful':
-        return <PrintfulConnectButton onConnectionSuccess={onConnectionSuccess}/>;
+        return <PrintfulConnectButton isConnected={isConnected} onConnectionSuccess={onConnectionSuccess}/>;
       case 'teepublic':
-        return <TeePublicConnectButton onConnectionSuccess={onConnectionSuccess}/>
+        return <TeePublicConnectButton onConnectionSuccess={onConnectionSuccess} />
       case 'redbubble':
-        return <RedbubbleConnectButton onConnectionSuccess={onConnectionSuccess}/>
+        return <RedbubbleConnectButton onConnectionSuccess={onConnectionSuccess} />
       case 'facebook':
         return <FacebookConnectButton onConnectionSuccess={onConnectionSuccess}/>
       case 'ebay':

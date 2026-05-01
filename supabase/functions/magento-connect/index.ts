@@ -65,6 +65,37 @@ serve(async (req) => {
       await supabase.from('platforms').insert(platformData);
     }
 
+    // Initial product sync
+    try {
+      const productsRes = await fetch(
+        `${store_url}/rest/V1/products?searchCriteria[pageSize]=100&searchCriteria[currentPage]=1&searchCriteria[filter_groups][0][filters][0][field]=status&searchCriteria[filter_groups][0][filters][0][value]=1`,
+        { headers: { 'Authorization': `Bearer ${access_token}`, 'Content-Type': 'application/json' } }
+      );
+      if (productsRes.ok) {
+        const productsData = await productsRes.json();
+        const rows = (productsData.items || []).map((p: any) => {
+          const stockItem = p.extension_attributes?.stock_item;
+          return {
+            user_id: user.id,
+            platform_type: 'magento',
+            title: p.name || 'Unnamed',
+            sku: p.sku || `magento-${p.id}`,
+            price: parseFloat(p.price || '0'),
+            inventory_quantity: stockItem?.qty ?? 0,
+            status: p.status === 1 ? 'active' : 'inactive',
+            vendor: '',
+            product_type: p.type_id || '',
+          };
+        });
+        if (rows.length > 0) {
+          await supabase.from('products').upsert(rows, { onConflict: 'user_id,platform_type,sku' });
+        }
+        console.log(`[magento-connect] Synced ${rows.length} products`);
+      }
+    } catch (syncErr: any) {
+      console.warn('[magento-connect] Product sync failed (non-critical):', syncErr.message);
+    }
+
     return new Response(
       JSON.stringify({ success: true, name: platformData.name }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }

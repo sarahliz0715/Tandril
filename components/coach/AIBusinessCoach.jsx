@@ -50,6 +50,7 @@ export default function AIBusinessCoach() {
   const [isRecording, setIsRecording] = useState(false);
   const [conversationId, setConversationId] = useState(null);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [platformSelections, setPlatformSelections] = useState({});
   const [voiceRate, setVoiceRate] = useState(1.15);
   const chatEndRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -285,6 +286,28 @@ export default function AIBusinessCoach() {
     return action;
   };
 
+  const calcNextRunAt = (cron) => {
+    const now = new Date();
+    const parts = cron.trim().split(' ');
+    const minute = parseInt(parts[0]);
+    const hour = parseInt(parts[1]);
+    const dayOfWeek = parts[4] !== '*' ? parseInt(parts[4]) : null;
+    const next = new Date(now);
+    next.setSeconds(0, 0);
+    if (dayOfWeek !== null) {
+      const daysUntil = (dayOfWeek - now.getDay() + 7) % 7 || 7;
+      next.setDate(next.getDate() + daysUntil);
+      next.setHours(isNaN(hour) ? 9 : hour, isNaN(minute) ? 0 : minute, 0, 0);
+    } else if (parts[1] === '*') {
+      next.setMinutes(isNaN(minute) ? 0 : minute, 0, 0);
+      if (next <= now) next.setHours(next.getHours() + 1);
+    } else {
+      next.setHours(isNaN(hour) ? 9 : hour, isNaN(minute) ? 0 : minute, 0, 0);
+      if (next <= now) next.setDate(next.getDate() + 1);
+    }
+    return next.toISOString();
+  };
+
   const reportToOrion = async (results, errors, actions) => {
     if (errors.length === 0) return;
     const total = results.length + errors.length;
@@ -317,6 +340,36 @@ export default function AIBusinessCoach() {
     }
   };
 
+  const executeOrionAction = async (resolvedAction) => {
+    if (resolvedAction.type === 'create_workflow') {
+      const cron = resolvedAction.cron || '0 9 * * *';
+      const scheduleLabels = {
+        '0 * * * *': 'Every Hour', '0 6 * * *': 'Every Day at 6 AM',
+        '0 8 * * *': 'Every Day at 8 AM', '0 9 * * *': 'Every Day at 9 AM',
+        '0 12 * * *': 'Every Day at 12 PM', '0 9 * * 1': 'Every Monday at 9 AM',
+      };
+      const triggerType = resolvedAction.trigger_type || 'schedule';
+      const payload = {
+        name: resolvedAction.name,
+        description: resolvedAction.description || '',
+        trigger_type: triggerType,
+        trigger_config: triggerType === 'schedule' ? { cron, label: scheduleLabels[cron] || cron } : {},
+        actions: [{ type: 'action', config: {
+          action_type: resolvedAction.action_type || 'inventory_email',
+          recipient: resolvedAction.recipient || '',
+          ...(resolvedAction.low_stock_threshold !== undefined ? { threshold: resolvedAction.low_stock_threshold } : {}),
+          ...(resolvedAction.subject ? { subject: resolvedAction.subject } : {}),
+        }}],
+        platforms: ['shopify'],
+        is_active: false,
+        ...(triggerType === 'schedule' ? { next_run_at: calcNextRunAt(cron) } : {}),
+      };
+      await api.entities.AIWorkflow.create(payload);
+      return { execution_result: { message: `Workflow "${resolvedAction.name}" created! Go to Workflows in the sidebar to activate it.` } };
+    }
+    return api.functions.chatWithCoach({ execute_action: resolvedAction });
+  };
+
   const handleConfirmAction = async (messageIdx, action) => {
     const msg = chatMessages[messageIdx];
     const pendingActions = msg.pendingActions || [];
@@ -333,7 +386,7 @@ export default function AIBusinessCoach() {
 
     try {
       const resolvedAction = await resolveAction(action);
-      const result = await api.functions.chatWithCoach({ execute_action: resolvedAction });
+      const result = await executeOrionAction(resolvedAction);
       const resultMsg = result.execution_result?.message || 'Action completed successfully.';
       const newQueueIdx = queueIdx + 1;
       isDone = newQueueIdx >= pendingActions.length;
@@ -376,7 +429,7 @@ export default function AIBusinessCoach() {
       ));
       try {
         const resolvedAction = await resolveAction(remaining[i]);
-        const result = await api.functions.chatWithCoach({ execute_action: resolvedAction });
+        const result = await executeOrionAction(resolvedAction);
         const resultMsg = result.execution_result?.message || 'Done';
         localResults.push(resultMsg);
         setChatMessages(prev => prev.map((m, idx) =>
@@ -402,6 +455,52 @@ export default function AIBusinessCoach() {
     else toast.warning(`${fc} completed, ${ec} failed`);
 
     await reportToOrion(localResults, localErrors, remaining);
+  };
+
+  const handleConfirmMultiPlatform = async (messageIdx, action, selectedPlatforms) => {
+    if (!selectedPlatforms || selectedPlatforms.length === 0) return;
+    const msg = chatMessages[messageIdx];
+    const pendingActions = msg.pendingActions || [];
+    const queueIdx = msg.queueIdx || 0;
+
+    setChatMessages(prev => prev.map((m, i) => i === messageIdx ? { ...m, executing: true } : m));
+    setIsChatLoading(true);
+
+    const newResults = [];
+    const newErrors = [];
+
+    for (const platform of selectedPlatforms) {
+      try {
+        const resolvedAction = await resolveAction({ ...action, platform });
+        const result = await executeOrionAction(resolvedAction);
+        const resultMsg = result.execution_result?.message || `Updated on ${getPlatformLabel(platform)}`;
+        newResults.push(resultMsg);
+      } catch (error) {
+        console.error(`[Orion] Action error on ${platform}:`, error);
+        newErrors.push(`${getPlatformLabel(platform)}: ${error.message}`);
+      }
+    }
+
+    const newQueueIdx = queueIdx + 1;
+    const isDone = newQueueIdx >= pendingActions.length;
+    setChatMessages(prev => prev.map((m, i) =>
+      i === messageIdx ? {
+        ...m,
+        executing: false,
+        queueIdx: newQueueIdx,
+        queueResults: [...(m.queueResults || []), ...newResults],
+        queueErrors: [...(m.queueErrors || []), ...newErrors],
+        queueDone: isDone,
+      } : m
+    ));
+    setIsChatLoading(false);
+    if (newErrors.length === 0) {
+      toast.success(isDone ? 'All done!' : `Step ${newQueueIdx} of ${pendingActions.length} complete`);
+    } else if (newResults.length > 0) {
+      toast.success(`${newResults.length} succeeded, ${newErrors.length} failed`);
+    } else {
+      toast.error('Action failed on all selected stores');
+    }
   };
 
   const handleCancelAction = (messageIdx) => {
@@ -454,6 +553,26 @@ export default function AIBusinessCoach() {
           fields: [
             { label: 'Product', value: action.product_name || action.sku },
           ],
+        };
+      case 'remember':
+        return {
+          icon: '🧠', title: 'Save to Memory',
+          fields: [
+            { label: 'Remember', value: action.value },
+            action.category && { label: 'Category', value: (action.category || '').replace(/_/g, ' ') },
+            action.confidence === 1.0 && { label: 'Source', value: 'You stated this explicitly' },
+          ].filter(Boolean),
+        };
+      case 'create_workflow':
+        return {
+          icon: '⚙️', title: 'Create Workflow',
+          fields: [
+            { label: 'Name', value: action.name },
+            { label: 'Schedule', value: action.cron || action.trigger_type },
+            { label: 'Action', value: action.action_type },
+            action.recipient && { label: 'Email', value: action.recipient },
+            action.low_stock_threshold !== undefined && { label: 'Low stock threshold', value: `${action.low_stock_threshold} units` },
+          ].filter(Boolean),
         };
       case 'update_metafield':
         return {
@@ -646,6 +765,11 @@ export default function AIBusinessCoach() {
             .map(([k, v]) => ({ label: k, value: String(v) })),
         };
     }
+  };
+
+  const getPlatformLabel = (p) => {
+    const labels = { shopify: 'Shopify', woocommerce: 'WooCommerce', ebay: 'eBay', faire: 'Faire', etsy: 'Etsy', amazon: 'Amazon' };
+    return labels[p] || (p ? p.charAt(0).toUpperCase() + p.slice(1) : p);
   };
 
   const readFileAsBase64 = (file) =>
@@ -1252,6 +1376,11 @@ export default function AIBusinessCoach() {
                           if (!currentAction) return null;
                           const info = getActionInfo(currentAction);
                           const remainingCount = total - queueIdx;
+                          const isMultiPlatform = Array.isArray(currentAction.platforms) && currentAction.platforms.length > 1;
+                          const selectionKey = `${idx}-${queueIdx}`;
+                          const selectedPlatforms = isMultiPlatform
+                            ? (platformSelections[selectionKey] ?? currentAction.platforms)
+                            : null;
 
                           return (
                             <div className="mt-3 rounded-xl border border-amber-200 bg-white shadow-sm overflow-hidden">
@@ -1288,12 +1417,55 @@ export default function AIBusinessCoach() {
                                 ))}
                               </div>
 
+                              {/* Platform selection for multi-platform actions */}
+                              {isMultiPlatform && !isExecuting && (
+                                <div className="px-4 py-3 border-t border-amber-100 bg-amber-50/50 space-y-2">
+                                  <div className="flex items-center justify-between mb-1">
+                                    <p className="text-xs font-semibold text-amber-800">Execute on:</p>
+                                    <button
+                                      onClick={() => {
+                                        const allChecked = (platformSelections[selectionKey] ?? currentAction.platforms).length === currentAction.platforms.length;
+                                        setPlatformSelections(prev => ({
+                                          ...prev,
+                                          [selectionKey]: allChecked ? [] : [...currentAction.platforms],
+                                        }));
+                                      }}
+                                      className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                                    >
+                                      {(selectedPlatforms?.length ?? currentAction.platforms.length) === currentAction.platforms.length ? 'Deselect all' : 'Select all'}
+                                    </button>
+                                  </div>
+                                  {currentAction.platforms.map(p => (
+                                    <label key={p} className="flex items-center gap-2 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedPlatforms?.includes(p) ?? true}
+                                        onChange={() => {
+                                          setPlatformSelections(prev => {
+                                            const current = prev[selectionKey] ?? currentAction.platforms;
+                                            const updated = current.includes(p)
+                                              ? current.filter(x => x !== p)
+                                              : [...current, p];
+                                            return { ...prev, [selectionKey]: updated };
+                                          });
+                                        }}
+                                        className="w-4 h-4 rounded accent-green-600"
+                                      />
+                                      <span className="text-sm text-slate-700">{getPlatformLabel(p)}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              )}
+
                               {/* Buttons */}
                               {!isExecuting ? (
                                 <div className="flex gap-2 px-4 py-3 bg-slate-50 border-t border-slate-100 flex-wrap">
                                   <button
-                                    onClick={() => handleConfirmAction(idx, currentAction)}
-                                    className="px-4 py-2 text-sm font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                                    onClick={() => isMultiPlatform
+                                      ? handleConfirmMultiPlatform(idx, currentAction, selectedPlatforms ?? currentAction.platforms)
+                                      : handleConfirmAction(idx, currentAction)}
+                                    disabled={isMultiPlatform && (selectedPlatforms ?? currentAction.platforms).length === 0}
+                                    className="px-4 py-2 text-sm font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                   >
                                     {total > 1 && queueIdx < total - 1 ? 'Confirm & Next →' : 'Confirm & Execute'}
                                   </button>

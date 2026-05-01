@@ -11,6 +11,32 @@ const corsHeaders = {
   'Access-Control-Max-Age': '86400',
 };
 
+// --- Inlined decryption helpers (cannot import _shared in dashboard-deployed functions) ---
+const _ALGORITHM = 'AES-GCM';
+const _KEY_LENGTH = 256;
+const _IV_LENGTH = 12;
+
+async function _getEncryptionKey(): Promise<CryptoKey> {
+  const secret = Deno.env.get('ENCRYPTION_SECRET');
+  if (!secret) throw new Error('ENCRYPTION_SECRET environment variable not set');
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(secret), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: encoder.encode('tandril-encryption-salt-v1'), iterations: 100000, hash: 'SHA-256' },
+    keyMaterial, { name: _ALGORITHM, length: _KEY_LENGTH }, false, ['encrypt', 'decrypt']
+  );
+}
+
+async function decryptToken(ciphertext: string): Promise<string> {
+  const key = await _getEncryptionKey();
+  const combined = Uint8Array.from(atob(ciphertext), (c) => c.charCodeAt(0));
+  const iv = combined.slice(0, _IV_LENGTH);
+  const data = combined.slice(_IV_LENGTH);
+  const decrypted = await crypto.subtle.decrypt({ name: _ALGORITHM, iv }, key, data);
+  return new TextDecoder().decode(decrypted);
+}
+// --- End decryption helpers ---
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders, status: 200 });
@@ -57,14 +83,18 @@ serve(async (req) => {
     // Load store context (always) + history/memory (only if conversation table available)
     let recentHistory: any[] = [];
     let memoryNotes: any[] = [];
+    let userPreferences: Record<string, any> = {};
     const storeContext = await getUserStoreContext(supabaseClient, user.id);
 
     if (conversationId) {
       try {
-        [recentHistory, memoryNotes] = await Promise.all([
+        const [history, memoryData] = await Promise.all([
           loadConversationHistory(supabaseClient, user.id, conversationId),
           loadMemoryNotes(supabaseClient, user.id),
         ]);
+        recentHistory = history;
+        memoryNotes = memoryData.memories;
+        userPreferences = memoryData.preferences;
       } catch (e) {
         console.warn('[Orion] Could not load history/memory:', e.message);
       }
@@ -78,7 +108,7 @@ serve(async (req) => {
     }
 
     // Get Orion's response
-    const rawResponse = await chatWithClaude(message, recentHistory, uploaded_files, storeContext, memoryNotes);
+    const rawResponse = await chatWithClaude(message, recentHistory, uploaded_files, storeContext, memoryNotes, userPreferences);
 
     // Parse any pending store action Orion embedded in its response
     let response = rawResponse;
@@ -108,7 +138,7 @@ serve(async (req) => {
       }
 
       // Memory extraction is non-essential — keep it best-effort
-      extractAndSaveMemory(supabaseClient, user.id, conversationId, message, response).catch(
+      extractAndSaveMemory(supabaseClient, user.id, conversationId, message, response, recentHistory, memoryNotes).catch(
         (e) => console.error('[Orion] Memory extraction failed:', e)
       );
     }
@@ -210,13 +240,32 @@ async function saveMessage(supabaseClient: any, userId: string, conversationId: 
 }
 
 async function loadMemoryNotes(supabaseClient: any, userId: string) {
-  const { data } = await supabaseClient
+  const now = new Date().toISOString();
+
+  // Load memory — filter expired rows, pull more than we'll use so we can rank
+  const { data: memories } = await supabaseClient
     .from('orion_memory')
-    .select('category, key, value, updated_at')
+    .select('category, key, value, confidence, source_count, updated_at, expires_at')
     .eq('user_id', userId)
+    .or(`expires_at.is.null,expires_at.gt.${now}`)
     .order('updated_at', { ascending: false })
-    .limit(50);
-  return data || [];
+    .limit(150);
+
+  // Load structured preferences (separate table)
+  const { data: prefRow } = await supabaseClient
+    .from('orion_preferences')
+    .select('preferences')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  // Rank memories: confidence × log(source_count + 1)
+  const ranked = (memories || []).sort((a: any, b: any) => {
+    const scoreA = (a.confidence || 0.7) * Math.log((a.source_count || 1) + 1);
+    const scoreB = (b.confidence || 0.7) * Math.log((b.source_count || 1) + 1);
+    return scoreB - scoreA;
+  }).slice(0, 80);
+
+  return { memories: ranked, preferences: prefRow?.preferences || {} };
 }
 
 async function extractAndSaveMemory(
@@ -224,27 +273,89 @@ async function extractAndSaveMemory(
   userId: string,
   conversationId: string,
   userMessage: string,
-  assistantResponse: string
+  assistantResponse: string,
+  recentHistory: Array<{ role: string; content: string }> = [],
+  existingMemories: any[] = []
 ) {
   const anthropicApiKey = Deno.env.get('ANTHROPIC_API_KEY');
   if (!anthropicApiKey) return;
 
-  const extractionPrompt = `You are analyzing a conversation between a user and Orion (an AI business wingman) to extract memorable business facts.
+  // Include last 8 exchanges for richer context (beyond just the current pair)
+  const recentContext = recentHistory.slice(-8)
+    .map(m => `${m.role === 'user' ? 'USER' : 'ORION'}: ${m.content.slice(0, 400)}`)
+    .join('\n\n');
 
-User said: "${userMessage}"
-Orion responded: "${assistantResponse}"
+  const existingSnapshot = existingMemories.slice(0, 40)
+    .map(m => `[${m.category}] ${m.key}: ${m.value.slice(0, 100)}`)
+    .join('\n') || 'Nothing saved yet.';
 
-Extract any notable business facts, preferences, or insights worth remembering for future conversations. Focus on:
-- Owner preferences or business goals
-- Key products, suppliers, or business relationships mentioned
-- Business challenges or opportunities discussed
-- Decisions made or strategies agreed upon
-- Important numbers or benchmarks mentioned
+  const extractionPrompt = `You analyze business conversations to extract facts worth remembering permanently.
 
-Respond with a JSON array (can be empty [] if nothing notable). Each item:
-{"category": "owner_preference|product_knowledge|business_goal|trend|challenge|decision", "key": "short_identifier", "value": "the insight to remember"}
+RECENT CONTEXT (last ${recentHistory.slice(-8).length} exchanges):
+${recentContext}
 
-Only include genuinely useful facts. Return ONLY the JSON array, no other text.`;
+CURRENT EXCHANGE:
+USER: "${userMessage}"
+ORION: "${assistantResponse.slice(0, 800)}"
+
+ALREADY IN MEMORY (do not duplicate; only include if updating with better info):
+${existingSnapshot}
+
+Extract facts worth remembering. Hunt specifically for:
+
+PREFERENCES — how this person wants to operate:
+  • Pricing rules ("I always end in .99", "I like round numbers", "never go below $X")
+  • SKU or naming conventions they use ("format is BRAND-COLOR-SIZE")
+  • How they want Orion to respond (brief vs detailed, data-first vs big-picture)
+  • Things they explicitly want Orion to always or never do
+  • Low-stock thresholds, alert emails, notification preferences
+  • Which platform they consider their primary store
+
+BUSINESS CONTEXT — stable facts about the business:
+  • What kind of business, who they sell to, their niche
+  • Location, shipping origin, geographic market
+  • Growth goals, revenue targets, key constraints
+  • Supplier relationships, fulfillment approach
+  • Business rules they always follow
+
+STORE PATTERNS — data-driven insights about how the store behaves:
+  • Best-selling or worst-selling products/categories
+  • Seasonal trends ("Q4 is our biggest quarter", "summer kills our sales")
+  • Restock cadence or inventory velocity patterns
+  • Pricing strategy patterns across the catalog
+
+PRODUCT INSIGHTS — specific product knowledge:
+  • Products that are high-priority, problematic, or being watched closely
+  • Products being considered for discontinuation or expansion
+  • Key products Orion should recognize by name
+
+DECISIONS — strategies committed to:
+  • Approaches agreed upon in conversation
+  • Things they decided NOT to do, and why
+  • Targets or benchmarks they're working toward
+
+TANDRIL USAGE — how they use the app:
+  • Which Tandril features they rely on (Workflows, Alerts, Order Intelligence, etc.)
+  • Features they don't use or want to avoid
+  • Automation and notification preferences
+
+Return a JSON array. Each item must include:
+{
+  "category": "preference|business_context|store_pattern|product_insight|decision|tandril_usage",
+  "key": "short_snake_case_identifier",
+  "value": "A complete, actionable sentence Orion can use. Written as a fact, not a quote. E.g.: 'User always ends prices in .99 cents (e.g. $29.99, never $30)'",
+  "confidence": 0.5 to 1.0,
+  "is_transient": false
+}
+
+Confidence:
+  1.0 = User stated it explicitly ("I always", "never do", "I want you to remember")
+  0.8 = Strongly implied or repeated across the conversation
+  0.6 = Reasonably inferred from context or behavior
+  0.5 = Weakly inferred from a single signal — include only if genuinely useful
+
+Set is_transient: true only for time-sensitive facts (e.g. "currently running low on SKU X").
+Return [] if nothing notable. Return ONLY valid JSON array, no other text.`;
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -255,7 +366,7 @@ Only include genuinely useful facts. Return ONLY the JSON array, no other text.`
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 512,
+      max_tokens: 768,
       messages: [{ role: 'user', content: extractionPrompt }],
     }),
   });
@@ -268,26 +379,45 @@ Only include genuinely useful facts. Return ONLY the JSON array, no other text.`
   let insights: any[] = [];
   try {
     insights = JSON.parse(text);
+    if (!Array.isArray(insights)) return;
   } catch {
-    return; // Not valid JSON, skip
+    return;
   }
 
   for (const insight of insights) {
     if (!insight.category || !insight.key || !insight.value) continue;
-    // Upsert by user_id + key so we update existing facts
+    if ((insight.confidence || 0.7) < 0.5) continue;
+
+    // Fetch existing record to merge confidence and increment source_count
+    const { data: existing } = await supabaseClient
+      .from('orion_memory')
+      .select('source_count, confidence')
+      .eq('user_id', userId)
+      .eq('key', insight.key)
+      .maybeSingle();
+
+    const sourceCount = (existing?.source_count || 0) + 1;
+    // Take the higher confidence; add a small reinforcement bump for repeated mentions
+    const mergedConfidence = Math.min(1.0,
+      Math.max(existing?.confidence || 0, insight.confidence || 0.7) + (existing ? 0.05 : 0)
+    );
+
     await supabaseClient
       .from('orion_memory')
-      .upsert(
-        {
-          user_id: userId,
-          category: insight.category,
-          key: insight.key,
-          value: insight.value,
-          source_conversation_id: conversationId,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'user_id,key' }
-      );
+      .upsert({
+        user_id: userId,
+        category: insight.category,
+        key: insight.key,
+        value: insight.value,
+        confidence: mergedConfidence,
+        source_count: sourceCount,
+        source_conversation_id: conversationId,
+        last_accessed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        expires_at: insight.is_transient
+          ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+          : null,
+      }, { onConflict: 'user_id,key' });
   }
 }
 
@@ -315,31 +445,83 @@ function formatActionSummary(action: any): string {
 
 // ─── Store Action Execution ───────────────────────────────────────────────────
 
+async function executeRememberAction(supabaseClient: any, userId: string, action: any) {
+  const { category = 'preference', key, value, confidence = 1.0 } = action;
+  if (!key || !value) throw new Error('remember action requires both key and value fields');
+
+  const { data: existing } = await supabaseClient
+    .from('orion_memory')
+    .select('source_count, confidence')
+    .eq('user_id', userId)
+    .eq('key', key)
+    .maybeSingle();
+
+  const sourceCount = (existing?.source_count || 0) + 1;
+  const mergedConfidence = Math.min(1.0, Math.max(existing?.confidence || 0, confidence) + (existing ? 0.05 : 0));
+
+  await supabaseClient.from('orion_memory').upsert({
+    user_id: userId,
+    category,
+    key,
+    value,
+    confidence: mergedConfidence,
+    source_count: sourceCount,
+    last_accessed_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    expires_at: null,
+  }, { onConflict: 'user_id,key' });
+
+  return { message: `Got it — I've saved that to memory and I'll carry it into every future conversation.` };
+}
+
 async function executeStoreAction(supabaseClient: any, userId: string, action: any) {
-  // Get the connected Shopify platform and its credentials
-  const { data: platforms } = await supabaseClient
+  // Handle non-store actions before platform lookup
+  if (action.type === 'remember') {
+    return executeRememberAction(supabaseClient, userId, action);
+  }
+  const { data: allPlatforms } = await supabaseClient
     .from('platforms')
     .select('*')
     .eq('user_id', userId)
-    .eq('platform_type', 'shopify')
     .eq('is_active', true)
-    .limit(1);
+    .in('platform_type', ['shopify', 'woocommerce']);
 
-  if (!platforms || platforms.length === 0) {
-    throw new Error('No connected Shopify store found. Connect one in the Platforms tab first.');
+  if (!allPlatforms || allPlatforms.length === 0) {
+    throw new Error('No connected store found. Connect Shopify or WooCommerce in the Platforms tab first.');
   }
 
-  const platform = platforms[0];
+  const shopifyPlatform = allPlatforms.find((p: any) => p.platform_type === 'shopify');
+  const wooPlatform = allPlatforms.find((p: any) => p.platform_type === 'woocommerce');
+  const requested = (action.platform || '').toLowerCase();
+
+  let target: any;
+  let platformType: string;
+
+  if (requested === 'woocommerce' && wooPlatform) {
+    target = wooPlatform; platformType = 'woocommerce';
+  } else if (requested === 'shopify' && shopifyPlatform) {
+    target = shopifyPlatform; platformType = 'shopify';
+  } else if (shopifyPlatform) {
+    target = shopifyPlatform; platformType = 'shopify';
+  } else if (wooPlatform) {
+    target = wooPlatform; platformType = 'woocommerce';
+  } else {
+    throw new Error(`No connected ${requested || 'store'} found. Check your Platforms settings.`);
+  }
+
+  return platformType === 'woocommerce'
+    ? executeWooAction(target, action)
+    : executeShopifyAction(target, action);
+}
+
+async function executeShopifyAction(platform: any, action: any) {
   const shopDomain = platform.shop_domain || platform.domain || platform.store_domain;
   if (!shopDomain) throw new Error('Could not determine Shopify store domain.');
 
-  // Decrypt the stored access token
   let accessToken = platform.access_token;
   try {
-    // Try to detect and decrypt if encrypted (base64 length heuristic)
     if (accessToken && accessToken.length > 50 && !accessToken.startsWith('shpat_') && !accessToken.startsWith('shpca_')) {
-      const { decrypt } = await import('../_shared/encryption.ts');
-      accessToken = await decrypt(accessToken);
+      accessToken = await decryptToken(accessToken);
     }
   } catch (e) {
     console.warn('[Orion] Token decryption failed, using as-is:', e.message);
@@ -370,120 +552,68 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           }],
         },
       };
-      const res = await fetch(`${shopifyBase}/products.json`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(`Shopify rejected the product: ${err}`);
-      }
+      const res = await fetch(`${shopifyBase}/products.json`, { method: 'POST', headers, body: JSON.stringify(body) });
+      if (!res.ok) throw new Error(`Shopify rejected the product: ${await res.text()}`);
       const data = await res.json();
       return { message: `Created "${data.product.title}" in your Shopify store (ID: ${data.product.id})` };
     }
 
     case 'update_inventory': {
-      // Find product by title or SKU via Shopify search
-      const searchRes = await fetch(
-        `${shopifyBase}/products.json?limit=250`,
-        { headers }
-      );
-      const searchData = await searchRes.json();
-      const allProducts = searchData.products || [];
-
-      // Find matching product by SKU or title
+      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
+      const allProducts = (await searchRes.json()).products || [];
       let targetVariant: any = null;
       for (const p of allProducts) {
         for (const v of (p.variants || [])) {
           if (action.sku && v.sku === action.sku) { targetVariant = v; break; }
-          if (!action.sku && p.title.toLowerCase() === (action.product_name || '').toLowerCase()) {
-            targetVariant = v; break;
-          }
+          if (!action.sku && p.title.toLowerCase() === (action.product_name || '').toLowerCase()) { targetVariant = v; break; }
         }
         if (targetVariant) break;
       }
+      if (!targetVariant) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
 
-      if (!targetVariant) throw new Error(`Could not find product with SKU "${action.sku || action.product_name}" in Shopify.`);
-
-      // Get location for inventory update
-      const locRes = await fetch(
-        `${shopifyBase}/inventory_levels.json?inventory_item_ids=${targetVariant.inventory_item_id}&limit=1`,
-        { headers }
-      );
-      const locData = await locRes.json();
+      const locData = await (await fetch(`${shopifyBase}/inventory_levels.json?inventory_item_ids=${targetVariant.inventory_item_id}&limit=1`, { headers })).json();
       const locationId = locData.inventory_levels?.[0]?.location_id;
       if (!locationId) throw new Error('Could not find inventory location for this product.');
 
       const setRes = await fetch(`${shopifyBase}/inventory_levels/set.json`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          location_id: locationId,
-          inventory_item_id: targetVariant.inventory_item_id,
-          available: action.quantity,
-        }),
+        method: 'POST', headers,
+        body: JSON.stringify({ location_id: locationId, inventory_item_id: targetVariant.inventory_item_id, available: action.quantity }),
       });
       if (!setRes.ok) throw new Error(`Shopify inventory update failed: ${await setRes.text()}`);
       return { message: `Updated inventory for "${action.sku || action.product_name}" to ${action.quantity} units` };
     }
 
     case 'upload_image': {
-      // Find product by SKU or current title
       const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      const searchData = await searchRes.json();
-      const allProducts = searchData.products || [];
-
+      const allProducts = (await searchRes.json()).products || [];
       let targetProduct: any = null;
       for (const p of allProducts) {
-        if (action.sku) {
-          const matchVariant = (p.variants || []).find((v: any) => v.sku === action.sku);
-          if (matchVariant) { targetProduct = p; break; }
-        }
-        if (p.title.toLowerCase() === (action.product_name || '').toLowerCase()) {
-          targetProduct = p; break;
-        }
+        if (action.sku && (p.variants || []).find((v: any) => v.sku === action.sku)) { targetProduct = p; break; }
+        if (p.title.toLowerCase() === (action.product_name || '').toLowerCase()) { targetProduct = p; break; }
       }
-
       if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
       if (!action.image_data) throw new Error('No image data provided. Please upload an image and try again.');
 
       const uploadRes = await fetch(`${shopifyBase}/products/${targetProduct.id}/images.json`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          image: {
-            attachment: action.image_data,
-            filename: action.image_filename || 'product-image.jpg',
-          },
-        }),
+        method: 'POST', headers,
+        body: JSON.stringify({ image: { attachment: action.image_data, filename: action.image_filename || 'product-image.jpg' } }),
       });
       if (!uploadRes.ok) throw new Error(`Shopify image upload failed: ${await uploadRes.text()}`);
       return { message: `Added image to "${targetProduct.title}" successfully` };
     }
 
     case 'update_title': {
-      // Find product by SKU or current title
       const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      const searchData = await searchRes.json();
-      const allProducts = searchData.products || [];
-
+      const allProducts = (await searchRes.json()).products || [];
       let targetProduct: any = null;
       for (const p of allProducts) {
-        if (action.sku) {
-          const matchVariant = (p.variants || []).find((v: any) => v.sku === action.sku);
-          if (matchVariant) { targetProduct = p; break; }
-        }
-        if (p.title.toLowerCase() === (action.product_name || '').toLowerCase()) {
-          targetProduct = p; break;
-        }
+        if (action.sku && (p.variants || []).find((v: any) => v.sku === action.sku)) { targetProduct = p; break; }
+        if (p.title.toLowerCase() === (action.product_name || '').toLowerCase()) { targetProduct = p; break; }
       }
-
       if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
 
       const updateRes = await fetch(`${shopifyBase}/products/${targetProduct.id}.json`, {
-        method: 'PUT',
-        headers,
+        method: 'PUT', headers,
         body: JSON.stringify({ product: { id: targetProduct.id, title: action.new_title } }),
       });
       if (!updateRes.ok) throw new Error(`Shopify title update failed: ${await updateRes.text()}`);
@@ -492,32 +622,109 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     }
 
     case 'update_price': {
-      // Find variant by SKU or title
       const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      const searchData = await searchRes.json();
-      const allProducts = searchData.products || [];
-
+      const allProducts = (await searchRes.json()).products || [];
       let targetVariant: any = null;
       for (const p of allProducts) {
         for (const v of (p.variants || [])) {
           if (action.sku && v.sku === action.sku) { targetVariant = v; break; }
-          if (!action.sku && p.title.toLowerCase() === (action.product_name || '').toLowerCase()) {
-            targetVariant = v; break;
-          }
+          if (!action.sku && p.title.toLowerCase() === (action.product_name || '').toLowerCase()) { targetVariant = v; break; }
         }
         if (targetVariant) break;
       }
-
       if (!targetVariant) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
 
       const updateRes = await fetch(`${shopifyBase}/variants/${targetVariant.id}.json`, {
-        method: 'PUT',
-        headers,
+        method: 'PUT', headers,
         body: JSON.stringify({ variant: { id: targetVariant.id, price: String(action.price) } }),
       });
       if (!updateRes.ok) throw new Error(`Shopify price update failed: ${await updateRes.text()}`);
       return { message: `Updated price for "${action.sku || action.product_name}" to $${action.price}` };
     }
+
+    default:
+      throw new Error(`Unknown action type: ${action.type}`);
+  }
+}
+
+async function executeWooAction(platform: any, action: any) {
+  const storeUrl = platform.store_url;
+  const { consumer_key, consumer_secret } = platform.credentials || {};
+  if (!storeUrl || !consumer_key || !consumer_secret) {
+    throw new Error('WooCommerce credentials are incomplete. Reconnect your store in the Platforms tab.');
+  }
+
+  const auth = btoa(`${consumer_key}:${consumer_secret}`);
+  const headers: Record<string, string> = { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/json' };
+  const wooBase = `${storeUrl}/wp-json/wc/v3`;
+
+  const findProduct = async (): Promise<any> => {
+    if (action.sku) {
+      const r = await fetch(`${wooBase}/products?sku=${encodeURIComponent(action.sku)}&per_page=1`, { headers });
+      if (r.ok) { const items = await r.json(); if (items.length > 0) return items[0]; }
+    }
+    if (action.product_name) {
+      const r = await fetch(`${wooBase}/products?search=${encodeURIComponent(action.product_name)}&per_page=5`, { headers });
+      if (r.ok) {
+        const items = await r.json();
+        return items.find((p: any) => p.name.toLowerCase() === (action.product_name || '').toLowerCase()) || items[0];
+      }
+    }
+    throw new Error(`Could not find product "${action.sku || action.product_name}" in WooCommerce.`);
+  };
+
+  switch (action.type) {
+
+    case 'create_product': {
+      const res = await fetch(`${wooBase}/products`, {
+        method: 'POST', headers,
+        body: JSON.stringify({
+          name: action.title,
+          description: action.description || '',
+          regular_price: String(action.price ?? '0.00'),
+          sku: action.sku || '',
+          manage_stock: true,
+          stock_quantity: action.quantity ?? 0,
+          status: 'publish',
+        }),
+      });
+      if (!res.ok) throw new Error(`WooCommerce rejected the product: ${await res.text()}`);
+      const data = await res.json();
+      return { message: `Created "${data.name}" in your WooCommerce store (ID: ${data.id})` };
+    }
+
+    case 'update_inventory': {
+      const product = await findProduct();
+      const res = await fetch(`${wooBase}/products/${product.id}`, {
+        method: 'PUT', headers,
+        body: JSON.stringify({ manage_stock: true, stock_quantity: action.quantity }),
+      });
+      if (!res.ok) throw new Error(`WooCommerce inventory update failed: ${await res.text()}`);
+      return { message: `Updated inventory for "${action.sku || action.product_name}" to ${action.quantity} units` };
+    }
+
+    case 'update_price': {
+      const product = await findProduct();
+      const res = await fetch(`${wooBase}/products/${product.id}`, {
+        method: 'PUT', headers,
+        body: JSON.stringify({ regular_price: String(action.price) }),
+      });
+      if (!res.ok) throw new Error(`WooCommerce price update failed: ${await res.text()}`);
+      return { message: `Updated price for "${action.sku || action.product_name}" to $${action.price}` };
+    }
+
+    case 'update_title': {
+      const product = await findProduct();
+      const res = await fetch(`${wooBase}/products/${product.id}`, {
+        method: 'PUT', headers,
+        body: JSON.stringify({ name: action.new_title }),
+      });
+      if (!res.ok) throw new Error(`WooCommerce title update failed: ${await res.text()}`);
+      return { message: `Updated title from "${product.name}" to "${action.new_title}"` };
+    }
+
+    case 'upload_image':
+      throw new Error('Image upload via Orion is only supported for Shopify. Upload images directly in your WooCommerce dashboard.');
 
     default:
       throw new Error(`Unknown action type: ${action.type}`);
@@ -632,6 +839,157 @@ async function fetchEbayDataForOrion(platform: any): Promise<{ products: any[], 
   return { products, orders };
 }
 
+async function fetchShopifyDataForOrion(platform: any): Promise<{ products: any[], orders: any[] }> {
+  const shopDomain = platform.shop_domain || platform.domain;
+  if (!shopDomain) return { products: [], orders: [] };
+
+  let accessToken = platform.access_token;
+  try {
+    if (accessToken && accessToken.length > 50 && !accessToken.startsWith('shpat_') && !accessToken.startsWith('shpca_')) {
+      accessToken = await decryptToken(accessToken);
+    }
+  } catch (_) { /* use as-is if decrypt fails */ }
+
+  const headers = { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' };
+  const base = `https://${shopDomain}/admin/api/2024-01`;
+  const products: any[] = [];
+  const orders: any[] = [];
+
+  const productsRes = await fetch(`${base}/products.json?limit=250&status=active`, { headers });
+  if (productsRes.ok) {
+    const data = await productsRes.json();
+    for (const p of data.products || []) {
+      const v = p.variants?.[0];
+      products.push({
+        title: p.title,
+        sku: v?.sku || `shopify-${p.id}`,
+        price: parseFloat(v?.price || '0'),
+        inventory_quantity: v?.inventory_quantity ?? 0,
+        status: p.status,
+        vendor: p.vendor || '',
+        product_type: p.product_type || '',
+        platform_type: 'shopify',
+      });
+    }
+  }
+
+  const ordersRes = await fetch(`${base}/orders.json?status=any&limit=25`, { headers });
+  if (ordersRes.ok) {
+    const data = await ordersRes.json();
+    for (const o of data.orders || []) {
+      orders.push({
+        id: o.id,
+        order_number: o.order_number || o.name,
+        created_at: o.created_at,
+        total_price: parseFloat(o.total_price || '0'),
+        financial_status: o.financial_status,
+        fulfillment_status: o.fulfillment_status,
+        line_items: (o.line_items || []).map((i: any) => ({ title: i.title, quantity: i.quantity })),
+        platform_type: 'shopify',
+      });
+    }
+  }
+
+  return { products, orders };
+}
+
+async function fetchWooDataForOrion(platform: any): Promise<{ products: any[], orders: any[] }> {
+  const storeUrl = platform.store_url;
+  const { consumer_key, consumer_secret } = platform.credentials || {};
+  if (!storeUrl || !consumer_key || !consumer_secret) return { products: [], orders: [] };
+
+  const auth = btoa(`${consumer_key}:${consumer_secret}`);
+  const headers = { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/json' };
+  const products: any[] = [];
+  const orders: any[] = [];
+
+  const productsRes = await fetch(`${storeUrl}/wp-json/wc/v3/products?per_page=100&status=publish`, { headers });
+  if (productsRes.ok) {
+    const wooProducts = await productsRes.json();
+    for (const p of wooProducts) {
+      products.push({
+        title: p.name,
+        sku: p.sku || `woo-${p.id}`,
+        price: parseFloat(p.price || p.regular_price || '0'),
+        inventory_quantity: p.stock_quantity ?? 0,
+        status: p.status === 'publish' ? 'active' : p.status,
+        vendor: '',
+        product_type: p.categories?.[0]?.name || '',
+        platform_type: 'woocommerce',
+      });
+    }
+  }
+
+  const ordersRes = await fetch(`${storeUrl}/wp-json/wc/v3/orders?per_page=25`, { headers });
+  if (ordersRes.ok) {
+    const wooOrders = await ordersRes.json();
+    for (const o of wooOrders) {
+      orders.push({
+        id: o.id,
+        order_number: o.number,
+        created_at: o.date_created,
+        total_price: parseFloat(o.total || '0'),
+        financial_status: o.payment_method ? 'paid' : 'pending',
+        fulfillment_status: o.status === 'completed' ? 'fulfilled' : 'unfulfilled',
+        line_items: (o.line_items || []).map((i: any) => ({ title: i.name, quantity: i.quantity })),
+        platform_type: 'woocommerce',
+      });
+    }
+  }
+
+  return { products, orders };
+}
+
+async function fetchFaireDataForOrion(platform: any): Promise<{ products: any[], orders: any[] }> {
+  const { api_token } = platform.credentials || {};
+  if (!api_token) return { products: [], orders: [] };
+
+  const headers = {
+    'X-FAIRE-ACCESS-TOKEN': api_token,
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  };
+  const products: any[] = [];
+  const orders: any[] = [];
+
+  const productsRes = await fetch('https://www.faire.com/api/v2/products?limit=50', { headers });
+  if (productsRes.ok) {
+    const data = await productsRes.json();
+    for (const p of data.products || []) {
+      const option = p.options?.[0];
+      products.push({
+        title: p.name || 'Unnamed',
+        sku: option?.sku || `faire-${p.id}`,
+        price: option?.price_cents != null ? option.price_cents / 100 : 0,
+        inventory_quantity: option?.available_quantity ?? 0,
+        status: p.active ? 'active' : 'inactive',
+        vendor: p.brand_name || '',
+        product_type: p.category?.name || '',
+        platform_type: 'faire',
+      });
+    }
+  }
+
+  const ordersRes = await fetch('https://www.faire.com/api/v2/orders?limit=25', { headers });
+  if (ordersRes.ok) {
+    const data = await ordersRes.json();
+    for (const o of data.orders || []) {
+      orders.push({
+        id: o.id,
+        order_number: o.display_id || o.id,
+        created_at: o.created_at,
+        total_price: o.total_order_value_cents != null ? o.total_order_value_cents / 100 : 0,
+        financial_status: o.state === 'PAID' ? 'paid' : 'pending',
+        fulfillment_status: o.state === 'DELIVERED' ? 'fulfilled' : 'unfulfilled',
+        line_items: (o.items || []).map((i: any) => ({ title: i.product_name || i.name, quantity: i.quantity })),
+        platform_type: 'faire',
+      });
+    }
+  }
+
+  return { products, orders };
+}
+
 async function getUserStoreContext(supabaseClient: any, userId: string) {
   const { data: platforms } = await supabaseClient
     .from('platforms')
@@ -639,6 +997,45 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     .eq('user_id', userId)
     .eq('is_active', true);
 
+  // Fetch live data from all supported platforms in parallel
+  const liveResults = await Promise.all(
+    (platforms || []).map(async (platform: any) => {
+      try {
+        if (platform.platform_type === 'shopify' && platform.access_token) {
+          const data = await fetchShopifyDataForOrion(platform);
+          return { ...data, platformType: 'shopify' };
+        }
+        if (platform.platform_type === 'ebay' && platform.credentials?.access_token) {
+          const data = await fetchEbayDataForOrion(platform);
+          return { ...data, platformType: 'ebay' };
+        }
+        if (platform.platform_type === 'woocommerce' && platform.credentials?.consumer_key) {
+          const data = await fetchWooDataForOrion(platform);
+          return { ...data, platformType: 'woocommerce' };
+        }
+        if (platform.platform_type === 'faire' && platform.credentials?.api_token) {
+          const data = await fetchFaireDataForOrion(platform);
+          return { ...data, platformType: 'faire' };
+        }
+      } catch (e: any) {
+        console.warn(`[Orion] ${platform.platform_type} live fetch failed:`, e.message);
+      }
+      return null;
+    })
+  );
+
+  const liveProducts: any[] = [];
+  const liveOrders: any[] = [];
+  const livePlatformTypes = new Set<string>();
+  for (const result of liveResults) {
+    if (result) {
+      liveProducts.push(...result.products);
+      liveOrders.push(...result.orders);
+      livePlatformTypes.add(result.platformType);
+    }
+  }
+
+  // Read DB for platforms we didn't fetch live (avoids stale duplicates)
   const { data: dbProducts, count: productCount } = await supabaseClient
     .from('products')
     .select('*', { count: 'exact' })
@@ -653,25 +1050,17 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     .order('created_at', { ascending: false })
     .limit(25);
 
-  // Fetch live eBay data for any connected eBay platforms
-  let ebayProducts: any[] = [];
-  let ebayOrders: any[] = [];
-  for (const platform of (platforms || [])) {
-    if (platform.platform_type === 'ebay' && platform.credentials?.access_token) {
-      try {
-        const ebayData = await fetchEbayDataForOrion(platform);
-        ebayProducts = ebayProducts.concat(ebayData.products);
-        ebayOrders = ebayOrders.concat(ebayData.orders);
-      } catch (e: any) {
-        console.warn('[Orion] eBay data fetch failed:', e.message);
-      }
-    }
-  }
+  const filteredDbProducts = (dbProducts || []).filter(
+    (p: any) => !livePlatformTypes.has(p.platform_type || '')
+  );
+  const filteredDbOrders = (dbOrders || []).filter(
+    (o: any) => !livePlatformTypes.has(o.platform_type || o.platform || '')
+  );
 
-  const products = [...(dbProducts || []), ...ebayProducts];
-  const orders = [...(dbOrders || []), ...ebayOrders];
-  const totalProducts = (productCount || 0) + ebayProducts.length;
-  const totalOrders = (orderCount || 0) + ebayOrders.length;
+  const products = [...filteredDbProducts, ...liveProducts];
+  const orders = [...filteredDbOrders, ...liveOrders];
+  const totalProducts = filteredDbProducts.length + liveProducts.length + Math.max(0, (productCount || 0) - (dbProducts?.length || 0));
+  const totalOrders = filteredDbOrders.length + liveOrders.length;
 
   const totalRevenue = orders.reduce((sum, o) => sum + (parseFloat(o.total_price) || 0), 0);
   const avgOrderValue = orders.length > 0 ? totalRevenue / orders.length : 0;
@@ -703,7 +1092,8 @@ async function chatWithClaude(
   conversationHistory: Array<{ role: string; content: string }>,
   uploadedFiles: Array<{ type: string; name: string; data?: string }>,
   storeContext: any,
-  memoryNotes: Array<{ category: string; key: string; value: string }>
+  memoryNotes: Array<{ category: string; key: string; value: string; confidence?: number; source_count?: number }>,
+  userPreferences: Record<string, any> = {}
 ) {
   const anthropicApiKey = Deno.env.get('ANTHROPIC_API_KEY');
   if (!anthropicApiKey) throw new Error('ANTHROPIC_API_KEY not configured');
@@ -751,13 +1141,51 @@ async function chatWithClaude(
 
   const formatMemory = (notes: any[]) => {
     if (!notes || notes.length === 0) return '';
-    const grouped: Record<string, string[]> = {};
+
+    const categoryLabels: Record<string, string> = {
+      preference:       'Preferences & Rules',
+      business_context: 'Business Context',
+      store_pattern:    'Store Patterns',
+      product_insight:  'Product Insights',
+      decision:         'Decisions & Commitments',
+      tandril_usage:    'How They Use Tandril',
+      // legacy category names
+      owner_preference: 'Preferences & Rules',
+      product_knowledge:'Product Insights',
+      business_goal:    'Business Context',
+      trend:            'Store Patterns',
+      challenge:        'Business Context',
+    };
+
+    const categoryOrder = [
+      'Preferences & Rules', 'Business Context', 'Store Patterns',
+      'Product Insights', 'Decisions & Commitments', 'How They Use Tandril',
+    ];
+
+    const grouped: Record<string, Array<{ value: string; confidence: number; count: number }>> = {};
     notes.forEach((n) => {
-      if (!grouped[n.category]) grouped[n.category] = [];
-      grouped[n.category].push(n.value);
+      const label = categoryLabels[n.category] || 'Other';
+      if (!grouped[label]) grouped[label] = [];
+      grouped[label].push({ value: n.value, confidence: n.confidence || 0.7, count: n.source_count || 1 });
     });
-    return Object.entries(grouped)
-      .map(([cat, vals]) => `  ${cat.replace(/_/g, ' ')}:\n${vals.map(v => `    - ${v}`).join('\n')}`)
+
+    const sections = [...categoryOrder, 'Other'].filter(cat => grouped[cat]?.length > 0);
+    return sections.map(cat => {
+      const items = grouped[cat].sort((a, b) =>
+        (b.confidence * Math.log(b.count + 1)) - (a.confidence * Math.log(a.count + 1))
+      );
+      const lines = items.map(item => {
+        const badge = item.count >= 5 ? ' [well-established]' : item.count >= 2 ? ' [repeated]' : '';
+        return `    • ${item.value}${badge}`;
+      }).join('\n');
+      return `  **${cat}:**\n${lines}`;
+    }).join('\n');
+  };
+
+  const formatPreferences = (prefs: Record<string, any>) => {
+    if (!prefs || Object.keys(prefs).length === 0) return '';
+    return Object.entries(prefs)
+      .map(([k, v]) => `    • ${k.replace(/_/g, ' ')}: ${v}`)
       .join('\n');
   };
 
@@ -765,16 +1193,28 @@ async function chatWithClaude(
     ? `\n**⚠️ Low Stock Alert (${storeContext.low_stock_products.length} products at 5 or fewer units):**\n${formatLowStock(storeContext.low_stock_products)}\n`
     : '';
 
-  const memorySection = memoryNotes.length > 0
-    ? `\n**What I Know About This Business (from past conversations):**\n${formatMemory(memoryNotes)}\n`
-    : '';
+  const prefsText = formatPreferences(userPreferences);
+  const memoryText = formatMemory(memoryNotes);
+  const memorySection = (prefsText || memoryText) ? `
+**Permanent Preferences (treat these as standing instructions):**
+${prefsText || '    • None saved yet'}
+
+**What I Know About This Business:**
+${memoryText || '    • Nothing saved yet — this builds up over conversations'}
+` : '';
+
+  const actionablePlatforms = (storeContext.platforms || [])
+    .filter((p: any) => ['shopify', 'woocommerce'].includes(p.platform_type))
+    .map((p: any) => p.platform_type === 'shopify' ? 'Shopify' : 'WooCommerce');
+  const hasMultipleActionablePlatforms = actionablePlatforms.length >= 2;
 
   const systemPrompt = `You are Orion, an AI business wingman for e-commerce sellers. You're sharp, direct, and genuinely invested in their success. You remember past conversations and build on what you've learned over time.
 
 **CRITICAL - What you can and cannot do:**
 - You CAN: Read and analyze store data (products, orders, inventory, revenue) from the data provided below
 - You CAN: Give advice, spot trends, flag issues, answer questions about their business
-- You CAN: Execute store actions — create products, update inventory quantities, update prices, update product titles/SEO, add images to products — directly on their connected Shopify store
+- You CAN: Execute store actions — create products, update inventory quantities, update prices, update product titles/SEO, add images to products — directly on their connected Shopify or WooCommerce store
+- You CAN: Create automated workflows in Tandril — set up scheduled inventory email reports, low-stock notifications, and other recurring automations
 - You CANNOT: Log into any platform or request credentials — NEVER ask for passwords, API keys, or admin access. You already have the integration through Tandril.
 - You CANNOT: Process payments, refund orders, delete products, or fulfill orders
 
@@ -787,25 +1227,54 @@ When the user asks you to create a product, add inventory, change a price, renam
   • update_price
   • update_title
   • upload_image
+  • create_workflow
 ❌ FORBIDDEN (will always fail): update_product, update_seo, bulk_update, add_image, set_image, or any other type not listed above.
 
 Action formats:
 
+All store actions accept an optional `"platform"` field — set it to `"shopify"` or `"woocommerce"` when the product belongs to a specific platform. If omitted, Shopify is used when connected, otherwise WooCommerce. Always match the platform to the product's Platform column in the product list below.
+
 To create a new product:
-[ORION_ACTION:{"type":"create_product","title":"Product Title","sku":"SKU-001","price":29.99,"quantity":10,"description":"Optional description","vendor":"","product_type":""}]
+[ORION_ACTION:{"type":"create_product","platform":"shopify","title":"Product Title","sku":"SKU-001","price":29.99,"quantity":10,"description":"Optional description","vendor":"","product_type":""}]
 
 To update inventory quantity (use exact SKU from the product list below):
-[ORION_ACTION:{"type":"update_inventory","product_name":"Product Title","sku":"SKU-001","quantity":25}]
+[ORION_ACTION:{"type":"update_inventory","platform":"shopify","product_name":"Product Title","sku":"SKU-001","quantity":25}]
 
 To update a price (use exact SKU from the product list below):
-[ORION_ACTION:{"type":"update_price","product_name":"Product Title","sku":"SKU-001","price":34.99}]
+[ORION_ACTION:{"type":"update_price","platform":"shopify","product_name":"Product Title","sku":"SKU-001","price":34.99}]
 
 To rename/update a product title (e.g. for SEO or seasonal refresh):
-[ORION_ACTION:{"type":"update_title","product_name":"Current Product Title","sku":"SKU-001","new_title":"New Product Title"}]
+[ORION_ACTION:{"type":"update_title","platform":"shopify","product_name":"Current Product Title","sku":"SKU-001","new_title":"New Product Title"}]
 
-To add/upload an image to a product (ONLY when the user has attached an image file — use upload_image, NEVER update_product):
-[ORION_ACTION:{"type":"upload_image","product_name":"Product Title","sku":"SKU-001","image_from_upload":true}]
+To add/upload an image to a product (Shopify only — ONLY when the user has attached an image file — use upload_image, NEVER update_product):
+[ORION_ACTION:{"type":"upload_image","platform":"shopify","product_name":"Product Title","sku":"SKU-001","image_from_upload":true}]
 
+To create a Tandril workflow (scheduled automation — e.g. low-stock email, daily report):
+[ORION_ACTION:{"type":"create_workflow","name":"Daily Low Stock Report","trigger_type":"schedule","cron":"0 9 * * *","action_type":"inventory_email","recipient":"seller@example.com","low_stock_threshold":5}]
+
+  Workflow action_types:
+    - inventory_email: sends an inventory/low-stock report email. Fields: recipient (email), low_stock_threshold (number, default 5)
+    - send_email: sends a custom email. Fields: recipient, subject
+  Cron schedule values:
+    - "0 * * * *" = Every Hour
+    - "0 6 * * *" = Every Day at 6 AM
+    - "0 9 * * *" = Every Day at 9 AM (default)
+    - "0 12 * * *" = Every Day at 12 PM
+    - "0 9 * * 1" = Every Monday at 9 AM
+  Always ask for the user's email before generating a create_workflow action if you don't already know it.
+
+To save a preference or important fact to permanent memory:
+[ORION_ACTION:{"type":"remember","category":"preference","key":"price_format","value":"User always ends prices in .99 (e.g. $29.99 not $30.00)","confidence":1.0}]
+
+  Memory categories: preference | business_context | store_pattern | product_insight | decision | tandril_usage
+  Use "remember" when: the user explicitly tells you something to always remember, states a rule they follow, or you learn something critical about how they run their business. The user will see a confirmation card so they can approve or correct what you captured. Do not overuse — only save things genuinely worth carrying across all future conversations.
+${hasMultipleActionablePlatforms ? `
+**Multi-platform execution:**
+You are connected to multiple actionable stores: **${actionablePlatforms.join(' and ')}**. When the user asks to update something "on all stores", "everywhere", "across platforms", or when your recommendation is to apply the same change to all connected stores, include a "platforms" array listing all applicable platforms:
+[ORION_ACTION:{"type":"update_price","platforms":["shopify","woocommerce"],"product_name":"Product Title","sku":"SKU-001","price":34.99}]
+
+IMPORTANT: When you generate a multi-platform action, always tell the user which stores you can execute on by name — for example: "I can execute this on your **Shopify** store and **WooCommerce** store. Want me to update all stores, or just some?" The user will see checkboxes to select which stores to update before anything executes. Only use the "platforms" array for actions that genuinely make sense on both platforms. For platform-specific products or features, use the single "platform" field as before.
+` : ''}
 Rules for actions:
 - Always include the SKU when you have it — it's the most reliable way to find the product
 - Only one action block per response
@@ -849,9 +1318,19 @@ ${mode === 'demo/test' ?
     `- Use the real store data above to give specific, grounded advice
 - Answer questions about products, stock, orders, and revenue directly from the data above
 - Proactively flag low stock, pricing opportunities, and trends you spot
-- When asked to DO something in the store (add/update inventory, change prices, create products, rename/SEO-update titles, add images to products), generate an ORION_ACTION block as described above — the user will confirm before anything executes. For image uploads always use type "upload_image", never "update_product".
+- When asked to DO something in the store (add/update inventory, change prices, create products, rename/SEO-update titles, add images to products), generate an ORION_ACTION block as described above — the user will confirm before anything executes. Always set `"platform"` to match the product's Platform in the product list. For image uploads always use type "upload_image" with `"platform":"shopify"`, never "update_product".
+- When asked to set up an alert, notification, reminder, or automated report (e.g. "alert me when stock drops below 5", "send me a daily inventory report"), use type "create_workflow" — never tell the user to set it up manually in Shopify or elsewhere. Ask for their email first if needed, then generate the action block.
 - Only one action per response; if the user asks to update multiple products (e.g. spring-theme all titles), propose all the new titles in your message first, then generate an action for the FIRST product — after they approve, you'll do the next one. Track progress by checking the **current product data above** — if it already shows the updated value, that product is done. Only fall back to `[Action proposed: ...]` history lines as a secondary hint.
 - Be direct and honest — a real wingman delivers results, not just advice`}
+
+**Memory & Preferences:**
+- The "Permanent Preferences" and "What I Know" sections above are YOUR memory — treat them as standing instructions, not suggestions
+- If a preference says "always end prices in .99", do that automatically without being asked
+- If business context says they ship from Denver, factor that in when relevant
+- Proactively reference what you remember when it's relevant — "Based on your preference for .99 pricing, I'd suggest $29.99"
+- When the user tells you something they want you to always know (a rule, a preference, a business fact), save it immediately with a "remember" action — ask "Want me to save that so I always remember it?" if unsure
+- Well-established memories (marked [repeated] or [well-established]) are highly reliable; use them confidently
+- If you notice a conflict between what a user says now and what's in memory, ask about it rather than silently overriding
 
 **Communication Style:**
 - Use markdown for formatting

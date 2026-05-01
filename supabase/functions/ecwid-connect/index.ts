@@ -62,6 +62,34 @@ serve(async (req) => {
       await supabase.from('platforms').insert(platformData);
     }
 
+    // Initial product sync
+    try {
+      const productsRes = await fetch(
+        `https://app.ecwid.com/api/v3/${store_id}/products?limit=100&enabled=true`,
+        { headers: { 'Authorization': `Bearer ${access_token}` } }
+      );
+      if (productsRes.ok) {
+        const productsData = await productsRes.json();
+        const rows = (productsData.items || []).map((p: any) => ({
+          user_id: user.id,
+          platform_type: 'ecwid',
+          title: p.name || 'Unnamed',
+          sku: p.sku || `ecwid-${p.id}`,
+          price: parseFloat(p.defaultDisplayedPrice || p.price || '0'),
+          inventory_quantity: p.unlimited ? 999 : (p.quantity ?? 0),
+          status: p.enabled ? 'active' : 'inactive',
+          vendor: '',
+          product_type: '',
+        }));
+        if (rows.length > 0) {
+          await supabase.from('products').upsert(rows, { onConflict: 'user_id,platform_type,sku' });
+        }
+        console.log(`[ecwid-connect] Synced ${rows.length} products`);
+      }
+    } catch (syncErr: any) {
+      console.warn('[ecwid-connect] Product sync failed (non-critical):', syncErr.message);
+    }
+
     return new Response(
       JSON.stringify({ success: true, name: platformData.name }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
