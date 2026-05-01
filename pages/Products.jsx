@@ -13,6 +13,7 @@ import {
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabaseClient';
 import { handleAuthError } from '@/utils/authHelpers';
+import { getShopifyInventory } from '@/lib/supabaseFunctions';
 
 const PLATFORM_CONFIG = {
   shopify:     { label: 'Shopify',      light: 'bg-green-50 border-green-200',    badge: 'bg-green-100 text-green-800' },
@@ -63,14 +64,37 @@ export default function Products() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      const [{ data: platformData }, { data: productData, error: productError }] = await Promise.all([
+      const [{ data: platformData }, { data: dbProducts }, liveItems] = await Promise.all([
         supabase.from('platforms').select('id, name, platform_type').eq('user_id', user.id).eq('is_active', true),
         supabase.from('products').select('*').eq('user_id', user.id).limit(1000),
+        getShopifyInventory().catch(() => []),
       ]);
 
-      if (productError) throw productError;
       setPlatforms(platformData || []);
-      setProducts(productData || []);
+
+      // Normalize live items (Shopify + eBay) from smart-api format → Products format
+      const livePlatformTypes = new Set();
+      const liveProducts = (liveItems || []).map(item => {
+        const pt = item.source || 'shopify';
+        livePlatformTypes.add(pt);
+        return {
+          id: item.id,
+          title: item.product_name || item.sku || 'Unnamed',
+          sku: item.sku,
+          price: item.base_price ?? 0,
+          inventory_quantity: item.total_stock ?? 0,
+          status: item.status === 'out_of_stock' || item.status === 'low_stock' ? 'active' : (item.status || 'active'),
+          vendor: item.vendor || '',
+          product_type: item.category || '',
+          platform_type: pt,
+          image_url: item.image_url || null,
+        };
+      });
+
+      // DB products for platforms not covered by live fetch (Printful, Ecwid, etc.)
+      const dbFiltered = (dbProducts || []).filter(p => !livePlatformTypes.has(p.platform_type));
+
+      setProducts([...liveProducts, ...dbFiltered]);
     } catch (error) {
       console.error('Error loading products:', error);
       if (!handleAuthError(error, navigate, { showToast: false })) {
