@@ -342,27 +342,47 @@ function formatActionSummary(action: any): string {
 // ─── Store Action Execution ───────────────────────────────────────────────────
 
 async function executeStoreAction(supabaseClient: any, userId: string, action: any) {
-  // Get the connected Shopify platform and its credentials
-  const { data: platforms } = await supabaseClient
+  const { data: allPlatforms } = await supabaseClient
     .from('platforms')
     .select('*')
     .eq('user_id', userId)
-    .eq('platform_type', 'shopify')
     .eq('is_active', true)
-    .limit(1);
+    .in('platform_type', ['shopify', 'woocommerce']);
 
-  if (!platforms || platforms.length === 0) {
-    throw new Error('No connected Shopify store found. Connect one in the Platforms tab first.');
+  if (!allPlatforms || allPlatforms.length === 0) {
+    throw new Error('No connected store found. Connect Shopify or WooCommerce in the Platforms tab first.');
   }
 
-  const platform = platforms[0];
+  const shopifyPlatform = allPlatforms.find((p: any) => p.platform_type === 'shopify');
+  const wooPlatform = allPlatforms.find((p: any) => p.platform_type === 'woocommerce');
+  const requested = (action.platform || '').toLowerCase();
+
+  let target: any;
+  let platformType: string;
+
+  if (requested === 'woocommerce' && wooPlatform) {
+    target = wooPlatform; platformType = 'woocommerce';
+  } else if (requested === 'shopify' && shopifyPlatform) {
+    target = shopifyPlatform; platformType = 'shopify';
+  } else if (shopifyPlatform) {
+    target = shopifyPlatform; platformType = 'shopify';
+  } else if (wooPlatform) {
+    target = wooPlatform; platformType = 'woocommerce';
+  } else {
+    throw new Error(`No connected ${requested || 'store'} found. Check your Platforms settings.`);
+  }
+
+  return platformType === 'woocommerce'
+    ? executeWooAction(target, action)
+    : executeShopifyAction(target, action);
+}
+
+async function executeShopifyAction(platform: any, action: any) {
   const shopDomain = platform.shop_domain || platform.domain || platform.store_domain;
   if (!shopDomain) throw new Error('Could not determine Shopify store domain.');
 
-  // Decrypt the stored access token
   let accessToken = platform.access_token;
   try {
-    // Try to detect and decrypt if encrypted (base64 length heuristic)
     if (accessToken && accessToken.length > 50 && !accessToken.startsWith('shpat_') && !accessToken.startsWith('shpca_')) {
       accessToken = await decryptToken(accessToken);
     }
@@ -395,120 +415,68 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           }],
         },
       };
-      const res = await fetch(`${shopifyBase}/products.json`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(`Shopify rejected the product: ${err}`);
-      }
+      const res = await fetch(`${shopifyBase}/products.json`, { method: 'POST', headers, body: JSON.stringify(body) });
+      if (!res.ok) throw new Error(`Shopify rejected the product: ${await res.text()}`);
       const data = await res.json();
       return { message: `Created "${data.product.title}" in your Shopify store (ID: ${data.product.id})` };
     }
 
     case 'update_inventory': {
-      // Find product by title or SKU via Shopify search
-      const searchRes = await fetch(
-        `${shopifyBase}/products.json?limit=250`,
-        { headers }
-      );
-      const searchData = await searchRes.json();
-      const allProducts = searchData.products || [];
-
-      // Find matching product by SKU or title
+      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
+      const allProducts = (await searchRes.json()).products || [];
       let targetVariant: any = null;
       for (const p of allProducts) {
         for (const v of (p.variants || [])) {
           if (action.sku && v.sku === action.sku) { targetVariant = v; break; }
-          if (!action.sku && p.title.toLowerCase() === (action.product_name || '').toLowerCase()) {
-            targetVariant = v; break;
-          }
+          if (!action.sku && p.title.toLowerCase() === (action.product_name || '').toLowerCase()) { targetVariant = v; break; }
         }
         if (targetVariant) break;
       }
+      if (!targetVariant) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
 
-      if (!targetVariant) throw new Error(`Could not find product with SKU "${action.sku || action.product_name}" in Shopify.`);
-
-      // Get location for inventory update
-      const locRes = await fetch(
-        `${shopifyBase}/inventory_levels.json?inventory_item_ids=${targetVariant.inventory_item_id}&limit=1`,
-        { headers }
-      );
-      const locData = await locRes.json();
+      const locData = await (await fetch(`${shopifyBase}/inventory_levels.json?inventory_item_ids=${targetVariant.inventory_item_id}&limit=1`, { headers })).json();
       const locationId = locData.inventory_levels?.[0]?.location_id;
       if (!locationId) throw new Error('Could not find inventory location for this product.');
 
       const setRes = await fetch(`${shopifyBase}/inventory_levels/set.json`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          location_id: locationId,
-          inventory_item_id: targetVariant.inventory_item_id,
-          available: action.quantity,
-        }),
+        method: 'POST', headers,
+        body: JSON.stringify({ location_id: locationId, inventory_item_id: targetVariant.inventory_item_id, available: action.quantity }),
       });
       if (!setRes.ok) throw new Error(`Shopify inventory update failed: ${await setRes.text()}`);
       return { message: `Updated inventory for "${action.sku || action.product_name}" to ${action.quantity} units` };
     }
 
     case 'upload_image': {
-      // Find product by SKU or current title
       const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      const searchData = await searchRes.json();
-      const allProducts = searchData.products || [];
-
+      const allProducts = (await searchRes.json()).products || [];
       let targetProduct: any = null;
       for (const p of allProducts) {
-        if (action.sku) {
-          const matchVariant = (p.variants || []).find((v: any) => v.sku === action.sku);
-          if (matchVariant) { targetProduct = p; break; }
-        }
-        if (p.title.toLowerCase() === (action.product_name || '').toLowerCase()) {
-          targetProduct = p; break;
-        }
+        if (action.sku && (p.variants || []).find((v: any) => v.sku === action.sku)) { targetProduct = p; break; }
+        if (p.title.toLowerCase() === (action.product_name || '').toLowerCase()) { targetProduct = p; break; }
       }
-
       if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
       if (!action.image_data) throw new Error('No image data provided. Please upload an image and try again.');
 
       const uploadRes = await fetch(`${shopifyBase}/products/${targetProduct.id}/images.json`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          image: {
-            attachment: action.image_data,
-            filename: action.image_filename || 'product-image.jpg',
-          },
-        }),
+        method: 'POST', headers,
+        body: JSON.stringify({ image: { attachment: action.image_data, filename: action.image_filename || 'product-image.jpg' } }),
       });
       if (!uploadRes.ok) throw new Error(`Shopify image upload failed: ${await uploadRes.text()}`);
       return { message: `Added image to "${targetProduct.title}" successfully` };
     }
 
     case 'update_title': {
-      // Find product by SKU or current title
       const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      const searchData = await searchRes.json();
-      const allProducts = searchData.products || [];
-
+      const allProducts = (await searchRes.json()).products || [];
       let targetProduct: any = null;
       for (const p of allProducts) {
-        if (action.sku) {
-          const matchVariant = (p.variants || []).find((v: any) => v.sku === action.sku);
-          if (matchVariant) { targetProduct = p; break; }
-        }
-        if (p.title.toLowerCase() === (action.product_name || '').toLowerCase()) {
-          targetProduct = p; break;
-        }
+        if (action.sku && (p.variants || []).find((v: any) => v.sku === action.sku)) { targetProduct = p; break; }
+        if (p.title.toLowerCase() === (action.product_name || '').toLowerCase()) { targetProduct = p; break; }
       }
-
       if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
 
       const updateRes = await fetch(`${shopifyBase}/products/${targetProduct.id}.json`, {
-        method: 'PUT',
-        headers,
+        method: 'PUT', headers,
         body: JSON.stringify({ product: { id: targetProduct.id, title: action.new_title } }),
       });
       if (!updateRes.ok) throw new Error(`Shopify title update failed: ${await updateRes.text()}`);
@@ -517,32 +485,109 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     }
 
     case 'update_price': {
-      // Find variant by SKU or title
       const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      const searchData = await searchRes.json();
-      const allProducts = searchData.products || [];
-
+      const allProducts = (await searchRes.json()).products || [];
       let targetVariant: any = null;
       for (const p of allProducts) {
         for (const v of (p.variants || [])) {
           if (action.sku && v.sku === action.sku) { targetVariant = v; break; }
-          if (!action.sku && p.title.toLowerCase() === (action.product_name || '').toLowerCase()) {
-            targetVariant = v; break;
-          }
+          if (!action.sku && p.title.toLowerCase() === (action.product_name || '').toLowerCase()) { targetVariant = v; break; }
         }
         if (targetVariant) break;
       }
-
       if (!targetVariant) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
 
       const updateRes = await fetch(`${shopifyBase}/variants/${targetVariant.id}.json`, {
-        method: 'PUT',
-        headers,
+        method: 'PUT', headers,
         body: JSON.stringify({ variant: { id: targetVariant.id, price: String(action.price) } }),
       });
       if (!updateRes.ok) throw new Error(`Shopify price update failed: ${await updateRes.text()}`);
       return { message: `Updated price for "${action.sku || action.product_name}" to $${action.price}` };
     }
+
+    default:
+      throw new Error(`Unknown action type: ${action.type}`);
+  }
+}
+
+async function executeWooAction(platform: any, action: any) {
+  const storeUrl = platform.store_url;
+  const { consumer_key, consumer_secret } = platform.credentials || {};
+  if (!storeUrl || !consumer_key || !consumer_secret) {
+    throw new Error('WooCommerce credentials are incomplete. Reconnect your store in the Platforms tab.');
+  }
+
+  const auth = btoa(`${consumer_key}:${consumer_secret}`);
+  const headers: Record<string, string> = { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/json' };
+  const wooBase = `${storeUrl}/wp-json/wc/v3`;
+
+  const findProduct = async (): Promise<any> => {
+    if (action.sku) {
+      const r = await fetch(`${wooBase}/products?sku=${encodeURIComponent(action.sku)}&per_page=1`, { headers });
+      if (r.ok) { const items = await r.json(); if (items.length > 0) return items[0]; }
+    }
+    if (action.product_name) {
+      const r = await fetch(`${wooBase}/products?search=${encodeURIComponent(action.product_name)}&per_page=5`, { headers });
+      if (r.ok) {
+        const items = await r.json();
+        return items.find((p: any) => p.name.toLowerCase() === (action.product_name || '').toLowerCase()) || items[0];
+      }
+    }
+    throw new Error(`Could not find product "${action.sku || action.product_name}" in WooCommerce.`);
+  };
+
+  switch (action.type) {
+
+    case 'create_product': {
+      const res = await fetch(`${wooBase}/products`, {
+        method: 'POST', headers,
+        body: JSON.stringify({
+          name: action.title,
+          description: action.description || '',
+          regular_price: String(action.price ?? '0.00'),
+          sku: action.sku || '',
+          manage_stock: true,
+          stock_quantity: action.quantity ?? 0,
+          status: 'publish',
+        }),
+      });
+      if (!res.ok) throw new Error(`WooCommerce rejected the product: ${await res.text()}`);
+      const data = await res.json();
+      return { message: `Created "${data.name}" in your WooCommerce store (ID: ${data.id})` };
+    }
+
+    case 'update_inventory': {
+      const product = await findProduct();
+      const res = await fetch(`${wooBase}/products/${product.id}`, {
+        method: 'PUT', headers,
+        body: JSON.stringify({ manage_stock: true, stock_quantity: action.quantity }),
+      });
+      if (!res.ok) throw new Error(`WooCommerce inventory update failed: ${await res.text()}`);
+      return { message: `Updated inventory for "${action.sku || action.product_name}" to ${action.quantity} units` };
+    }
+
+    case 'update_price': {
+      const product = await findProduct();
+      const res = await fetch(`${wooBase}/products/${product.id}`, {
+        method: 'PUT', headers,
+        body: JSON.stringify({ regular_price: String(action.price) }),
+      });
+      if (!res.ok) throw new Error(`WooCommerce price update failed: ${await res.text()}`);
+      return { message: `Updated price for "${action.sku || action.product_name}" to $${action.price}` };
+    }
+
+    case 'update_title': {
+      const product = await findProduct();
+      const res = await fetch(`${wooBase}/products/${product.id}`, {
+        method: 'PUT', headers,
+        body: JSON.stringify({ name: action.new_title }),
+      });
+      if (!res.ok) throw new Error(`WooCommerce title update failed: ${await res.text()}`);
+      return { message: `Updated title from "${product.name}" to "${action.new_title}"` };
+    }
+
+    case 'upload_image':
+      throw new Error('Image upload via Orion is only supported for Shopify. Upload images directly in your WooCommerce dashboard.');
 
     default:
       throw new Error(`Unknown action type: ${action.type}`);
@@ -758,6 +803,56 @@ async function fetchWooDataForOrion(platform: any): Promise<{ products: any[], o
   return { products, orders };
 }
 
+async function fetchFaireDataForOrion(platform: any): Promise<{ products: any[], orders: any[] }> {
+  const { api_token } = platform.credentials || {};
+  if (!api_token) return { products: [], orders: [] };
+
+  const headers = {
+    'X-FAIRE-ACCESS-TOKEN': api_token,
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  };
+  const products: any[] = [];
+  const orders: any[] = [];
+
+  const productsRes = await fetch('https://www.faire.com/api/v2/products?limit=50', { headers });
+  if (productsRes.ok) {
+    const data = await productsRes.json();
+    for (const p of data.products || []) {
+      const option = p.options?.[0];
+      products.push({
+        title: p.name || 'Unnamed',
+        sku: option?.sku || `faire-${p.id}`,
+        price: option?.price_cents != null ? option.price_cents / 100 : 0,
+        inventory_quantity: option?.available_quantity ?? 0,
+        status: p.active ? 'active' : 'inactive',
+        vendor: p.brand_name || '',
+        product_type: p.category?.name || '',
+        platform_type: 'faire',
+      });
+    }
+  }
+
+  const ordersRes = await fetch('https://www.faire.com/api/v2/orders?limit=25', { headers });
+  if (ordersRes.ok) {
+    const data = await ordersRes.json();
+    for (const o of data.orders || []) {
+      orders.push({
+        id: o.id,
+        order_number: o.display_id || o.id,
+        created_at: o.created_at,
+        total_price: o.total_order_value_cents != null ? o.total_order_value_cents / 100 : 0,
+        financial_status: o.state === 'PAID' ? 'paid' : 'pending',
+        fulfillment_status: o.state === 'DELIVERED' ? 'fulfilled' : 'unfulfilled',
+        line_items: (o.items || []).map((i: any) => ({ title: i.product_name || i.name, quantity: i.quantity })),
+        platform_type: 'faire',
+      });
+    }
+  }
+
+  return { products, orders };
+}
+
 async function getUserStoreContext(supabaseClient: any, userId: string) {
   const { data: platforms } = await supabaseClient
     .from('platforms')
@@ -780,6 +875,10 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
         if (platform.platform_type === 'woocommerce' && platform.credentials?.consumer_key) {
           const data = await fetchWooDataForOrion(platform);
           return { ...data, platformType: 'woocommerce' };
+        }
+        if (platform.platform_type === 'faire' && platform.credentials?.api_token) {
+          const data = await fetchFaireDataForOrion(platform);
+          return { ...data, platformType: 'faire' };
         }
       } catch (e: any) {
         console.warn(`[Orion] ${platform.platform_type} live fetch failed:`, e.message);
@@ -927,7 +1026,7 @@ async function chatWithClaude(
 **CRITICAL - What you can and cannot do:**
 - You CAN: Read and analyze store data (products, orders, inventory, revenue) from the data provided below
 - You CAN: Give advice, spot trends, flag issues, answer questions about their business
-- You CAN: Execute store actions — create products, update inventory quantities, update prices, update product titles/SEO, add images to products — directly on their connected Shopify store
+- You CAN: Execute store actions — create products, update inventory quantities, update prices, update product titles/SEO, add images to products — directly on their connected Shopify or WooCommerce store
 - You CAN: Create automated workflows in Tandril — set up scheduled inventory email reports, low-stock notifications, and other recurring automations
 - You CANNOT: Log into any platform or request credentials — NEVER ask for passwords, API keys, or admin access. You already have the integration through Tandril.
 - You CANNOT: Process payments, refund orders, delete products, or fulfill orders
@@ -946,20 +1045,22 @@ When the user asks you to create a product, add inventory, change a price, renam
 
 Action formats:
 
+All store actions accept an optional `"platform"` field — set it to `"shopify"` or `"woocommerce"` when the product belongs to a specific platform. If omitted, Shopify is used when connected, otherwise WooCommerce. Always match the platform to the product's Platform column in the product list below.
+
 To create a new product:
-[ORION_ACTION:{"type":"create_product","title":"Product Title","sku":"SKU-001","price":29.99,"quantity":10,"description":"Optional description","vendor":"","product_type":""}]
+[ORION_ACTION:{"type":"create_product","platform":"shopify","title":"Product Title","sku":"SKU-001","price":29.99,"quantity":10,"description":"Optional description","vendor":"","product_type":""}]
 
 To update inventory quantity (use exact SKU from the product list below):
-[ORION_ACTION:{"type":"update_inventory","product_name":"Product Title","sku":"SKU-001","quantity":25}]
+[ORION_ACTION:{"type":"update_inventory","platform":"shopify","product_name":"Product Title","sku":"SKU-001","quantity":25}]
 
 To update a price (use exact SKU from the product list below):
-[ORION_ACTION:{"type":"update_price","product_name":"Product Title","sku":"SKU-001","price":34.99}]
+[ORION_ACTION:{"type":"update_price","platform":"shopify","product_name":"Product Title","sku":"SKU-001","price":34.99}]
 
 To rename/update a product title (e.g. for SEO or seasonal refresh):
-[ORION_ACTION:{"type":"update_title","product_name":"Current Product Title","sku":"SKU-001","new_title":"New Product Title"}]
+[ORION_ACTION:{"type":"update_title","platform":"shopify","product_name":"Current Product Title","sku":"SKU-001","new_title":"New Product Title"}]
 
-To add/upload an image to a product (ONLY when the user has attached an image file — use upload_image, NEVER update_product):
-[ORION_ACTION:{"type":"upload_image","product_name":"Product Title","sku":"SKU-001","image_from_upload":true}]
+To add/upload an image to a product (Shopify only — ONLY when the user has attached an image file — use upload_image, NEVER update_product):
+[ORION_ACTION:{"type":"upload_image","platform":"shopify","product_name":"Product Title","sku":"SKU-001","image_from_upload":true}]
 
 To create a Tandril workflow (scheduled automation — e.g. low-stock email, daily report):
 [ORION_ACTION:{"type":"create_workflow","name":"Daily Low Stock Report","trigger_type":"schedule","cron":"0 9 * * *","action_type":"inventory_email","recipient":"seller@example.com","low_stock_threshold":5}]
@@ -1018,7 +1119,7 @@ ${mode === 'demo/test' ?
     `- Use the real store data above to give specific, grounded advice
 - Answer questions about products, stock, orders, and revenue directly from the data above
 - Proactively flag low stock, pricing opportunities, and trends you spot
-- When asked to DO something in the store (add/update inventory, change prices, create products, rename/SEO-update titles, add images to products), generate an ORION_ACTION block as described above — the user will confirm before anything executes. For image uploads always use type "upload_image", never "update_product".
+- When asked to DO something in the store (add/update inventory, change prices, create products, rename/SEO-update titles, add images to products), generate an ORION_ACTION block as described above — the user will confirm before anything executes. Always set `"platform"` to match the product's Platform in the product list. For image uploads always use type "upload_image" with `"platform":"shopify"`, never "update_product".
 - When asked to set up an alert, notification, reminder, or automated report (e.g. "alert me when stock drops below 5", "send me a daily inventory report"), use type "create_workflow" — never tell the user to set it up manually in Shopify or elsewhere. Ask for their email first if needed, then generate the action block.
 - Only one action per response; if the user asks to update multiple products (e.g. spring-theme all titles), propose all the new titles in your message first, then generate an action for the FIRST product — after they approve, you'll do the next one. Track progress by checking the **current product data above** — if it already shows the updated value, that product is done. Only fall back to `[Action proposed: ...]` history lines as a secondary hint.
 - Be direct and honest — a real wingman delivers results, not just advice`}
