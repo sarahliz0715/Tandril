@@ -4872,7 +4872,6 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       };
     }
 
-    default:
     case 'bulk_ai_content': {
       // Applies AI-generated content to multiple products in one confirmed batch.
       // Orion generates the content (titles/descriptions/tags/etc.), then packages it
