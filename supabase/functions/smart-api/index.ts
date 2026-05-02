@@ -1069,7 +1069,6 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           const ebayApiBase = meta.environment === 'sandbox'
             ? 'https://api.sandbox.ebay.com'
             : 'https://api.ebay.com';
-          const marketplaceId = creds.marketplace_id || 'EBAY_US';
 
           // Refresh token if expired or within 5 min of expiry
           let activeToken = creds.access_token;
@@ -1093,7 +1092,6 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
                 if (refreshRes.ok) {
                   const refreshData = await refreshRes.json();
                   activeToken = refreshData.access_token;
-                  // Persist refreshed token
                   await supabaseClient.from('platforms').update({
                     credentials: { ...creds, access_token: activeToken },
                     metadata: { ...meta, token_expires_at: new Date(Date.now() + (refreshData.expires_in || 7200) * 1000).toISOString() },
@@ -1105,48 +1103,48 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             }
           }
 
-          const ebayHeaders: Record<string, string> = {
-            'Authorization': `Bearer ${activeToken}`,
-            'Content-Type': 'application/json',
-            'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
-            'Accept-Language': 'en-US',
-          };
-
-          // Fetch offer prices keyed by SKU
-          const offerPrices: Record<string, number> = {};
-          const offersRes = await fetch(`${ebayApiBase}/sell/inventory/v1/offer?limit=200`, { headers: ebayHeaders });
-          if (offersRes.ok) {
-            const offersData = await offersRes.json();
-            for (const offer of offersData.offers || []) {
-              if (offer.sku && offer.pricingSummary?.price?.value) {
-                offerPrices[offer.sku] = parseFloat(offer.pricingSummary.price.value);
+          // Trading API: GetMyeBaySelling — requires X-EBAY-API-IAF-TOKEN (not Authorization: Bearer)
+          const tradingRes = await fetch(`${ebayApiBase}/ws/api.dll`, {
+            method: 'POST',
+            headers: {
+              'X-EBAY-API-CALL-NAME': 'GetMyeBaySelling',
+              'X-EBAY-API-SITEID': '0',
+              'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
+              'X-EBAY-API-IAF-TOKEN': activeToken,
+              'Content-Type': 'text/xml',
+            },
+            body: `<?xml version="1.0" encoding="utf-8"?><GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents"><ActiveList><Include>true</Include><Pagination><EntriesPerPage>200</EntriesPerPage></Pagination></ActiveList><DetailLevel>ReturnAll</DetailLevel></GetMyeBaySellingRequest>`,
+          });
+          if (tradingRes.ok) {
+            const xml = await tradingRes.text();
+            const ack = xml.match(/<Ack>([^<]+)<\/Ack>/)?.[1]?.trim();
+            if (ack === 'Success' || ack === 'Warning') {
+              for (const m of xml.matchAll(/<Item>([\s\S]*?)<\/Item>/g)) {
+                const x = m[1];
+                const itemId = x.match(/<ItemID>([^<]+)<\/ItemID>/)?.[1]?.trim();
+                const title = x.match(/<Title>([^<]+)<\/Title>/)?.[1]?.trim() || 'eBay Item';
+                const sku = x.match(/<SKU>([^<]+)<\/SKU>/)?.[1]?.trim() || `ebay-${itemId}`;
+                const price = parseFloat(x.match(/<CurrentPrice[^>]*>([^<]+)<\/CurrentPrice>/)?.[1] || '0') || 0;
+                const totalStock = parseInt(x.match(/<QuantityAvailable>([^<]+)<\/QuantityAvailable>/)?.[1] || x.match(/<Quantity>([^<]+)<\/Quantity>/)?.[1] || '0') || 0;
+                const imageUrl = x.match(/<GalleryURL>([^<]+)<\/GalleryURL>/)?.[1] || null;
+                let status = 'active';
+                if (totalStock === 0) status = 'out_of_stock';
+                else if (totalStock <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+                inventory.push({
+                  id: `ebay-${itemId}`,
+                  product_name: title,
+                  sku,
+                  category: '',
+                  status,
+                  total_stock: totalStock,
+                  base_price: price,
+                  image_url: imageUrl,
+                  vendor: '',
+                  tags: '',
+                  platform_listings: [{ listing_id: itemId, platform: 'eBay' }],
+                  source: 'ebay',
+                });
               }
-            }
-          }
-
-          const ebayInvRes = await fetch(`${ebayApiBase}/sell/inventory/v1/inventory_item?limit=200`, { headers: ebayHeaders });
-          if (ebayInvRes.ok) {
-            const ebayInvData = await ebayInvRes.json();
-            for (const item of ebayInvData.inventoryItems || []) {
-              const totalStock = item.availability?.shipToLocationAvailability?.quantity ?? 0;
-              const basePrice = offerPrices[item.sku] ?? 0;
-              let status = 'active';
-              if (totalStock === 0) status = 'out_of_stock';
-              else if (totalStock <= LOW_STOCK_THRESHOLD) status = 'low_stock';
-              inventory.push({
-                id: `ebay-${item.sku}`,
-                product_name: item.product?.title || item.sku || 'eBay Item',
-                sku: item.sku || 'N/A',
-                category: '',
-                status,
-                total_stock: totalStock,
-                base_price: basePrice,
-                image_url: item.product?.imageUrls?.[0] || null,
-                vendor: item.product?.brand || '',
-                tags: '',
-                platform_listings: [{ listing_id: item.sku, platform: 'eBay' }],
-                source: 'ebay',
-              });
             }
           }
         }
