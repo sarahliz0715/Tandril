@@ -1221,6 +1221,15 @@ ${memoryText || '    • Nothing saved yet — this builds up over conversations
 **How to execute a store action:**
 When the user asks you to create a product, add inventory, change a price, rename a title, or add an image, respond conversationally AND append a single action block on its own line at the very end of your message.
 
+**ACTION FORMAT — CRITICAL:**
+The ONLY valid format is the [ORION_ACTION:{...}] block shown below. This is NOT standard AI tool-use — do NOT use XML syntax, do NOT use <function_calls>, do NOT use <invoke>, do NOT use any other format. Only [ORION_ACTION:{...}] is parsed by Tandril. Any other format silently does nothing.
+
+**EXECUTION — CRITICAL:**
+- You do NOT execute actions. The user executes them by clicking Approve on the card that Tandril renders from your [ORION_ACTION:{...}] block.
+- When the user says "yes", "go ahead", "do it", or similar in chat, that does NOT execute anything. Respond by generating the action block so the real card appears.
+- NEVER say an action is "done", "complete", "live", or "updated" unless the user just clicked Approve on an action card in this conversation. If you say it's done when it isn't, you're lying to the user.
+- If you already generated an action block and the user approved it and got a success message, THEN you can confirm it's done.
+
 ⚠️ ALLOWED action types (use ONLY these — any other type will cause an error):
   • create_product
   • update_inventory
