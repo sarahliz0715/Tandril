@@ -169,10 +169,16 @@ export default function Dashboard() {
 
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      // TEMPORARILY DISABLED - Testing if these mock entities cause Commands crash
-      // const alertsData = await SmartAlert.list('-created_at', 20);
-      const alertsData = []; // Empty - bypassing SmartAlert.list()
-      const recommendationsData = []; // Empty - bypassing AIRecommendation.list()
+      let alertsData = [];
+      let recommendationsData = [];
+      try {
+        [alertsData, recommendationsData] = await Promise.all([
+          SmartAlert.list('-created_at', 20),
+          AIRecommendation.list('-created_at', 10),
+        ]);
+      } catch (e) {
+        console.warn('[Dashboard] Could not load alerts/recommendations:', e.message);
+      }
 
       await new Promise(resolve => setTimeout(resolve, 100));
 
