@@ -21,7 +21,10 @@ import {
   Download,
   AlertCircle,
   History as HistoryIcon,
-  RotateCcw
+  RotateCcw,
+  Zap,
+  GitBranch,
+  Terminal
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -63,6 +66,7 @@ export default function History() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [platformFilter, setPlatformFilter] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
   const [trackingStartDates, setTrackingStartDates] = useState(() => {
     try {
@@ -131,6 +135,11 @@ export default function History() {
       result = result.filter(cmd => cmd.status === statusFilter);
     }
 
+    // Apply source/type filter
+    if (sourceFilter !== 'all') {
+      result = result.filter(cmd => (cmd.source || 'command') === sourceFilter);
+    }
+
     // Apply platform filter
     if (platformFilter !== 'all') {
       result = result.filter(cmd => {
@@ -165,7 +174,7 @@ export default function History() {
     }
 
     setFilteredCommands(result);
-  }, [commands, searchTerm, statusFilter, platformFilter, sortBy]);
+  }, [commands, searchTerm, statusFilter, sourceFilter, platformFilter, sortBy]);
 
   // Handle command deletion with confirmation
   const handleDelete = useCallback(async (command) => {
@@ -283,6 +292,22 @@ export default function History() {
     };
   }, [commands, platformFilter, trackingStartDates]);
 
+  // Get source type badge
+  const getSourceBadge = (source) => {
+    const cfg = {
+      orion:    { label: 'Orion Action', icon: Zap,       color: 'bg-violet-100 text-violet-800 border-violet-200' },
+      workflow: { label: 'Workflow',     icon: GitBranch,  color: 'bg-blue-100 text-blue-800 border-blue-200' },
+      command:  { label: 'Command',      icon: Terminal,   color: 'bg-slate-100 text-slate-700 border-slate-200' },
+    }[source || 'command'] || { label: 'Command', icon: Terminal, color: 'bg-slate-100 text-slate-700 border-slate-200' };
+    const Icon = cfg.icon;
+    return (
+      <Badge className={`${cfg.color} flex items-center gap-1`}>
+        <Icon className="w-3 h-3" />
+        {cfg.label}
+      </Badge>
+    );
+  };
+
   // Get status badge
   const getStatusBadge = (status) => {
     const config = {
@@ -307,7 +332,7 @@ export default function History() {
       <div className="flex items-center justify-center h-64">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-          <p className="text-slate-600">Loading command history...</p>
+          <p className="text-slate-600">Loading activity history...</p>
         </div>
       </div>
     );
@@ -319,7 +344,7 @@ export default function History() {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         <Card>
           <CardContent className="p-4">
-            <p className="text-sm text-slate-500">Total Commands</p>
+            <p className="text-sm text-slate-500">Total Activities</p>
             <p className="text-2xl font-bold text-slate-900">{stats.total}</p>
           </CardContent>
         </Card>
@@ -389,7 +414,7 @@ export default function History() {
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <CardTitle className="flex items-center gap-2">
               <HistoryIcon className="w-6 h-6 text-emerald-600" />
-              Command History
+              Activity History
             </CardTitle>
             <Button
               variant="outline"
@@ -403,20 +428,31 @@ export default function History() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-            <div className="relative">
+          <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
+            <div className="relative sm:col-span-2">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <Input
-                placeholder="Search commands..."
+                placeholder="Search history..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
               />
             </div>
+            <Select value={sourceFilter} onValueChange={setSourceFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="All Types" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Types</SelectItem>
+                <SelectItem value="command">Commands</SelectItem>
+                <SelectItem value="orion">Orion Actions</SelectItem>
+                <SelectItem value="workflow">Workflows</SelectItem>
+              </SelectContent>
+            </Select>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger>
                 <Filter className="w-4 h-4 mr-2" />
-                <SelectValue placeholder="Filter by status" />
+                <SelectValue placeholder="All Statuses" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Statuses</SelectItem>
@@ -424,17 +460,6 @@ export default function History() {
                 <SelectItem value="failed">Failed</SelectItem>
                 <SelectItem value="executing">Executing</SelectItem>
                 <SelectItem value="pending">Pending</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={platformFilter} onValueChange={setPlatformFilter}>
-              <SelectTrigger>
-                <SelectValue placeholder="Filter by platform" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Platforms</SelectItem>
-                {availablePlatforms.map(p => (
-                  <SelectItem key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</SelectItem>
-                ))}
               </SelectContent>
             </Select>
             <Select value={sortBy} onValueChange={setSortBy}>
@@ -461,6 +486,7 @@ export default function History() {
                 onClear={() => {
                   setSearchTerm('');
                   setStatusFilter('all');
+                  setSourceFilter('all');
                   setPlatformFilter('all');
                 }}
               />
@@ -473,8 +499,9 @@ export default function History() {
                   className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border hover:bg-slate-100 transition-colors"
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 mb-2">
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
                       {getStatusBadge(command.status)}
+                      {getSourceBadge(command.source)}
                       <span className="text-xs text-slate-500">
                         {format(new Date(command.created_at), 'MMM d, yyyy HH:mm')}
                       </span>
@@ -483,7 +510,9 @@ export default function History() {
                       )}
                     </div>
                     <p className="text-sm font-medium text-slate-900 mb-1">
-                      {formatCommandLogMessage(command)}
+                      {command.source === 'orion' || command.source === 'workflow'
+                        ? (command.command_text || 'Orion action')
+                        : formatCommandLogMessage(command)}
                     </p>
                     {command.results && (
                       <p className="text-xs text-slate-500">

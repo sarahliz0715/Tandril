@@ -983,6 +983,47 @@ async function getFaireClientForActions(supabaseClient: any, userId: string) {
 }
 
 async function executeStoreAction(supabaseClient: any, userId: string, action: any) {
+  // Normalize generic action types to platform-specific ones based on action.platform.
+  // This lets Orion always use e.g. "update_price" and just set "platform": "ebay"
+  // rather than having to remember platform-prefixed type names.
+  const _plat = (action.platform || 'shopify').toLowerCase();
+  const _platformTypeMap: Record<string, Record<string, string>> = {
+    woocommerce: {
+      update_price:       'woo_update_price',
+      update_inventory:   'woo_update_inventory',
+      update_title:       'woo_update_title',
+      update_description: 'woo_update_description',
+      update_tags:        'woo_update_tags',
+      create_product:     'woo_create_product',
+    },
+    ebay: {
+      update_price:       'ebay_update_price',
+      update_inventory:   'ebay_update_inventory',
+      update_title:       'ebay_update_title',
+      update_description: 'ebay_update_description',
+      upload_image:       'ebay_update_image',
+      create_product:     'ebay_create_listing',
+    },
+    etsy: {
+      update_price:       'etsy_update_price',
+      update_inventory:   'etsy_update_inventory',
+      update_title:       'etsy_update_title',
+      update_description: 'etsy_update_description',
+      update_tags:        'etsy_update_tags',
+      create_product:     'etsy_create_listing',
+    },
+    faire: {
+      update_price:       'faire_update_price',
+      update_inventory:   'faire_update_inventory',
+      update_title:       'faire_update_title',
+      update_description: 'faire_update_description',
+      create_product:     'faire_create_product',
+    },
+  };
+  if (_platformTypeMap[_plat]?.[action.type]) {
+    action = { ...action, type: _platformTypeMap[_plat][action.type] };
+  }
+
   const { data: platforms } = await supabaseClient
     .from('platforms')
     .select('*')

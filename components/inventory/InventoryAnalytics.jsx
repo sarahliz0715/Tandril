@@ -1,65 +1,27 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Badge } from '@/components/ui/badge';
-import { TrendingUp, TrendingDown, Target, AlertTriangle } from 'lucide-react';
+import { TrendingUp, TrendingDown, Target, AlertTriangle, Package } from 'lucide-react';
 
-// Mock data for charts
-const salesVelocityData = [
-    { month: 'Jan', velocity: 4.2 },
-    { month: 'Feb', velocity: 5.1 },
-    { month: 'Mar', velocity: 6.8 },
-    { month: 'Apr', velocity: 5.9 },
-    { month: 'May', velocity: 7.2 },
-    { month: 'Jun', velocity: 8.1 }
-];
+const LOW_STOCK_THRESHOLD = 5;
 
-const profitMarginData = [
-    { category: 'Electronics', margin: 22, products: 15 },
-    { category: 'Clothing', margin: 45, products: 32 },
-    { category: 'Home & Garden', margin: 38, products: 18 },
-    { category: 'Sports', margin: 29, products: 12 },
-    { category: 'Beauty', margin: 52, products: 8 }
-];
-
-const inventoryHealthData = [
-    { name: 'Well Stocked', value: 65, color: '#10b981' },
-    { name: 'Low Stock', value: 25, color: '#f59e0b' },
-    { name: 'Out of Stock', value: 10, color: '#ef4444' }
-];
-
-const topPerformersData = [
-    { name: 'Vintage Leather Wallet', sales: 156, profit: 2340, velocity: 8.2 },
-    { name: 'Organic Cotton Tee', sales: 134, profit: 1870, velocity: 7.1 },
-    { name: 'Hand-Stitched Canvas Bag', sales: 98, profit: 2940, velocity: 6.8 },
-    { name: 'Silk Scarf Collection', sales: 87, profit: 1560, velocity: 5.9 },
-    { name: 'Ceramic Mug Set', sales: 76, profit: 912, velocity: 5.2 }
-];
-
-const slowMoversData = [
-    { name: 'Vintage Clock', daysStagnant: 45, stock: 23, suggestedAction: 'Discount 20%' },
-    { name: 'Crystal Vase', daysStagnant: 38, stock: 12, suggestedAction: 'Bundle Offer' },
-    { name: 'Wooden Picture Frame', daysStagnant: 32, stock: 18, suggestedAction: 'Social Media Push' },
-    { name: 'Decorative Pillow', daysStagnant: 28, stock: 31, suggestedAction: 'Category Change' }
-];
-
-const MetricCard = ({ title, value, change, trend, icon: Icon }) => (
+const MetricCard = ({ title, value, sub, trend, icon: Icon }) => (
     <Card className="bg-white/80 backdrop-blur-sm">
         <CardContent className="p-4">
             <div className="flex items-center justify-between">
                 <div>
                     <p className="text-sm text-slate-600">{title}</p>
                     <p className="text-2xl font-bold text-slate-900">{value}</p>
-                    <div className="flex items-center gap-1 mt-1">
-                        {trend === 'up' ? (
-                            <TrendingUp className="w-4 h-4 text-green-600" />
-                        ) : (
-                            <TrendingDown className="w-4 h-4 text-red-600" />
-                        )}
-                        <span className={`text-sm ${trend === 'up' ? 'text-green-600' : 'text-red-600'}`}>
-                            {change}
-                        </span>
-                    </div>
+                    {sub && (
+                        <div className="flex items-center gap-1 mt-1">
+                            {trend === 'up' && <TrendingUp className="w-4 h-4 text-green-600" />}
+                            {trend === 'down' && <TrendingDown className="w-4 h-4 text-red-600" />}
+                            <span className={`text-sm ${trend === 'up' ? 'text-green-600' : trend === 'down' ? 'text-red-600' : 'text-slate-500'}`}>
+                                {sub}
+                            </span>
+                        </div>
+                    )}
                 </div>
                 <div className="p-2 bg-slate-100 rounded-lg">
                     <Icon className="w-6 h-6 text-slate-600" />
@@ -69,186 +31,240 @@ const MetricCard = ({ title, value, change, trend, icon: Icon }) => (
     </Card>
 );
 
+const NoDataPlaceholder = ({ message }) => (
+    <div className="flex flex-col items-center justify-center h-[250px] text-slate-400 gap-2">
+        <Package className="w-8 h-8" />
+        <p className="text-sm text-center">{message}</p>
+    </div>
+);
+
 export default function InventoryAnalytics({ inventory }) {
+    const stats = useMemo(() => {
+        if (!inventory || inventory.length === 0) return null;
+
+        const active = inventory.filter(p => p.status === 'active' || (!p.status && (p.total_stock ?? p.inventory_quantity ?? 0) > LOW_STOCK_THRESHOLD));
+        const lowStock = inventory.filter(p => p.status === 'low_stock' || (p.status !== 'out_of_stock' && (p.total_stock ?? p.inventory_quantity ?? 0) > 0 && (p.total_stock ?? p.inventory_quantity ?? 0) <= LOW_STOCK_THRESHOLD));
+        const outOfStock = inventory.filter(p => p.status === 'out_of_stock' || (p.total_stock ?? p.inventory_quantity ?? 0) === 0);
+        const total = inventory.length;
+
+        // Inventory health pie
+        const healthData = [
+            { name: 'Well Stocked', value: active.length, color: '#10b981' },
+            { name: 'Low Stock', value: lowStock.length, color: '#f59e0b' },
+            { name: 'Out of Stock', value: outOfStock.length, color: '#ef4444' },
+        ].filter(d => d.value > 0);
+
+        // Stock by category bar chart
+        const categoryMap = {};
+        inventory.forEach(p => {
+            const cat = p.category || p.product_type || p.type || 'Uncategorized';
+            if (!categoryMap[cat]) categoryMap[cat] = { category: cat, stock: 0, products: 0 };
+            categoryMap[cat].stock += p.total_stock ?? p.inventory_quantity ?? 0;
+            categoryMap[cat].products += 1;
+        });
+        const categoryData = Object.values(categoryMap).sort((a, b) => b.stock - a.stock).slice(0, 6);
+
+        // Low stock items (needs attention)
+        const lowStockItems = inventory
+            .filter(p => {
+                const stock = p.total_stock ?? p.inventory_quantity ?? 0;
+                return stock > 0 && stock <= LOW_STOCK_THRESHOLD;
+            })
+            .sort((a, b) => (a.total_stock ?? a.inventory_quantity ?? 0) - (b.total_stock ?? b.inventory_quantity ?? 0))
+            .slice(0, 5);
+
+        // Out of stock items
+        const outItems = inventory
+            .filter(p => (p.total_stock ?? p.inventory_quantity ?? 0) === 0)
+            .slice(0, 5);
+
+        // Total stock value (price × stock)
+        const totalValue = inventory.reduce((sum, p) => {
+            const price = parseFloat(p.base_price ?? p.price ?? 0) || 0;
+            const stock = p.total_stock ?? p.inventory_quantity ?? 0;
+            return sum + price * stock;
+        }, 0);
+
+        const stockoutRate = total > 0 ? ((outOfStock.length / total) * 100).toFixed(1) : '0.0';
+
+        return { healthData, categoryData, lowStockItems, outItems, totalValue, stockoutRate, total, lowStock, outOfStock, active };
+    }, [inventory]);
+
+    if (!stats) {
+        return (
+            <Card className="bg-white/80 backdrop-blur-sm">
+                <CardContent className="p-8 text-center text-slate-400">
+                    <Package className="w-10 h-10 mx-auto mb-2" />
+                    <p>No inventory data to analyze yet.</p>
+                </CardContent>
+            </Card>
+        );
+    }
+
     return (
         <div className="space-y-6">
-            {/* Key Performance Metrics */}
+            {/* Key Metrics */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <MetricCard
-                    title="Avg Sales Velocity"
-                    value="6.8/day"
-                    change="+12% vs last month"
-                    trend="up"
-                    icon={TrendingUp}
+                    title="Total Products"
+                    value={stats.total}
+                    sub={`${stats.active.length} active`}
+                    icon={Package}
                 />
                 <MetricCard
-                    title="Inventory Turnover"
-                    value="8.2x"
-                    change="+0.3x vs last quarter"
-                    trend="up"
+                    title="Inventory Value"
+                    value={`$${stats.totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                    sub="price × stock"
                     icon={Target}
                 />
                 <MetricCard
-                    title="Stockout Rate"
-                    value="2.1%"
-                    change="-0.8% vs last month"
-                    trend="up"
-                    icon={AlertTriangle}
+                    title="Low Stock Items"
+                    value={stats.lowStock.length}
+                    sub={stats.lowStock.length > 0 ? 'need restocking' : 'all good'}
+                    trend={stats.lowStock.length > 0 ? 'down' : undefined}
+                    icon={TrendingDown}
                 />
                 <MetricCard
-                    title="Profit Margin"
-                    value="34%"
-                    change="+2% vs last month"
-                    trend="up"
-                    icon={TrendingUp}
+                    title="Stockout Rate"
+                    value={`${stats.stockoutRate}%`}
+                    sub={`${stats.outOfStock.length} of ${stats.total} products`}
+                    trend={parseFloat(stats.stockoutRate) > 0 ? 'down' : undefined}
+                    icon={AlertTriangle}
                 />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Sales Velocity Trend */}
-                <Card className="bg-white/80 backdrop-blur-sm">
-                    <CardHeader>
-                        <CardTitle>Sales Velocity Trend</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <ResponsiveContainer width="100%" height={250}>
-                            <LineChart data={salesVelocityData}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                                <XAxis dataKey="month" stroke="#64748b" />
-                                <YAxis stroke="#64748b" />
-                                <Tooltip 
-                                    contentStyle={{ 
-                                        backgroundColor: 'white', 
-                                        border: '1px solid #e2e8f0', 
-                                        borderRadius: '8px' 
-                                    }}
-                                />
-                                <Line 
-                                    type="monotone" 
-                                    dataKey="velocity" 
-                                    stroke="#3b82f6" 
-                                    strokeWidth={3}
-                                    dot={{ fill: '#3b82f6', strokeWidth: 2, r: 4 }}
-                                />
-                            </LineChart>
-                        </ResponsiveContainer>
-                    </CardContent>
-                </Card>
-
                 {/* Inventory Health Distribution */}
                 <Card className="bg-white/80 backdrop-blur-sm">
                     <CardHeader>
-                        <CardTitle>Inventory Health Distribution</CardTitle>
+                        <CardTitle>Inventory Health</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <ResponsiveContainer width="100%" height={250}>
-                            <PieChart>
-                                <Pie
-                                    data={inventoryHealthData}
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius={60}
-                                    outerRadius={100}
-                                    paddingAngle={5}
-                                    dataKey="value"
-                                >
-                                    {inventoryHealthData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={entry.color} />
+                        {stats.healthData.length > 0 ? (
+                            <>
+                                <ResponsiveContainer width="100%" height={220}>
+                                    <PieChart>
+                                        <Pie
+                                            data={stats.healthData}
+                                            cx="50%"
+                                            cy="50%"
+                                            innerRadius={55}
+                                            outerRadius={90}
+                                            paddingAngle={4}
+                                            dataKey="value"
+                                            label={({ name, value }) => `${value}`}
+                                        >
+                                            {stats.healthData.map((entry, i) => (
+                                                <Cell key={i} fill={entry.color} />
+                                            ))}
+                                        </Pie>
+                                        <Tooltip formatter={(v, name) => [v, name]} />
+                                    </PieChart>
+                                </ResponsiveContainer>
+                                <div className="flex justify-center gap-4 mt-2">
+                                    {stats.healthData.map((entry, i) => (
+                                        <div key={i} className="flex items-center gap-2">
+                                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: entry.color }} />
+                                            <span className="text-sm text-slate-600">{entry.name}</span>
+                                        </div>
                                     ))}
-                                </Pie>
-                                <Tooltip />
-                            </PieChart>
-                        </ResponsiveContainer>
-                        <div className="flex justify-center gap-4 mt-4">
-                            {inventoryHealthData.map((entry, index) => (
-                                <div key={index} className="flex items-center gap-2">
-                                    <div 
-                                        className="w-3 h-3 rounded-full" 
-                                        style={{ backgroundColor: entry.color }}
+                                </div>
+                            </>
+                        ) : (
+                            <NoDataPlaceholder message="No inventory status data." />
+                        )}
+                    </CardContent>
+                </Card>
+
+                {/* Stock by Category */}
+                <Card className="bg-white/80 backdrop-blur-sm">
+                    <CardHeader>
+                        <CardTitle>Stock by Category</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        {stats.categoryData.length > 0 ? (
+                            <ResponsiveContainer width="100%" height={250}>
+                                <BarChart data={stats.categoryData} margin={{ left: -10 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                    <XAxis dataKey="category" stroke="#64748b" fontSize={11} />
+                                    <YAxis stroke="#64748b" />
+                                    <Tooltip
+                                        contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '8px' }}
+                                        formatter={(v) => [v, 'Units']}
                                     />
-                                    <span className="text-sm text-slate-600">{entry.name}</span>
-                                </div>
-                            ))}
-                        </div>
+                                    <Bar dataKey="stock" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <NoDataPlaceholder message="No category data available." />
+                        )}
                     </CardContent>
                 </Card>
 
-                {/* Profit Margin by Category */}
-                <Card className="bg-white/80 backdrop-blur-sm">
+                {/* Low Stock Alert */}
+                <Card className="bg-amber-50 border-amber-200">
                     <CardHeader>
-                        <CardTitle>Profit Margin by Category</CardTitle>
+                        <CardTitle className="flex items-center gap-2 text-amber-800">
+                            <AlertTriangle className="w-5 h-5" />
+                            Low Stock ({stats.lowStock.length})
+                        </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <ResponsiveContainer width="100%" height={250}>
-                            <BarChart data={profitMarginData}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                                <XAxis dataKey="category" stroke="#64748b" fontSize={12} />
-                                <YAxis stroke="#64748b" />
-                                <Tooltip 
-                                    contentStyle={{ 
-                                        backgroundColor: 'white', 
-                                        border: '1px solid #e2e8f0', 
-                                        borderRadius: '8px' 
-                                    }}
-                                    formatter={(value) => [`${value}%`, 'Profit Margin']}
-                                />
-                                <Bar 
-                                    dataKey="margin" 
-                                    fill="#10b981"
-                                    radius={[4, 4, 0, 0]}
-                                />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </CardContent>
-                </Card>
-
-                {/* Top Performers */}
-                <Card className="bg-white/80 backdrop-blur-sm">
-                    <CardHeader>
-                        <CardTitle>Top Performing Products</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="space-y-3">
-                            {topPerformersData.map((product, index) => (
-                                <div key={index} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                                    <div>
-                                        <p className="font-medium text-slate-900">{product.name}</p>
-                                        <p className="text-sm text-slate-600">{product.sales} sales • ${product.profit} profit</p>
+                        {stats.lowStockItems.length > 0 ? (
+                            <div className="space-y-2">
+                                {stats.lowStockItems.map((p, i) => (
+                                    <div key={i} className="flex items-center justify-between p-3 bg-white/80 rounded-lg">
+                                        <div>
+                                            <p className="font-medium text-slate-900 text-sm">{p.product_name || p.title || p.name}</p>
+                                            <p className="text-xs text-slate-500">SKU: {p.sku || 'N/A'}</p>
+                                        </div>
+                                        <Badge className="bg-amber-100 text-amber-800">
+                                            {p.total_stock ?? p.inventory_quantity ?? 0} left
+                                        </Badge>
                                     </div>
-                                    <Badge className="bg-green-100 text-green-800">
-                                        {product.velocity}/day
-                                    </Badge>
-                                </div>
-                            ))}
-                        </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-sm text-amber-700 py-4 text-center">All products are well stocked.</p>
+                        )}
+                    </CardContent>
+                </Card>
+
+                {/* Out of Stock */}
+                <Card className="bg-red-50 border-red-200">
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2 text-red-800">
+                            <AlertTriangle className="w-5 h-5" />
+                            Out of Stock ({stats.outOfStock.length})
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        {stats.outItems.length > 0 ? (
+                            <div className="space-y-2">
+                                {stats.outItems.map((p, i) => (
+                                    <div key={i} className="flex items-center justify-between p-3 bg-white/80 rounded-lg">
+                                        <div>
+                                            <p className="font-medium text-slate-900 text-sm">{p.product_name || p.title || p.name}</p>
+                                            <p className="text-xs text-slate-500">SKU: {p.sku || 'N/A'}</p>
+                                        </div>
+                                        <Badge className="bg-red-100 text-red-800">0 units</Badge>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-sm text-red-700 py-4 text-center">No products are out of stock.</p>
+                        )}
                     </CardContent>
                 </Card>
             </div>
 
-            {/* Slow Movers Alert */}
-            <Card className="bg-orange-50 border-orange-200">
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-orange-800">
-                        <AlertTriangle className="w-5 h-5" />
-                        Slow-Moving Inventory Alert
-                    </CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <div className="space-y-3">
-                        {slowMoversData.map((product, index) => (
-                            <div key={index} className="flex items-center justify-between p-3 bg-white/80 rounded-lg">
-                                <div>
-                                    <p className="font-medium text-slate-900">{product.name}</p>
-                                    <p className="text-sm text-slate-600">
-                                        {product.daysStagnant} days without sale • {product.stock} units in stock
-                                    </p>
-                                </div>
-                                <Badge variant="outline" className="text-orange-700 border-orange-300">
-                                    {product.suggestedAction}
-                                </Badge>
-                            </div>
-                        ))}
-                    </div>
+            {/* Sales analytics note */}
+            <Card className="bg-slate-50 border-slate-200">
+                <CardContent className="p-4 flex items-center gap-3">
+                    <TrendingUp className="w-5 h-5 text-slate-400 shrink-0" />
+                    <p className="text-sm text-slate-500">
+                        Sales velocity, top performers, and slow-mover analysis will appear here once your store has order history.
+                    </p>
                 </CardContent>
             </Card>
         </div>

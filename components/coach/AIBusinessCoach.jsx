@@ -111,6 +111,15 @@ export default function AIBusinessCoach() {
     return () => { if ('speechSynthesis' in window) window.speechSynthesis.cancel(); };
   }, []);
 
+  // Persist chat state to sessionStorage so pending cards survive navigation
+  useEffect(() => {
+    if (chatMessages.length > 0) {
+      try {
+        sessionStorage.setItem('orion_chat', JSON.stringify({ chatMessages, conversationId }));
+      } catch {}
+    }
+  }, [chatMessages, conversationId]);
+
   // Load most recent conversation history on mount
   useEffect(() => {
     loadRecentHistory();
@@ -119,6 +128,19 @@ export default function AIBusinessCoach() {
   const loadRecentHistory = async () => {
     setIsHistoryLoading(true);
     try {
+      // Restore from sessionStorage first — preserves pending action cards through navigation
+      try {
+        const cached = sessionStorage.getItem('orion_chat');
+        if (cached) {
+          const { chatMessages: saved, conversationId: savedConvId } = JSON.parse(cached);
+          if (saved && saved.length > 0) {
+            setChatMessages(saved);
+            if (savedConvId) setConversationId(savedConvId);
+            return;
+          }
+        }
+      } catch {}
+
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
@@ -157,6 +179,7 @@ export default function AIBusinessCoach() {
   };
 
   const startNewConversation = () => {
+    try { sessionStorage.removeItem('orion_chat'); } catch {}
     setConversationId(null);
     setChatMessages([]);
   };
@@ -308,6 +331,24 @@ export default function AIBusinessCoach() {
     return next.toISOString();
   };
 
+  const saveActionResultToDb = async (results, errors) => {
+    if (!conversationId) return;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const lines = [];
+      results.forEach(r => lines.push(`✅ ${r}`));
+      errors.forEach(e => lines.push(`❌ ${e}`));
+      if (lines.length === 0) return;
+      await supabase.from('orion_messages').insert({
+        user_id: user.id,
+        conversation_id: conversationId,
+        role: 'system',
+        content: lines.join('\n'),
+      });
+    } catch {}
+  };
+
   const reportToOrion = async (results, errors, actions) => {
     if (errors.length === 0) return;
     const total = results.length + errors.length;
@@ -365,6 +406,18 @@ export default function AIBusinessCoach() {
         ...(triggerType === 'schedule' ? { next_run_at: calcNextRunAt(cron) } : {}),
       };
       await api.entities.AIWorkflow.create(payload);
+      // Log to history
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        supabase.from('ai_commands').insert({
+          user_id: user.id,
+          command_text: `Created workflow: ${resolvedAction.name}`,
+          status: 'completed',
+          executed_at: new Date().toISOString(),
+          source: 'workflow',
+          execution_results: { workflow_name: resolvedAction.name, action_type: resolvedAction.action_type },
+        }).then(() => {});
+      }
       return { execution_result: { message: `Workflow "${resolvedAction.name}" created! Go to Workflows in the sidebar to activate it.` } };
     }
     return api.functions.chatWithCoach({ execute_action: resolvedAction });
@@ -408,7 +461,10 @@ export default function AIBusinessCoach() {
       setIsChatLoading(false);
     }
 
-    if (isDone) await reportToOrion(allResults, allErrors, pendingActions);
+    if (isDone) {
+      await saveActionResultToDb(allResults, allErrors);
+      await reportToOrion(allResults, allErrors, pendingActions);
+    }
   };
 
   const handleConfirmAll = async (messageIdx) => {
@@ -454,6 +510,7 @@ export default function AIBusinessCoach() {
     else if (fc === 0) toast.error(`All ${remaining.length} actions failed`);
     else toast.warning(`${fc} completed, ${ec} failed`);
 
+    await saveActionResultToDb(localResults, localErrors);
     await reportToOrion(localResults, localErrors, remaining);
   };
 
