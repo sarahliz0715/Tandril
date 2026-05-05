@@ -1160,7 +1160,10 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             const xml = await tradingRes.text();
             const ack = xml.match(/<Ack>([^<]+)<\/Ack>/)?.[1]?.trim();
             if (ack === 'Success' || ack === 'Warning') {
-              for (const m of xml.matchAll(/<Item>([\s\S]*?)<\/Item>/g)) {
+              // Scope to ActiveList only — ReturnAll causes eBay to include SoldList/UnsoldList
+              // in the same response, and a global <Item> match would pick up ended/sold items
+              const activeListXml = xml.match(/<ActiveList>([\s\S]*?)<\/ActiveList>/)?.[1] || '';
+              for (const m of activeListXml.matchAll(/<Item>([\s\S]*?)<\/Item>/g)) {
                 const x = m[1];
                 const itemId = x.match(/<ItemID>([^<]+)<\/ItemID>/)?.[1]?.trim();
                 const title = x.match(/<Title>([^<]+)<\/Title>/)?.[1]?.trim() || 'eBay Item';
