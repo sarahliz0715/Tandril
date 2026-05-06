@@ -246,23 +246,114 @@ serve(async (req) => {
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) throw new Error('Missing authorization header');
 
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const isServiceRoleCall = serviceRoleKey && authHeader === `Bearer ${serviceRoleKey}`;
+
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
       { global: { headers: { Authorization: authHeader } } }
     );
 
-    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
-    if (userError || !user) throw new Error('Unauthorized');
+    // Service-role calls (from execute-scheduled-workflows) pass service_user_id in the body
+    // instead of a user JWT, so we skip auth.getUser() for those.
+    let userId: string;
+    const rawBody = await req.json();
+    if (isServiceRoleCall && rawBody.service_user_id) {
+      userId = rawBody.service_user_id;
+      // Use service role client for DB ops so RLS doesn't block us
+      const supabaseAdmin = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        serviceRoleKey
+      );
+      // Swap the client so the rest of the handler uses admin privileges
+      Object.assign(supabaseClient, supabaseAdmin);
+    } else {
+      const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+      if (userError || !user) throw new Error('Unauthorized');
+      userId = user.id;
+    }
 
-    const { message, conversation_id = null, uploaded_files = [], execute_action = null } = await req.json();
+    const { message = null, conversation_id = null, uploaded_files = [], execute_action = null } = rawBody;
 
     // ── Action Execution Mode ────────────────────────────────────────────────
     if (execute_action) {
+      // create_workflow is handled here before executeStoreAction
+      if (execute_action.type === 'create_workflow') {
+        try {
+          const wf = execute_action;
+          const triggerType = wf.trigger_type || 'manual';
+          const triggerConfig = wf.trigger_config || {};
+          const steps: any[] = wf.steps || wf.actions || [];
+
+          // Normalise Orion-produced steps: { type:'action', config:{ action_type, ... } }
+          // or flat objects: { action_type, ... }
+          const actions = steps.map((s: any) => {
+            if (s.type === 'wait') return { type: 'wait', duration: s.duration || 1, unit: s.unit || 'hours' };
+            if (s.type === 'action') return s;
+            const { action_type, ...rest } = s;
+            return { type: 'action', config: { action_type, ...rest } };
+          });
+
+          let nextRunAt: string | null = null;
+          if (triggerType === 'schedule' && triggerConfig.cron) {
+            const now = new Date();
+            const parts = triggerConfig.cron.trim().split(' ');
+            const minute = parseInt(parts[0]);
+            const hour = parseInt(parts[1]);
+            const next = new Date(now);
+            next.setSeconds(0, 0);
+            next.setHours(isNaN(hour) ? 9 : hour, isNaN(minute) ? 0 : minute, 0, 0);
+            if (next <= now) next.setDate(next.getDate() + 1);
+            nextRunAt = next.toISOString();
+          }
+
+          const { data: newWorkflow, error: wfError } = await supabaseClient
+            .from('ai_workflows')
+            .insert({
+              user_id: userId,
+              name: wf.workflow_name || wf.name || 'Orion Workflow',
+              description: wf.description || '',
+              trigger_type: triggerType,
+              trigger_config: triggerConfig,
+              actions,
+              is_active: true,
+              current_step: 0,
+              status: 'active',
+              ...(nextRunAt ? { next_run_at: nextRunAt } : {}),
+            })
+            .select('id, name')
+            .single();
+
+          if (wfError) throw new Error(`Failed to create workflow: ${wfError.message}`);
+
+          supabaseClient.from('ai_commands').insert({
+            user_id: userId,
+            command_text: `Created workflow "${newWorkflow.name}"`,
+            status: 'completed',
+            executed_at: new Date().toISOString(),
+            execution_results: { orion: true, action_type: 'create_workflow', workflow_id: newWorkflow.id },
+            source: 'orion',
+          }).then(({ error }) => {
+            if (error) console.warn('[Orion] Could not log create_workflow:', error.message);
+          });
+
+          return new Response(
+            JSON.stringify({ success: true, execution_result: { workflow_id: newWorkflow.id, name: newWorkflow.name, message: `Workflow "${newWorkflow.name}" created and saved. You can find it on the Workflows page.` } }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+          );
+        } catch (err: any) {
+          return new Response(
+            JSON.stringify({ success: false, error: err.message }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+          );
+        }
+      }
+
       let result: any;
       let execStatus = 'completed';
       try {
-        result = await executeStoreAction(supabaseClient, user.id, execute_action);
+        result = await executeStoreAction(supabaseClient, userId, execute_action);
       } catch (err: any) {
         result = { error: err.message };
         execStatus = 'failed';
@@ -272,7 +363,7 @@ serve(async (req) => {
       supabaseClient
         .from('ai_commands')
         .insert({
-          user_id: user.id,
+          user_id: userId,
           command_text: summarizeOrionAction(execute_action),
           status: execStatus,
           executed_at: new Date().toISOString(),
@@ -297,12 +388,12 @@ serve(async (req) => {
 
     if (!message) throw new Error('Message is required');
 
-    console.log(`[Orion] Processing message for user ${user.id}`);
+    console.log(`[Orion] Processing message for user ${userId}`);
 
     // Try to get/create conversation — if tables don't exist yet, fall back gracefully
     let conversationId: string | null = null;
     try {
-      conversationId = await getOrCreateConversation(supabaseClient, user.id, conversation_id);
+      conversationId = await getOrCreateConversation(supabaseClient, userId, conversation_id);
     } catch (e) {
       console.warn('[Orion] Conversation table unavailable, running without persistence:', e.message);
     }
@@ -310,13 +401,13 @@ serve(async (req) => {
     // Load store context (always) + history/memory (only if conversation table available)
     let recentHistory: any[] = [];
     let memoryNotes: any[] = [];
-    const storeContext = await getUserStoreContext(supabaseClient, user.id);
+    const storeContext = await getUserStoreContext(supabaseClient, userId);
 
     if (conversationId) {
       try {
         [recentHistory, memoryNotes] = await Promise.all([
-          loadConversationHistory(supabaseClient, user.id, conversationId),
-          loadMemoryNotes(supabaseClient, user.id),
+          loadConversationHistory(supabaseClient, userId, conversationId),
+          loadMemoryNotes(supabaseClient, userId),
         ]);
       } catch (e) {
         console.warn('[Orion] Could not load history/memory:', e.message);
@@ -326,7 +417,7 @@ serve(async (req) => {
       // If this fails the error propagates and the user sees an error response rather
       // than a response that silently doesn't appear on next page load.
       try {
-        await saveMessage(supabaseClient, user.id, conversationId, 'user', message);
+        await saveMessage(supabaseClient, userId, conversationId, 'user', message);
       } catch (e: any) {
         console.error('[Orion] Failed to save user message:', e.message);
         // Don't abort — still call Claude so the user gets an answer,
@@ -408,12 +499,12 @@ serve(async (req) => {
       // Await the assistant message save so it completes before the function returns.
       // Fire-and-forget saves are abandoned when Deno terminates the execution context.
       try {
-        await saveMessage(supabaseClient, user.id, conversationId, 'assistant', response);
+        await saveMessage(supabaseClient, userId, conversationId, 'assistant', response);
       } catch (e: any) {
         console.warn('[Orion] Could not save assistant message:', e.message);
       }
       // Memory extraction is non-essential — keep it best-effort
-      extractAndSaveMemory(supabaseClient, user.id, conversationId, message, response).catch(
+      extractAndSaveMemory(supabaseClient, userId, conversationId, message, response).catch(
         (e) => console.error('[Orion] Memory extraction failed:', e)
       );
     }
