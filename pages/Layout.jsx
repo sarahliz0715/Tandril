@@ -100,12 +100,25 @@ export default function Layout({ children, currentPageName }) {
             if (!mounted || authHandled) return;
             authHandled = true;
 
-            if (!session) {
+            // If INITIAL_SESSION fires with null on a protected page, briefly poll
+            // getSession() — Supabase may still be refreshing an expired token after
+            // returning from an external OAuth redirect (e.g. Shopify).
+            let resolvedSession = session;
+            if (!resolvedSession && !publicPages.includes(currentPageName)) {
+                for (let i = 0; i < 10; i++) {
+                    await new Promise(r => setTimeout(r, 300));
+                    if (!mounted) return;
+                    const { data } = await supabase.auth.getSession();
+                    if (data?.session) { resolvedSession = data.session; break; }
+                }
+            }
+
+            if (!resolvedSession) {
                 setUser(null);
                 setAuthCheckComplete(true);
                 if (!publicPages.includes(currentPageName)) {
                     console.log('User not authenticated in layout');
-                    console.log(`Redirecting from ${currentPageName} to Home due to authentication failure`);
+                    console.log(`Redirecting from ${currentPageName} to Login due to authentication failure`);
                     toast.error('Session expired', { description: 'Please log in again to continue.' });
                     navigate(createPageUrl('Login'));
                 }
@@ -134,7 +147,7 @@ export default function Layout({ children, currentPageName }) {
                 console.log('User not authenticated in layout');
                 setUser(null);
                 if (!publicPages.includes(currentPageName)) {
-                    console.log(`Redirecting from ${currentPageName} to Home due to authentication failure`);
+                    console.log(`Redirecting from ${currentPageName} to Login due to authentication failure`);
                     toast.error('Session expired', { description: 'Please log in again to continue.' });
                     navigate(createPageUrl('Login'));
                 }
@@ -143,9 +156,6 @@ export default function Layout({ children, currentPageName }) {
             }
         };
 
-        // onAuthStateChange with INITIAL_SESSION fires after the session is fully restored
-        // from localStorage (including any token refresh). This is much more reliable than
-        // polling getSession() after a full-page OAuth redirect.
         const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
             if (event === 'INITIAL_SESSION') {
                 applySession(session);
