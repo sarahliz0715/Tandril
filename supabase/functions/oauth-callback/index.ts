@@ -168,6 +168,77 @@ async function exchangeMeta(code: string): Promise<any> {
   };
 }
 
+async function exchangeInstagram(code: string): Promise<any> {
+  const appId = Deno.env.get('META_APP_ID');
+  const appSecret = Deno.env.get('META_APP_SECRET');
+  if (!appId || !appSecret) throw new Error('Meta credentials not configured (META_APP_ID / META_APP_SECRET)');
+
+  // Exchange auth code for user access token
+  const tokenUrl = new URL('https://graph.facebook.com/v19.0/oauth/access_token');
+  tokenUrl.searchParams.set('client_id', appId);
+  tokenUrl.searchParams.set('client_secret', appSecret);
+  tokenUrl.searchParams.set('redirect_uri', CALLBACK_URL);
+  tokenUrl.searchParams.set('code', code);
+
+  const tokenRes = await fetch(tokenUrl.toString());
+  if (!tokenRes.ok) throw new Error(`Instagram token exchange failed: ${await tokenRes.text()}`);
+  const tokens = await tokenRes.json();
+  if (tokens.error) throw new Error(tokens.error.message);
+
+  const accessToken: string = tokens.access_token;
+
+  // Fetch Facebook Pages, each with their linked Instagram Business Account
+  let igAccountId = '';
+  let igUsername = '';
+  let igFollowers = 0;
+  let displayName = 'Instagram Shop';
+
+  try {
+    const pagesRes = await fetch(
+      `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,instagram_business_account{id,username,name,followers_count}&access_token=${accessToken}`
+    );
+    if (pagesRes.ok) {
+      const pagesData = await pagesRes.json();
+      // Find first page that has an Instagram Business Account
+      for (const page of (pagesData.data || [])) {
+        if (page.instagram_business_account) {
+          igAccountId = page.instagram_business_account.id || '';
+          igUsername = page.instagram_business_account.username || '';
+          igFollowers = page.instagram_business_account.followers_count || 0;
+          displayName = igUsername || page.instagram_business_account.name || page.name || displayName;
+          break;
+        }
+      }
+    }
+  } catch (_) { /* non-fatal */ }
+
+  // Fetch Commerce Catalogs owned by this account
+  let catalogId = '';
+  let catalogName = '';
+  try {
+    const catalogRes = await fetch(
+      `https://graph.facebook.com/v19.0/me/owned_product_catalogs?fields=id,name&access_token=${accessToken}`
+    );
+    if (catalogRes.ok) {
+      const catalogData = await catalogRes.json();
+      const first = catalogData.data?.[0];
+      if (first) { catalogId = first.id || ''; catalogName = first.name || ''; }
+    }
+  } catch (_) { /* non-fatal */ }
+
+  return {
+    credentials: { access_token: accessToken },
+    name: igUsername ? `Instagram - @${igUsername}` : `Instagram Shop`,
+    metadata: {
+      ig_account_id: igAccountId,
+      ig_username: igUsername,
+      ig_followers: igFollowers,
+      catalog_id: catalogId,
+      catalog_name: catalogName,
+    },
+  };
+}
+
 async function exchangeAmazon(code: string): Promise<any> {
   const clientId = Deno.env.get('AMAZON_CLIENT_ID');
   const clientSecret = Deno.env.get('AMAZON_CLIENT_SECRET');
@@ -449,6 +520,9 @@ serve(async (req) => {
         break;
       case 'meta_ads':
         result = await exchangeMeta(code);
+        break;
+      case 'instagram':
+        result = await exchangeInstagram(code);
         break;
       case 'amazon':
         result = await exchangeAmazon(code);
