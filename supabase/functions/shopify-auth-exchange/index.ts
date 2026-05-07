@@ -171,6 +171,13 @@ serve(async (req) => {
 
     await adminClient.from('oauth_states').delete().eq('state', state);
 
+    // Fire-and-forget: link products across platforms by SKU
+    fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/link-products`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}` },
+      body: JSON.stringify({ user_id: user.id }),
+    }).catch(e => console.warn('[Shopify Exchange] link-products trigger failed:', e.message));
+
     console.log(`[Shopify Exchange] Successfully connected ${shop} for user ${user.id}`);
 
     return new Response(

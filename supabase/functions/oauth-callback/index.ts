@@ -724,6 +724,13 @@ serve(async (req) => {
       }
     }
 
+    // Fire-and-forget: link products across platforms by SKU
+    fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/link-products`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}` },
+      body: JSON.stringify({ user_id: userId }),
+    }).catch(e => console.warn('[oauth-callback] link-products trigger failed:', e.message));
+
     return new Response(
       JSON.stringify({ success: true, platform, name: result.name }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }

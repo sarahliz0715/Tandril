@@ -122,7 +122,8 @@ function summarizeOrionAction(action: any): string {
     case 'create_purchase_order': return `Created draft PO for ${(action.items || []).length} item(s) from ${action.supplier_name || 'supplier'}`;
     case 'get_purchase_orders': return `Retrieved purchase orders${action.status ? ` (${action.status})` : ''}`;
     case 'update_purchase_order_status': return `Updated PO ${action.po_number || ''} status → ${action.status}`;
-    case 'update_price':        return `Updated price for "${name}" → $${action.price}`;
+    case 'update_price':              return `Updated price for "${name}" → $${action.price}`;
+    case 'broadcast_price_change':    return `Broadcast price change for SKU "${action.sku}" → $${action.price} across all platforms`;
     case 'update_title':        return `Updated title of "${name}" → "${action.new_title}"`;
     case 'update_tags':
     case 'add_tags':            return `Updated tags for "${name}"`;
@@ -1591,6 +1592,108 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       });
       if (!updateRes.ok) throw new Error(`Shopify price update failed: ${await updateRes.text()}`);
       return { message: `Updated price for "${action.sku || action.product_name}" to $${action.price}` };
+    }
+
+    case 'broadcast_price_change': {
+      if (!action.sku) throw new Error('sku is required for broadcast_price_change.');
+      if (action.price == null) throw new Error('price is required for broadcast_price_change.');
+
+      // Find all linked platform entries for this SKU
+      const { data: links, error: linksErr } = await supabaseClient
+        .from('platform_product_links')
+        .select('*, platforms(*)')
+        .eq('user_id', userId)
+        .eq('sku', action.sku);
+      if (linksErr) throw new Error(`Failed to fetch product links: ${linksErr.message}`);
+
+      const results: Array<{ platform_type: string; platform_id: string; success: boolean; message?: string; error?: string }> = [];
+
+      for (const link of links ?? []) {
+        const platform = link.platforms;
+        if (!platform || !platform.is_active) continue;
+
+        const entry = { platform_type: link.platform_type as string, platform_id: link.platform_id as string, success: false, message: undefined as string | undefined, error: undefined as string | undefined };
+        try {
+          switch (link.platform_type) {
+            case 'shopify': {
+              let tok = platform.access_token ?? '';
+              if (tok && tok.length > 50 && !tok.startsWith('shpat_') && !tok.startsWith('shpca_')) {
+                try { const { decrypt: dec } = await import('../_shared/encryption.ts'); tok = await dec(tok); } catch { /* use as-is */ }
+              }
+              const varRes = await fetch(
+                `https://${platform.shop_domain}/admin/api/2024-01/variants/${link.platform_variant_id}.json`,
+                { headers: { 'X-Shopify-Access-Token': tok } }
+              );
+              if (!varRes.ok) throw new Error(`Shopify variant fetch failed: ${varRes.status}`);
+              const { variant } = await varRes.json();
+              const priceRes = await fetch(
+                `https://${platform.shop_domain}/admin/api/2024-01/variants/${variant.id}.json`,
+                { method: 'PUT', headers: { 'X-Shopify-Access-Token': tok, 'Content-Type': 'application/json' }, body: JSON.stringify({ variant: { id: variant.id, price: String(action.price) } }) }
+              );
+              if (!priceRes.ok) throw new Error(`Shopify price update failed: ${priceRes.status}`);
+              entry.success = true;
+              entry.message = `$${action.price}`;
+              break;
+            }
+            case 'woocommerce': {
+              const { consumer_key: ck, consumer_secret: cs } = platform.credentials ?? {};
+              if (!ck || !cs) throw new Error('WooCommerce credentials missing');
+              const wooBase = `${platform.store_url || platform.shop_domain}/wp-json/wc/v3`;
+              const wooHeaders = { 'Authorization': `Basic ${btoa(`${ck}:${cs}`)}`, 'Content-Type': 'application/json' };
+              const endpoint = link.platform_variant_id
+                ? `${wooBase}/products/${link.platform_product_id}/variations/${link.platform_variant_id}`
+                : `${wooBase}/products/${link.platform_product_id}`;
+              const wooRes = await fetch(endpoint, { method: 'PUT', headers: wooHeaders, body: JSON.stringify({ regular_price: String(Number(action.price).toFixed(2)) }) });
+              if (!wooRes.ok) throw new Error(`WooCommerce price update failed: ${wooRes.status}`);
+              entry.success = true;
+              entry.message = `$${action.price}`;
+              break;
+            }
+            case 'ebay': {
+              const { apiBase: ebayBase, headers: ebayH } = await getEbayClientForActions(supabaseClient, userId);
+              const offersRes = await fetch(`${ebayBase}/sell/inventory/v1/offer?sku=${encodeURIComponent(action.sku)}`, { headers: ebayH });
+              if (!offersRes.ok) throw new Error(`eBay offer fetch failed: ${offersRes.status}`);
+              const { offers } = await offersRes.json();
+              const offer = offers?.[0];
+              if (!offer) throw new Error('No eBay offer found for this SKU');
+              const { offerId, listing: _l, status: _s, ...offerBody } = offer;
+              offerBody.pricingSummary = { price: { currency: offer.pricingSummary?.price?.currency || 'USD', value: String(action.price) } };
+              const putRes = await fetch(`${ebayBase}/sell/inventory/v1/offer/${offerId}`, { method: 'PUT', headers: ebayH, body: JSON.stringify(offerBody) });
+              if (!putRes.ok) throw new Error(`eBay price update failed: ${putRes.status}`);
+              entry.success = true;
+              entry.message = `$${action.price}`;
+              break;
+            }
+            case 'etsy': {
+              const etsyClientId = Deno.env.get('ETSY_CLIENT_ID');
+              const etsyTok = platform.credentials?.access_token;
+              const etsyShopId = platform.metadata?.shop_id;
+              if (!etsyTok || !etsyShopId || !etsyClientId) throw new Error('Etsy credentials missing');
+              const etsyH = { 'x-api-key': etsyClientId, 'Authorization': `Bearer ${etsyTok}`, 'Content-Type': 'application/json' };
+              const listingId = link.platform_product_id;
+              const updRes = await fetch(
+                `https://openapi.etsy.com/v3/application/shops/${etsyShopId}/listings/${listingId}`,
+                { method: 'PATCH', headers: etsyH, body: JSON.stringify({ price: Number(action.price) }) }
+              );
+              if (!updRes.ok) throw new Error(`Etsy price update failed: ${updRes.status}`);
+              entry.success = true;
+              entry.message = `$${action.price}`;
+              break;
+            }
+            default:
+              entry.error = `${link.platform_type} price broadcast not yet implemented`;
+          }
+        } catch (e: any) {
+          entry.error = e.message;
+        }
+        results.push(entry);
+      }
+
+      const succeeded = results.filter(r => r.success).length;
+      return {
+        message: `Broadcast price $${action.price} to ${succeeded}/${results.length} platforms for SKU "${action.sku}"`,
+        results,
+      };
     }
 
     case 'update_title': {

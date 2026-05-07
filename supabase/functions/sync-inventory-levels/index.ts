@@ -93,6 +93,12 @@ serve(async (req) => {
           case 'woocommerce':
             result = await syncWooCommerce(platform, link, new_quantity, token, result);
             break;
+          case 'ebay':
+            result = await syncEbay(platform, link, new_quantity, result);
+            break;
+          case 'etsy':
+            result = await syncEtsy(platform, link, new_quantity, result);
+            break;
           default:
             result.skipped = true;
             result.reason = `${link.platform_type} sync not yet implemented`;
@@ -181,5 +187,81 @@ async function syncWooCommerce(platform: any, link: any, qty: number, token: str
     body: JSON.stringify({ stock_quantity: qty, manage_stock: true }),
   });
   if (!res.ok) throw new Error(`WooCommerce update failed: ${res.status}`);
+  return { ...result, success: true };
+}
+
+async function syncEbay(platform: any, link: any, qty: number, result: any) {
+  const creds = platform.credentials ?? {};
+  const token = creds.access_token;
+  if (!token) throw new Error('eBay access token missing');
+
+  const apiBase = creds.is_sandbox ? 'https://api.sandbox.ebay.com' : 'https://api.ebay.com';
+  const marketplaceId = creds.marketplace_id || 'EBAY_US';
+  const sku = link.platform_product_id; // For eBay Inventory API, SKU is the key
+
+  const headers = {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json',
+    'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
+  };
+
+  // GET current inventory item
+  const getRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, { headers });
+  if (!getRes.ok) throw new Error(`eBay inventory GET failed: ${getRes.status}`);
+  const item = await getRes.json();
+
+  // Patch quantity while preserving all other fields
+  const updated = {
+    ...item,
+    availability: {
+      ...item.availability,
+      shipToLocationAvailability: { quantity: qty },
+    },
+  };
+
+  const putRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify(updated),
+  });
+  if (!putRes.ok) throw new Error(`eBay inventory PUT failed: ${putRes.status} ${await putRes.text()}`);
+  return { ...result, success: true };
+}
+
+async function syncEtsy(platform: any, link: any, qty: number, result: any) {
+  const creds = platform.credentials ?? {};
+  const token = creds.access_token;
+  const clientId = Deno.env.get('ETSY_CLIENT_ID');
+  if (!token || !clientId) throw new Error('Etsy credentials missing');
+
+  const listingId = link.platform_product_id;
+
+  // GET current listing inventory
+  const getRes = await fetch(
+    `https://openapi.etsy.com/v3/application/listings/${listingId}/inventory`,
+    { headers: { 'x-api-key': clientId, 'Authorization': `Bearer ${token}` } }
+  );
+  if (!getRes.ok) throw new Error(`Etsy inventory GET failed: ${getRes.status}`);
+  const inventory = await getRes.json();
+
+  // Update quantity on every product offering
+  const products = (inventory.products ?? []).map((p: any) => ({
+    ...p,
+    offerings: (p.offerings ?? []).map((o: any) => ({
+      ...o,
+      quantity: qty,
+      is_enabled: o.is_enabled ?? true,
+    })),
+  }));
+
+  const putRes = await fetch(
+    `https://openapi.etsy.com/v3/application/listings/${listingId}/inventory`,
+    {
+      method: 'PUT',
+      headers: { 'x-api-key': clientId, 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ products, price_on_property: inventory.price_on_property ?? [], quantity_on_property: inventory.quantity_on_property ?? [], sku_on_property: inventory.sku_on_property ?? [] }),
+    }
+  );
+  if (!putRes.ok) throw new Error(`Etsy inventory PUT failed: ${putRes.status} ${await putRes.text()}`);
   return { ...result, success: true };
 }
