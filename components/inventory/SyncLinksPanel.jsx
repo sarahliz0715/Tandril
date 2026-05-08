@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { api } from '@/lib/apiClient';
+import ProductLinkerModal from './ProductLinkerModal';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,6 +29,7 @@ export default function SyncLinksPanel() {
     const [variants, setVariants] = useState([]);
     const [isFetchingVariants, setIsFetchingVariants] = useState(false);
     const [isReconciling, setIsReconciling] = useState(false);
+    const [showLinker, setShowLinker] = useState(false);
 
     const loadData = useCallback(async () => {
         setIsLoading(true);
@@ -257,9 +259,13 @@ export default function SyncLinksPanel() {
                                     Reconcile All
                                 </Button>
                             )}
+                            <Button variant="outline" onClick={() => setShowLinker(true)}>
+                                <Link2 className="w-4 h-4 mr-2" />
+                                Browse &amp; Link
+                            </Button>
                             <Button onClick={() => setShowAddModal(true)} className="bg-emerald-600 hover:bg-emerald-700">
                                 <Plus className="w-4 h-4 mr-2" />
-                                Link Product
+                                Quick Link
                             </Button>
                         </div>
                     </div>
@@ -292,7 +298,7 @@ export default function SyncLinksPanel() {
                         <div className="text-center py-12 text-slate-500">
                             <Link2 className="w-10 h-10 mx-auto mb-3 text-slate-300" />
                             <p className="font-medium">No product links yet</p>
-                            <p className="text-sm mt-1">Add a link to start syncing inventory across platforms automatically.</p>
+                            <p className="text-sm mt-1">Use <strong>Browse &amp; Link</strong> to visually match products, or <strong>Quick Link</strong> if you know the IDs.</p>
                         </div>
                     ) : (
                         <div className="space-y-3">
@@ -389,7 +395,14 @@ export default function SyncLinksPanel() {
                 </Card>
             )}
 
-            {/* Add Link Modal */}
+            <ProductLinkerModal
+                open={showLinker}
+                onClose={() => setShowLinker(false)}
+                platforms={platforms}
+                onLinked={loadData}
+            />
+
+            {/* Quick Link Modal (manual ID entry) */}
             <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
                 <DialogContent className="max-w-lg">
                     <DialogHeader>
