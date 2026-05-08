@@ -99,6 +99,7 @@ function summarizeOrionAction(action: any): string {
     case 'fulfill_order':   return `Marked order ${action.platform_order_id} as shipped (${action.tracking_number})`;
     case 'cancel_order':    return `Cancelled order ${action.platform_order_id} on ${action.platform_type}`;
     case 'refund_order':    return `Refunded order ${action.platform_order_id} on ${action.platform_type}`;
+    case 'flash_sale': return `Started ${action.discount_percent}% flash sale for ${action.duration_hours}h across ${action.platforms?.join(', ') || 'all platforms'} — auto-restore scheduled`;
     case 'shopify_create_discount': return `Created Shopify discount code ${action.code || ''}`;
     case 'shopify_delete_discount': return `Deleted Shopify discount${action.code ? ` ${action.code}` : ''}`;
     case 'etsy_create_sale':        return `Started Etsy sale on "${name}"${action.discount_percent ? ` (${action.discount_percent}% off)` : ''}`;
@@ -1032,13 +1033,15 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     .or('is_active.eq.true,status.eq.connected')
     .limit(1);
 
-  if (!platforms || platforms.length === 0) {
+  // flash_sale operates across all platforms — Shopify not required
+  const shopifyRequired = action.type !== 'flash_sale';
+  if (shopifyRequired && (!platforms || platforms.length === 0)) {
     throw new Error('No connected Shopify store found. Connect one in the Platforms tab first.');
   }
 
-  const platform = platforms[0];
-  const shopDomain = platform.shop_domain || platform.domain || platform.store_domain;
-  if (!shopDomain) throw new Error('Could not determine Shopify store domain.');
+  const platform = platforms?.[0];
+  const shopDomain = platform?.shop_domain || platform?.domain || platform?.store_domain;
+  if (shopifyRequired && !shopDomain) throw new Error('Could not determine Shopify store domain.');
 
   let accessToken = platform.access_token;
   try {
@@ -5831,6 +5834,218 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: `Created Faire product "${action.title}" (ID: ${faireCrData.id || 'created'}).` };
     }
 
+    case 'flash_sale': {
+      // action.discount_percent — required (1–99)
+      // action.duration_hours   — required, e.g. 24
+      // action.platforms        — optional array, defaults to all connected ['shopify','woocommerce','etsy','ebay']
+      // action.skus             — optional array of SKUs to limit scope
+
+      const discountPct = Number(action.discount_percent);
+      const durationHrs = Number(action.duration_hours);
+      if (!discountPct || discountPct <= 0 || discountPct >= 100) throw new Error('discount_percent must be between 1 and 99.');
+      if (!durationHrs || durationHrs <= 0) throw new Error('duration_hours must be a positive number.');
+
+      const restoreAt = new Date(Date.now() + durationHrs * 3600 * 1000).toISOString();
+      const flashSaleId = crypto.randomUUID();
+      const targetPlatforms: string[] = action.platforms ?? ['shopify', 'woocommerce', 'etsy', 'ebay'];
+      const targetSkus: string[] | null = action.skus && action.skus.length > 0 ? action.skus : null;
+      const multiplier = 1 - discountPct / 100;
+
+      const saleResults: { platform: string; count: number; error?: string }[] = [];
+      const restoreRows: any[] = [];
+
+      // ── Shopify ──────────────────────────────────────────────────────────
+      if (targetPlatforms.includes('shopify') && platforms && platforms.length > 0 && shopDomain) {
+        try {
+          const shopRes = await fetch(`${shopifyBase}/products.json?limit=250&fields=id,title,variants`, { headers });
+          if (!shopRes.ok) throw new Error(`Shopify products fetch failed: ${shopRes.status}`);
+          const { products: shopProds } = await shopRes.json();
+          const shopFiltered = targetSkus
+            ? shopProds.filter((p: any) => (p.variants || []).some((v: any) => targetSkus.includes(v.sku)))
+            : shopProds;
+
+          let shopCount = 0;
+          for (const p of shopFiltered) {
+            for (const v of (p.variants || [])) {
+              if (targetSkus && !targetSkus.includes(v.sku)) continue;
+              const origPrice = parseFloat(v.price);
+              if (!origPrice) continue;
+              const salePrice = parseFloat((origPrice * multiplier).toFixed(2));
+              const upRes = await fetch(`${shopifyBase}/variants/${v.id}.json`, {
+                method: 'PUT', headers,
+                body: JSON.stringify({ variant: { id: v.id, price: String(salePrice), compare_at_price: String(origPrice) } }),
+              });
+              if (!upRes.ok) continue;
+              restoreRows.push({
+                user_id: userId, flash_sale_id: flashSaleId, platform_id: platform.id,
+                platform_type: 'shopify', restore_type: 'price',
+                platform_product_id: String(p.id), platform_variant_id: String(v.id),
+                product_name: p.title, sku: v.sku || null,
+                original_price: origPrice, sale_price: salePrice, restore_at: restoreAt,
+              });
+              shopCount++;
+            }
+          }
+          saleResults.push({ platform: 'Shopify', count: shopCount });
+        } catch (e) {
+          saleResults.push({ platform: 'Shopify', count: 0, error: e.message });
+        }
+      }
+
+      // ── WooCommerce ──────────────────────────────────────────────────────
+      if (targetPlatforms.includes('woocommerce')) {
+        try {
+          const { data: wooPlats } = await supabaseClient.from('platforms').select('*')
+            .eq('user_id', userId).eq('platform_type', 'woocommerce').or('is_active.eq.true,status.eq.connected').limit(1);
+          if (wooPlats && wooPlats.length > 0) {
+            const wooPl = wooPlats[0];
+            const wooToken = wooPl.access_token;
+            const ck = wooToken ? wooToken.split(':')[0] : wooPl.credentials?.consumer_key;
+            const cs = wooToken ? wooToken.split(':')[1] : wooPl.credentials?.consumer_secret;
+            const wooBase = wooPl.store_url || wooPl.shop_domain;
+            if (ck && cs && wooBase) {
+              const wooAuth = `Basic ${btoa(`${ck}:${cs}`)}`;
+              const wooRes = await fetch(`${wooBase}/wp-json/wc/v3/products?per_page=100&status=publish`, { headers: { Authorization: wooAuth } });
+              if (wooRes.ok) {
+                const wooProds = await wooRes.json();
+                const wooFiltered = targetSkus ? wooProds.filter((p: any) => targetSkus.includes(p.sku)) : wooProds;
+                let wooCount = 0;
+                for (const p of wooFiltered) {
+                  const origPrice = parseFloat(p.regular_price || p.price || '0');
+                  if (!origPrice) continue;
+                  const salePrice = parseFloat((origPrice * multiplier).toFixed(2));
+                  const upRes = await fetch(`${wooBase}/wp-json/wc/v3/products/${p.id}`, {
+                    method: 'PUT',
+                    headers: { Authorization: wooAuth, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sale_price: String(salePrice) }),
+                  });
+                  if (!upRes.ok) continue;
+                  restoreRows.push({
+                    user_id: userId, flash_sale_id: flashSaleId, platform_id: wooPl.id,
+                    platform_type: 'woocommerce', restore_type: 'woo_sale_price',
+                    platform_product_id: String(p.id), product_name: p.name, sku: p.sku || null,
+                    original_price: origPrice, sale_price: salePrice, restore_at: restoreAt,
+                  });
+                  wooCount++;
+                }
+                saleResults.push({ platform: 'WooCommerce', count: wooCount });
+              }
+            }
+          }
+        } catch (e) {
+          saleResults.push({ platform: 'WooCommerce', count: 0, error: e.message });
+        }
+      }
+
+      // ── eBay — percentage-off promotion ──────────────────────────────────
+      if (targetPlatforms.includes('ebay')) {
+        try {
+          const ebayCtx = await getEbayClientForActions(supabaseClient, userId);
+          const { platform: ebayPl, apiBase: ebayApiBase, headers: ebayHeaders } = ebayCtx;
+          const promoBody = {
+            name: `Flash Sale ${discountPct}% Off`,
+            promotionType: 'MARKDOWN_SALE',
+            marketplaceId: ebayCtx.marketplaceId,
+            discountRules: [{
+              discountBenefit: { percentageOffItem: String(discountPct) },
+              selectionMode: 'INVENTORY_CATALOG',
+            }],
+            startDate: new Date().toISOString().replace(/\.\d{3}Z$/, '.000Z'),
+            endDate: restoreAt.replace(/\.\d{3}Z$/, '.000Z'),
+            status: 'ACTIVE',
+          };
+          const promoRes = await fetch(`${ebayApiBase}/sell/marketing/v1/item_promotion`, {
+            method: 'POST', headers: ebayHeaders, body: JSON.stringify(promoBody),
+          });
+          if (promoRes.ok || promoRes.status === 201) {
+            const promoData = await promoRes.json();
+            const promoId = promoData.promotionId || promoData.promotion_id;
+            if (promoId) {
+              restoreRows.push({
+                user_id: userId, flash_sale_id: flashSaleId, platform_id: ebayPl.id,
+                platform_type: 'ebay', restore_type: 'end_promotion',
+                promotion_id: promoId, restore_at: restoreAt,
+              });
+              saleResults.push({ platform: 'eBay', count: 1 });
+            }
+          } else {
+            const errText = await promoRes.text();
+            saleResults.push({ platform: 'eBay', count: 0, error: `Promotion failed: ${errText.slice(0, 150)}` });
+          }
+        } catch (e) {
+          // eBay not connected — skip silently
+          if (!e.message?.includes('No connected eBay')) {
+            saleResults.push({ platform: 'eBay', count: 0, error: e.message });
+          }
+        }
+      }
+
+      // ── Etsy — patch listing prices ──────────────────────────────────────
+      if (targetPlatforms.includes('etsy')) {
+        try {
+          const { data: etsyPlats } = await supabaseClient.from('platforms').select('*')
+            .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
+          if (etsyPlats && etsyPlats.length > 0) {
+            const etsyPl = etsyPlats[0];
+            const etsyTok = etsyPl.credentials?.access_token;
+            const etsyShopId = etsyPl.metadata?.shop_id;
+            const etsyClientId = Deno.env.get('ETSY_CLIENT_ID');
+            if (etsyTok && etsyShopId && etsyClientId) {
+              const etsyHdrs = { 'x-api-key': etsyClientId, Authorization: `Bearer ${etsyTok}`, 'Content-Type': 'application/json' };
+              const listRes = await fetch(
+                `https://openapi.etsy.com/v3/application/shops/${etsyShopId}/listings?limit=100&state=active`,
+                { headers: etsyHdrs }
+              );
+              if (listRes.ok) {
+                const listData = await listRes.json();
+                const listings = targetSkus
+                  ? (listData.results || []).filter((l: any) => (l.sku ?? []).some((s: string) => targetSkus.includes(s)))
+                  : (listData.results || []);
+                let etsyCount = 0;
+                for (const l of listings) {
+                  const origPrice = parseFloat(l.price?.amount) / (l.price?.divisor || 100);
+                  if (!origPrice) continue;
+                  const salePrice = parseFloat((origPrice * multiplier).toFixed(2));
+                  const patchRes = await fetch(
+                    `https://openapi.etsy.com/v3/application/shops/${etsyShopId}/listings/${l.listing_id}`,
+                    { method: 'PATCH', headers: etsyHdrs, body: JSON.stringify({ price: salePrice }) }
+                  );
+                  if (!patchRes.ok) continue;
+                  restoreRows.push({
+                    user_id: userId, flash_sale_id: flashSaleId, platform_id: etsyPl.id,
+                    platform_type: 'etsy', restore_type: 'price',
+                    platform_product_id: String(l.listing_id), product_name: l.title,
+                    sku: l.sku?.[0] || null, original_price: origPrice, sale_price: salePrice,
+                    restore_at: restoreAt,
+                  });
+                  etsyCount++;
+                }
+                saleResults.push({ platform: 'Etsy', count: etsyCount });
+              }
+            }
+          }
+        } catch (e) {
+          saleResults.push({ platform: 'Etsy', count: 0, error: e.message });
+        }
+      }
+
+      // Persist restore records
+      if (restoreRows.length > 0) {
+        const { error: insErr } = await supabaseClient.from('scheduled_restores').insert(restoreRows);
+        if (insErr) console.error('[flash_sale] restore insert failed:', insErr.message);
+      }
+
+      const succeeded = saleResults.filter(r => r.count > 0);
+      const errored = saleResults.filter(r => r.count === 0 && r.error);
+      if (succeeded.length === 0) throw new Error(`Flash sale failed on all platforms. ${errored.map(r => `${r.platform}: ${r.error}`).join('; ')}`);
+
+      const restoreTime = new Date(restoreAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+      const platformList = succeeded.map(r => `${r.platform} (${r.count} product${r.count !== 1 ? 's' : ''})`).join(', ');
+      let msg = `Flash sale is live! ${discountPct}% off across ${platformList}. Prices restore automatically at ${restoreTime} — no action needed.`;
+      if (errored.length > 0) msg += ` Could not apply to: ${errored.map(r => r.platform).join(', ')}.`;
+      return { message: msg };
+    }
+
     default:
       throw new Error(`Unknown action type: ${action.type}`);
   }
@@ -6838,6 +7053,32 @@ When the user asks you to create a product, add inventory, change a price, renam
                   Returns conversations with from, subject, preview, unread, conversation_id.
   • send_message  — { type, platform_type: 'etsy', conversation_id, body }
                   Sends a reply to an Etsy conversation (only Etsy supports reply API in v3).
+  Flash Sale (cross-platform, automatic price restore):
+  • flash_sale — { type, discount_percent, duration_hours, platforms?: [...], skus?: [...] }
+    - discount_percent: 1–99 (e.g. 20 for 20% off)
+    - duration_hours: how long the sale runs (e.g. 24, 4, 0.5)
+    - platforms: optional — omit to target ALL connected platforms; or specify ["shopify","etsy","ebay","woocommerce"]
+    - skus: optional — omit to apply to ALL products; or list specific SKUs
+    Shopify: updates variant prices (sets compare_at_price = original so strikethrough shows in storefront)
+    WooCommerce: sets sale_price (regular_price preserved)
+    eBay: creates a percentage-off MARKDOWN_SALE promotion
+    Etsy: patches listing prices directly
+    All platforms: prices restore AUTOMATICALLY at the scheduled time — no manual action needed.
+Example:
+[ORION_ACTION:{"type":"flash_sale","discount_percent":20,"duration_hours":24}]
+[ORION_ACTION:{"type":"flash_sale","discount_percent":30,"duration_hours":4,"platforms":["shopify","etsy"]}]
+[ORION_ACTION:{"type":"flash_sale","discount_percent":15,"duration_hours":48,"skus":["SHIRT-BLK-M","SHIRT-WHT-L"]}]
+
+**Flash Sale Workflow:**
+When the user says anything like "run a flash sale", "put everything on sale", "20% off for the weekend", or "24-hour sale":
+1. Confirm: discount percent + duration. If either is missing, ask before generating the action.
+2. Ask which platforms if the user specifies ("just Shopify and Etsy") — otherwise default to all connected.
+3. Generate a single flash_sale action block. ONE block for all platforms — not one per platform.
+4. After confirming, reassure: "Prices restore automatically at [time] — you don't need to do anything."
+
+⚠️ NEVER say "I'll remind you to restore prices" or "you'll need to end the sale manually" — the restore is fully automatic.
+⚠️ flash_sale handles all connected platforms in one action. Do NOT generate separate update_price/ebay_update_price/etsy_update_price blocks alongside it.
+
   Auto-reorder / Purchase Orders:
   • check_reorder_needs         — { type, low_stock_threshold?: 10, create_draft_pos?: false }
                                 Scans inventory for low-stock products with linked suppliers.
