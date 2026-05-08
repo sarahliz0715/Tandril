@@ -105,6 +105,10 @@ serve(async (req) => {
       );
     }
 
+    const resolvedSourceType = source_platform_type
+      ?? allLinks.find(l => l.platform_id === source_platform_id)?.platform_type
+      ?? allLinks[0]?.platform_type;
+
     const syncResults: any[] = [];
 
     for (const link of targetLinks) {
@@ -145,14 +149,48 @@ serve(async (req) => {
       if (result.success) {
         await supabase
           .from('platform_product_links')
-          .update({ last_synced_at: new Date().toISOString() })
+          .update({
+            last_synced_at: new Date().toISOString(),
+            last_synced_quantity: new_quantity,
+            last_sync_error: null,
+            last_sync_failed_at: null,
+          })
           .eq('id', link.id);
+
+        // Clear any pending retry for this link
+        await supabase
+          .from('sync_retry_queue')
+          .update({ resolved_at: new Date().toISOString() })
+          .eq('user_id', user_id)
+          .eq('sku', sku)
+          .eq('target_platform_id', link.platform_id)
+          .is('resolved_at', null);
+
+      } else if (result.error && !result.skipped) {
+        // Record failure on the link for UI health indicator
+        await supabase
+          .from('platform_product_links')
+          .update({
+            last_sync_error: result.error,
+            last_sync_failed_at: new Date().toISOString(),
+          })
+          .eq('id', link.id);
+
+        // Queue for retry (upsert so we don't flood with duplicates)
+        await supabase.from('sync_retry_queue').insert({
+          user_id,
+          sku,
+          target_platform_id: link.platform_id,
+          target_platform_type: link.platform_type,
+          quantity: new_quantity,
+          source_platform_type: resolvedSourceType ?? 'unknown',
+          triggered_by: triggered_by ?? 'manual',
+          attempt_count: 1,
+          last_attempted_at: new Date().toISOString(),
+          last_error: result.error,
+        });
       }
     }
-
-    const resolvedSourceType = source_platform_type
-      ?? allLinks.find(l => l.platform_id === source_platform_id)?.platform_type
-      ?? allLinks[0]?.platform_type;
 
     await supabase.from('inventory_sync_log').insert({
       user_id, sku,

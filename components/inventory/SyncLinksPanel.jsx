@@ -9,12 +9,13 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Link2, Plus, Trash2, RefreshCw, CheckCircle, XCircle, Loader2, Clock } from 'lucide-react';
+import { Link2, Plus, Trash2, RefreshCw, CheckCircle, XCircle, Loader2, Clock, AlertTriangle } from 'lucide-react';
 
 export default function SyncLinksPanel() {
     const [links, setLinks] = useState([]);
     const [platforms, setPlatforms] = useState([]);
     const [syncLog, setSyncLog] = useState([]);
+    const [retryQueue, setRetryQueue] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [showAddModal, setShowAddModal] = useState(false);
     const [isSyncing, setIsSyncing] = useState(null);
@@ -33,7 +34,7 @@ export default function SyncLinksPanel() {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) return;
 
-            const [linksRes, platformsRes, logRes] = await Promise.all([
+            const [linksRes, platformsRes, logRes, retryRes] = await Promise.all([
                 supabase
                     .from('platform_product_links')
                     .select('*, platforms(shop_name, shop_domain, platform_type)')
@@ -50,11 +51,17 @@ export default function SyncLinksPanel() {
                     .eq('user_id', user.id)
                     .order('created_at', { ascending: false })
                     .limit(20),
+                supabase
+                    .from('sync_retry_queue')
+                    .select('target_platform_id, sku, last_error, last_attempted_at')
+                    .eq('user_id', user.id)
+                    .is('resolved_at', null),
             ]);
 
             setLinks(linksRes.data ?? []);
             setPlatforms(platformsRes.data ?? []);
             setSyncLog(logRes.data ?? []);
+            setRetryQueue(retryRes.data ?? []);
         } catch (err) {
             console.error('SyncLinksPanel load error:', err);
         } finally {
@@ -148,7 +155,12 @@ export default function SyncLinksPanel() {
 
             const data = result?.data ?? result;
             if (data?.success) {
-                toast.success(`Synced ${data.synced ?? 0} platform(s) for SKU ${sku}`);
+                const qty = data.results?.find(r => r.success)?.quantity ?? '';
+                const qtyNote = qty !== '' ? ` → qty ${qty}` : '';
+                toast.success(`Synced ${data.synced ?? 0} of ${data.total ?? 0} platform(s) for ${sku}${qtyNote}`);
+                if ((data.total ?? 0) > (data.synced ?? 0)) {
+                    toast.warning(`${(data.total ?? 0) - (data.synced ?? 0)} platform(s) failed — will retry automatically`);
+                }
                 loadData();
             } else {
                 throw new Error(data?.error || 'Sync failed');
@@ -205,6 +217,12 @@ export default function SyncLinksPanel() {
                     </p>
                 </CardHeader>
                 <CardContent>
+                    {retryQueue.length > 0 && (
+                        <div className="flex items-center gap-2 mb-4 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                            <span>{retryQueue.length} sync{retryQueue.length !== 1 ? 's' : ''} failed and will retry automatically. Click <strong>Sync Now</strong> on the affected SKU to force an immediate retry.</span>
+                        </div>
+                    )}
                     {Object.keys(linksBySku).length === 0 ? (
                         <div className="text-center py-12 text-slate-500">
                             <Link2 className="w-10 h-10 mx-auto mb-3 text-slate-300" />
@@ -233,24 +251,35 @@ export default function SyncLinksPanel() {
                                         </Button>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
-                                        {skuLinks.map(link => (
-                                            <div key={link.id} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-md px-3 py-1.5">
-                                                <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${platformColor(link.platform_type)}`}>
-                                                    {link.platform_type}
-                                                </span>
-                                                <span className="text-sm text-slate-700">{platformLabel(link)}</span>
-                                                <span className="text-xs text-slate-400 font-mono">#{link.platform_product_id}{link.platform_variant_id ? `/${link.platform_variant_id}` : ''}</span>
-                                                {link.last_synced_at && (
-                                                    <span className="text-xs text-slate-400 flex items-center gap-1">
-                                                        <Clock className="w-3 h-3" />
-                                                        {new Date(link.last_synced_at).toLocaleDateString()}
+                                        {skuLinks.map(link => {
+                                            const hasPendingRetry = retryQueue.some(
+                                                r => r.target_platform_id === link.platform_id && r.sku === link.sku
+                                            );
+                                            const hasError = !!link.last_sync_error;
+                                            return (
+                                                <div key={link.id} className={`flex items-center gap-2 rounded-md px-3 py-1.5 border ${hasError || hasPendingRetry ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}>
+                                                    {hasError || hasPendingRetry
+                                                        ? <AlertTriangle className="w-3 h-3 text-red-500 flex-shrink-0" title={link.last_sync_error ?? 'Sync failed — queued for retry'} />
+                                                        : link.last_synced_at
+                                                            ? <CheckCircle className="w-3 h-3 text-green-500 flex-shrink-0" />
+                                                            : <Clock className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                                                    }
+                                                    <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${platformColor(link.platform_type)}`}>
+                                                        {link.platform_type}
                                                     </span>
-                                                )}
-                                                <button onClick={() => handleDelete(link.id)} className="text-slate-400 hover:text-red-500 ml-1">
-                                                    <Trash2 className="w-3 h-3" />
-                                                </button>
-                                            </div>
-                                        ))}
+                                                    <span className="text-sm text-slate-700">{platformLabel(link)}</span>
+                                                    <span className="text-xs text-slate-400 font-mono">#{link.platform_product_id}{link.platform_variant_id ? `/${link.platform_variant_id}` : ''}</span>
+                                                    {link.last_synced_at && link.last_synced_quantity != null && (
+                                                        <span className="text-xs text-slate-400">
+                                                            qty {link.last_synced_quantity} · {new Date(link.last_synced_at).toLocaleDateString()}
+                                                        </span>
+                                                    )}
+                                                    <button onClick={() => handleDelete(link.id)} className="text-slate-400 hover:text-red-500 ml-1">
+                                                        <Trash2 className="w-3 h-3" />
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             ))}

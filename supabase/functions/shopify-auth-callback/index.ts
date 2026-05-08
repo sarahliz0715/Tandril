@@ -148,19 +148,18 @@ serve(async (req) => {
 
     console.log(`[Shopify Callback] Successfully connected ${shop} for user ${userId}`);
 
-    // Register order webhook for inventory sync
+    // Register order + cancellation webhooks for inventory sync
     try {
       const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/shopify-order-webhook`;
-      await fetch(`https://${shop}/admin/api/2024-01/webhooks.json`, {
-        method: 'POST',
-        headers: { 'X-Shopify-Access-Token': access_token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          webhook: { topic: 'orders/paid', address: webhookUrl, format: 'json' }
-        }),
-      });
-      console.log(`[Shopify Callback] Registered orders/paid webhook for ${shop}`);
+      const whHeaders = { 'X-Shopify-Access-Token': access_token, 'Content-Type': 'application/json' };
+      const whBase = `https://${shop}/admin/api/2024-01/webhooks.json`;
+      await Promise.all([
+        fetch(whBase, { method: 'POST', headers: whHeaders, body: JSON.stringify({ webhook: { topic: 'orders/paid', address: webhookUrl, format: 'json' } }) }),
+        fetch(whBase, { method: 'POST', headers: whHeaders, body: JSON.stringify({ webhook: { topic: 'orders/cancelled', address: webhookUrl, format: 'json' } }) }),
+        fetch(whBase, { method: 'POST', headers: whHeaders, body: JSON.stringify({ webhook: { topic: 'refunds/create', address: webhookUrl, format: 'json' } }) }),
+      ]);
+      console.log(`[Shopify Callback] Registered orders/paid, orders/cancelled, refunds/create webhooks for ${shop}`);
     } catch (webhookErr) {
-      // Non-fatal — sync still works manually, just won't be real-time
       console.warn(`[Shopify Callback] Webhook registration failed: ${webhookErr.message}`);
     }
 
