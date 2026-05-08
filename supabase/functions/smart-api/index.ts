@@ -6452,6 +6452,58 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     return qty !== null && qty <= 5;
   });
 
+  // ── Cross-platform sync context ──────────────────────────────────────────────
+  const { data: syncLinks } = await supabaseClient
+    .from('platform_product_links')
+    .select('sku, platform_type, last_synced_at, last_synced_quantity, last_sync_error, last_sync_failed_at')
+    .eq('user_id', userId);
+
+  const { data: recentSyncLog } = await supabaseClient
+    .from('inventory_sync_log')
+    .select('sku, source_platform_type, new_quantity, synced_platforms, triggered_by, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(10);
+
+  const { data: pendingRetries } = await supabaseClient
+    .from('sync_retry_queue')
+    .select('sku, target_platform_type, last_error, attempt_count')
+    .eq('user_id', userId)
+    .is('resolved_at', null);
+
+  const linkedSkus = [...new Set((syncLinks || []).map((l: any) => l.sku))];
+  const failedLinks = (syncLinks || []).filter((l: any) => l.last_sync_error);
+  const lastSyncAt = (syncLinks || [])
+    .map((l: any) => l.last_synced_at)
+    .filter(Boolean)
+    .sort()
+    .at(-1);
+
+  const syncSummary = linkedSkus.length === 0 ? null : {
+    linked_sku_count: linkedSkus.length,
+    linked_skus: linkedSkus.slice(0, 20),
+    platform_links: (syncLinks || []).map((l: any) => ({
+      sku: l.sku,
+      platform: l.platform_type,
+      last_synced_at: l.last_synced_at,
+      last_synced_quantity: l.last_synced_quantity,
+      has_error: !!l.last_sync_error,
+      error: l.last_sync_error ?? null,
+    })),
+    recent_syncs: (recentSyncLog || []).map((s: any) => ({
+      sku: s.sku,
+      source: s.source_platform_type,
+      quantity: s.new_quantity,
+      trigger: s.triggered_by,
+      platforms_synced: ((s.synced_platforms as any[]) || []).filter((p: any) => p.success).map((p: any) => p.platform_type),
+      platforms_failed: ((s.synced_platforms as any[]) || []).filter((p: any) => !p.success && !p.skipped).map((p: any) => p.platform_type),
+      at: s.created_at,
+    })),
+    pending_retries: (pendingRetries || []).length,
+    failed_links: failedLinks.length,
+    last_sync_at: lastSyncAt ?? null,
+  };
+
   return {
     platforms: platforms || [],
     products,
@@ -6460,6 +6512,7 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     total_orders: totalOrders,
     low_stock_products: lowStockProducts,
     ebay_fetch_errors: ebayFetchErrors,
+    sync_summary: syncSummary,
     metrics: {
       total_revenue: totalRevenue,
       avg_order_value: avgOrderValue,
@@ -6559,6 +6612,27 @@ async function chatWithClaude(
   const memorySection = memoryNotes.length > 0
     ? `\n**What I Know About This Business (from past conversations):**\n${formatMemory(memoryNotes)}\n⚠️ IMPORTANT: Memory notes reflect past conversations and may be outdated. Always prefer live data above (connected platforms, product list, orders) over any memory note about platform connection status, eBay sync status, or data availability. If live data shows eBay products are loaded, that is the truth — ignore any memory note suggesting otherwise.\n`
     : '';
+
+  const sync = storeContext.sync_summary;
+  const syncSection = sync ? (() => {
+    const failedLines = sync.platform_links
+      .filter((l: any) => l.has_error)
+      .map((l: any) => `  - SKU ${l.sku} on ${l.platform}: ${l.error}`)
+      .join('\n');
+    const recentLines = (sync.recent_syncs as any[]).slice(0, 5).map((s: any) => {
+      const ok = s.platforms_synced.join(', ') || 'none';
+      const fail = s.platforms_failed.length ? ` ⚠️ failed: ${s.platforms_failed.join(', ')}` : '';
+      const when = s.at ? new Date(s.at).toLocaleString() : '';
+      return `  - SKU ${s.sku} → qty ${s.quantity} synced to [${ok}]${fail} (${s.trigger}, ${when})`;
+    }).join('\n');
+
+    return `\n**Cross-Platform Inventory Sync Status:**
+- Linked SKUs: ${sync.linked_sku_count} (${sync.linked_skus.join(', ')}${sync.linked_sku_count > 20 ? '…' : ''})
+- Last sync: ${sync.last_sync_at ? new Date(sync.last_sync_at).toLocaleString() : 'never'}
+- Pending retries: ${sync.pending_retries}${sync.failed_links > 0 ? `\n- ⚠️ ${sync.failed_links} link(s) in permanent failure state` : ''}
+${recentLines ? `Recent sync events:\n${recentLines}` : 'No recent syncs on record.'}${failedLines ? `\nLinks with errors:\n${failedLines}` : ''}
+SYNC RULES: When a user asks "are my inventories in sync?", "when did my last sync happen?", "why did my stock change?", or anything about inventory sync health, answer directly using the data above. If sync.pending_retries > 0 proactively mention it. If sync.failed_links > 0, name the specific SKUs and platforms that are failing and suggest they check the Inventory → Sync Links tab.\n`;
+  })() : '';
 
   const systemPrompt = `You are Orion, an AI business wingman for e-commerce sellers. You're sharp, direct, and genuinely invested in their success. You remember past conversations and build on what you've learned over time.
 
@@ -7385,7 +7459,7 @@ Action grouping — choose the most efficient approach:
 - Revenue last 30 days: $${(storeContext.metrics.revenue_last_30d || 0).toFixed(2)} (${storeContext.metrics.orders_last_30d || 0} orders)
 - Average Order Value (last 30d): $${storeContext.metrics.orders_last_30d > 0 ? (storeContext.metrics.revenue_last_30d / storeContext.metrics.orders_last_30d).toFixed(2) : '0.00'}
 ${storeContext.metrics.revenue_by_platform_30d ? `- Revenue by platform (last 30d): ${storeContext.metrics.revenue_by_platform_30d}` : ''}
-${lowStockSection}${ebayErrorSection}${memorySection}
+${lowStockSection}${ebayErrorSection}${memorySection}${syncSection}
 ${mode !== 'demo/test' ? `**Product Inventory (${storeContext.products.length} of ${storeContext.total_products} products):**
 ${formatProducts(storeContext.products)}
 
