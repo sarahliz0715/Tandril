@@ -24,6 +24,8 @@ export default function SyncLinksPanel() {
         platform_product_id: '',
         platform_variant_id: '',
     });
+    const [variants, setVariants] = useState([]);
+    const [isFetchingVariants, setIsFetchingVariants] = useState(false);
 
     const loadData = useCallback(async () => {
         setIsLoading(true);
@@ -89,6 +91,7 @@ export default function SyncLinksPanel() {
         toast.success('Product link added');
         setShowAddModal(false);
         setForm({ sku: '', platform_id: '', platform_product_id: '', platform_variant_id: '' });
+        setVariants([]);
         loadData();
     };
 
@@ -97,6 +100,31 @@ export default function SyncLinksPanel() {
         if (error) { toast.error('Failed to delete link'); return; }
         toast.success('Link removed');
         loadData();
+    };
+
+    const handleFetchVariants = async () => {
+        if (!form.platform_id || !form.platform_product_id) return;
+        setIsFetchingVariants(true);
+        setVariants([]);
+        setForm(f => ({ ...f, platform_variant_id: '' }));
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            const result = await api.functions.invoke('fetch-product-variants', {
+                user_id: user.id,
+                platform_id: form.platform_id,
+                product_id: form.platform_product_id,
+            });
+            const data = result?.data ?? result;
+            if (data?.variants?.length > 0) {
+                setVariants(data.variants);
+            } else {
+                toast.info('No variants found — this is a simple product');
+            }
+        } catch (err) {
+            toast.error(`Could not load variants: ${err.message}`);
+        } finally {
+            setIsFetchingVariants(false);
+        }
     };
 
     const handleManualSync = async (sku) => {
@@ -287,7 +315,7 @@ export default function SyncLinksPanel() {
                         </div>
                         <div>
                             <Label>Platform *</Label>
-                            <Select value={form.platform_id} onValueChange={v => setForm(f => ({ ...f, platform_id: v }))}>
+                            <Select value={form.platform_id} onValueChange={v => { setForm(f => ({ ...f, platform_id: v, platform_variant_id: '' })); setVariants([]); }}>
                                 <SelectTrigger>
                                     <SelectValue placeholder="Select a connected platform..." />
                                 </SelectTrigger>
@@ -302,19 +330,55 @@ export default function SyncLinksPanel() {
                         </div>
                         <div>
                             <Label>Product ID on that platform *</Label>
-                            <Input
-                                placeholder="e.g. 7234567890123 (Shopify product ID)"
-                                value={form.platform_product_id}
-                                onChange={e => setForm(f => ({ ...f, platform_product_id: e.target.value }))}
-                            />
+                            <div className="flex gap-2">
+                                <Input
+                                    placeholder="e.g. 7234567890123 (Shopify product ID)"
+                                    value={form.platform_product_id}
+                                    onChange={e => {
+                                        setForm(f => ({ ...f, platform_product_id: e.target.value, platform_variant_id: '' }));
+                                        setVariants([]);
+                                    }}
+                                />
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="shrink-0"
+                                    disabled={!form.platform_id || !form.platform_product_id || isFetchingVariants}
+                                    onClick={handleFetchVariants}
+                                >
+                                    {isFetchingVariants
+                                        ? <Loader2 className="w-4 h-4 animate-spin" />
+                                        : 'Load Variants'}
+                                </Button>
+                            </div>
                         </div>
                         <div>
-                            <Label>Variant ID <span className="text-slate-400">(optional — only if product has variants)</span></Label>
-                            <Input
-                                placeholder="e.g. 41234567890123"
-                                value={form.platform_variant_id}
-                                onChange={e => setForm(f => ({ ...f, platform_variant_id: e.target.value }))}
-                            />
+                            <Label>
+                                Variant{' '}
+                                <span className="text-slate-400">(optional — only if product has variants)</span>
+                            </Label>
+                            {variants.length > 0 ? (
+                                <Select
+                                    value={form.platform_variant_id}
+                                    onValueChange={v => setForm(f => ({ ...f, platform_variant_id: v }))}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select a variant..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {variants.map(v => (
+                                            <SelectItem key={v.id} value={v.id}>{v.label}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            ) : (
+                                <Input
+                                    placeholder="e.g. 41234567890123 — or click Load Variants above"
+                                    value={form.platform_variant_id}
+                                    onChange={e => setForm(f => ({ ...f, platform_variant_id: e.target.value }))}
+                                />
+                            )}
                         </div>
                     </div>
                     <DialogFooter>

@@ -369,10 +369,15 @@ async function syncEtsy(platform: any, link: any, qty: number, result: any) {
   if (!getRes.ok) throw new Error(`Etsy inventory fetch failed: ${getRes.status}`);
   const inv = await getRes.json();
 
-  // Update quantity on all offerings
+  const targetOfferingId = link.platform_variant_id ? String(link.platform_variant_id) : null;
+
+  // If a specific offering (variant) is linked, only update that one; otherwise update all
   const updatedProducts = (inv.products ?? []).map((product: any) => ({
     ...product,
-    offerings: (product.offerings ?? []).map((offering: any) => ({ ...offering, quantity: qty })),
+    offerings: (product.offerings ?? []).map((offering: any) => {
+      if (targetOfferingId && String(offering.offering_id) !== targetOfferingId) return offering;
+      return { ...offering, quantity: qty };
+    }),
   }));
 
   const putRes = await fetch(`https://openapi.etsy.com/v3/application/listings/${listingId}/inventory`, {
