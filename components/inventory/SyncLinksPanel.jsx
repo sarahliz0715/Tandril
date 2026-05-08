@@ -27,6 +27,7 @@ export default function SyncLinksPanel() {
     });
     const [variants, setVariants] = useState([]);
     const [isFetchingVariants, setIsFetchingVariants] = useState(false);
+    const [isReconciling, setIsReconciling] = useState(false);
 
     const loadData = useCallback(async () => {
         setIsLoading(true);
@@ -53,9 +54,9 @@ export default function SyncLinksPanel() {
                     .limit(20),
                 supabase
                     .from('sync_retry_queue')
-                    .select('target_platform_id, sku, last_error, last_attempted_at')
+                    .select('target_platform_id, sku, last_error, last_attempted_at, attempt_count, resolved_at')
                     .eq('user_id', user.id)
-                    .is('resolved_at', null),
+                    .or('resolved_at.is.null,and(resolved_at.not.is.null,last_error.not.is.null)'),
             ]);
 
             setLinks(linksRes.data ?? []);
@@ -107,6 +108,41 @@ export default function SyncLinksPanel() {
         if (error) { toast.error('Failed to delete link'); return; }
         toast.success('Link removed');
         loadData();
+    };
+
+    const handleReconcileAll = async () => {
+        setIsReconciling(true);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            const skus = [...new Set(links.map(l => l.sku))];
+            if (skus.length === 0) { toast.info('No linked SKUs to reconcile'); return; }
+
+            toast.info(`Reconciling ${skus.length} SKU(s)…`);
+            let totalSynced = 0;
+            let totalFailed = 0;
+
+            await Promise.all(skus.map(async (sku) => {
+                try {
+                    const result = await api.functions.invoke('sync-inventory-levels', {
+                        user_id: user.id,
+                        sku,
+                        triggered_by: 'reconcile',
+                    });
+                    const data = result?.data ?? result;
+                    if (data?.success) {
+                        totalSynced += data.synced ?? 0;
+                        totalFailed += (data.total ?? 0) - (data.synced ?? 0);
+                    }
+                } catch { totalFailed++; }
+            }));
+
+            toast.success(`Reconcile complete — ${totalSynced} sync(s) pushed${totalFailed > 0 ? `, ${totalFailed} failed (queued for retry)` : ''}`);
+            loadData();
+        } catch (err) {
+            toast.error(`Reconcile failed: ${err.message}`);
+        } finally {
+            setIsReconciling(false);
+        }
     };
 
     const handleFetchVariants = async () => {
@@ -207,22 +243,51 @@ export default function SyncLinksPanel() {
                             <Link2 className="w-5 h-5 text-emerald-600" />
                             <CardTitle>Cross-Platform Sync Links</CardTitle>
                         </div>
-                        <Button onClick={() => setShowAddModal(true)} className="bg-emerald-600 hover:bg-emerald-700">
-                            <Plus className="w-4 h-4 mr-2" />
-                            Link Product
-                        </Button>
+                        <div className="flex gap-2">
+                            {links.length > 0 && (
+                                <Button
+                                    variant="outline"
+                                    onClick={handleReconcileAll}
+                                    disabled={isReconciling}
+                                    title="Fetch current inventory from each source platform and push to all linked platforms"
+                                >
+                                    {isReconciling
+                                        ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                        : <RefreshCw className="w-4 h-4 mr-2" />}
+                                    Reconcile All
+                                </Button>
+                            )}
+                            <Button onClick={() => setShowAddModal(true)} className="bg-emerald-600 hover:bg-emerald-700">
+                                <Plus className="w-4 h-4 mr-2" />
+                                Link Product
+                            </Button>
+                        </div>
                     </div>
                     <p className="text-sm text-slate-500 mt-1">
                         Link the same product across platforms by SKU. When it sells on one, inventory updates everywhere.
                     </p>
                 </CardHeader>
                 <CardContent>
-                    {retryQueue.length > 0 && (
-                        <div className="flex items-center gap-2 mb-4 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-                            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                            <span>{retryQueue.length} sync{retryQueue.length !== 1 ? 's' : ''} failed and will retry automatically. Click <strong>Sync Now</strong> on the affected SKU to force an immediate retry.</span>
-                        </div>
-                    )}
+                    {retryQueue.length > 0 && (() => {
+                        const gaveUp = retryQueue.filter(r => r.resolved_at && r.last_error);
+                        const retrying = retryQueue.filter(r => !r.resolved_at);
+                        return (
+                            <>
+                                {retrying.length > 0 && (
+                                    <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                                        <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                                        <span>{retrying.length} sync{retrying.length !== 1 ? 's' : ''} failed and will retry automatically. Click <strong>Sync Now</strong> or <strong>Reconcile All</strong> to force an immediate retry.</span>
+                                    </div>
+                                )}
+                                {gaveUp.length > 0 && (
+                                    <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
+                                        <XCircle className="w-4 h-4 flex-shrink-0" />
+                                        <span>{gaveUp.length} sync{gaveUp.length !== 1 ? 's' : ''} failed after all retry attempts. Click <strong>Reconcile All</strong> to try again manually.</span>
+                                    </div>
+                                )}
+                            </>
+                        );
+                    })()}
                     {Object.keys(linksBySku).length === 0 ? (
                         <div className="text-center py-12 text-slate-500">
                             <Link2 className="w-10 h-10 mx-auto mb-3 text-slate-300" />
