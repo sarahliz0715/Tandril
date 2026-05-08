@@ -80,8 +80,7 @@ serve(async (req) => {
       if (!sourceLink) throw new Error('No active source platform found to fetch current quantity');
 
       const sourcePlatform = sourceLink.platforms;
-      let sourceToken = sourcePlatform?.access_token;
-      if (sourceToken && isEncrypted(sourceToken)) sourceToken = await decrypt(sourceToken);
+      const sourceToken = await resolveToken(sourcePlatform);
       if (!sourceToken) throw new Error('Source platform has no access token');
 
       new_quantity = await fetchCurrentQty(sourcePlatform, sourceLink, sourceToken);
@@ -112,16 +111,16 @@ serve(async (req) => {
       const platform = link.platforms;
       if (!platform || !platform.is_active) continue;
 
-      let token = platform.access_token;
-      if (token && isEncrypted(token)) token = await decrypt(token);
-      if (!token) continue;
+      // Resolve token: Shopify uses access_token (encrypted); WooCommerce may use
+      // credentials.consumer_key/consumer_secret; eBay/Etsy use credentials.access_token
+      const token = await resolveToken(platform);
 
       let result: any = { platform_type: link.platform_type, platform_id: link.platform_id, success: false };
 
       try {
         switch (link.platform_type) {
           case 'shopify':
-            result = await syncShopify(platform, link, new_quantity, token, result);
+            result = await syncShopify(platform, link, new_quantity, token ?? '', result);
             break;
           case 'woocommerce':
             result = await syncWooCommerce(platform, link, new_quantity, token, result);
@@ -179,6 +178,34 @@ serve(async (req) => {
     );
   }
 });
+
+async function resolveToken(platform: any): Promise<string | null> {
+  if (!platform) return null;
+  switch (platform.platform_type) {
+    case 'shopify': {
+      let t = platform.access_token;
+      if (t && isEncrypted(t)) t = await decrypt(t);
+      return t || null;
+    }
+    case 'woocommerce': {
+      // May be stored as encrypted "key:secret" in access_token, or as credentials JSONB
+      if (platform.access_token) {
+        let t = platform.access_token;
+        if (isEncrypted(t)) t = await decrypt(t);
+        return t;
+      }
+      const ck = platform.credentials?.consumer_key;
+      const cs = platform.credentials?.consumer_secret;
+      return ck && cs ? `${ck}:${cs}` : null;
+    }
+    case 'ebay':
+    case 'etsy':
+      // These use platform.credentials.access_token — handled directly in their sync functions
+      return platform.credentials?.access_token || null;
+    default:
+      return platform.access_token || null;
+  }
+}
 
 async function fetchCurrentQty(platform: any, link: any, token: string): Promise<number> {
   switch (platform.platform_type) {
