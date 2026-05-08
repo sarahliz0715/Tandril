@@ -103,19 +103,18 @@ export default function SyncLinksPanel() {
         setIsSyncing(sku);
         try {
             const { data: { user } } = await supabase.auth.getUser();
-            // Get current quantity from first linked Shopify platform for this SKU
-            const shopifyLink = links.find(l => l.sku === sku && l.platform_type === 'shopify');
-            if (!shopifyLink) {
-                toast.error('No Shopify platform linked for this SKU — sync requires a Shopify source');
+            // Use the first linked platform as source — backend will fetch current qty from it
+            const sourceLink = links.find(l => l.sku === sku);
+            if (!sourceLink) {
+                toast.error('No linked platforms found for this SKU');
                 return;
             }
 
             const result = await api.functions.invoke('sync-inventory-levels', {
                 user_id: user.id,
                 sku,
-                new_quantity: null, // null = fetch current qty from source
-                source_platform_id: shopifyLink.platform_id,
-                source_platform_type: 'shopify',
+                source_platform_id: sourceLink.platform_id,
+                source_platform_type: sourceLink.platform_type,
                 triggered_by: 'manual',
             });
 

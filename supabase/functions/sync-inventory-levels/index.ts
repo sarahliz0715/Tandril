@@ -49,33 +49,66 @@ serve(async (req) => {
     let body: any = {};
     try { const t = await req.text(); if (t) body = JSON.parse(t); } catch { /**/ }
 
-    const { user_id, sku, new_quantity, source_platform_id, source_platform_type, triggered_by } = body;
+    const { user_id, sku, source_platform_id, source_platform_type, triggered_by } = body;
+    let { new_quantity } = body;
 
-    if (!user_id || !sku || new_quantity === undefined) {
-      throw new Error('Missing required fields: user_id, sku, new_quantity');
+    if (!user_id || !sku) {
+      throw new Error('Missing required fields: user_id, sku');
     }
 
-    console.log(`[sync-inventory-levels] SKU=${sku} qty=${new_quantity} user=${user_id}`);
-
-    const { data: links, error: linksError } = await supabase
+    // Load ALL links for this SKU so we can resolve qty from source if needed
+    const { data: allLinks, error: allLinksError } = await supabase
       .from('platform_product_links')
       .select('*, platforms(*)')
       .eq('user_id', user_id)
-      .eq('sku', sku)
-      .neq('platform_id', source_platform_id ?? '');
+      .eq('sku', sku);
 
-    if (linksError) throw new Error(`Failed to fetch product links: ${linksError.message}`);
-
-    if (!links || links.length === 0) {
+    if (allLinksError) throw new Error(`Failed to fetch product links: ${allLinksError.message}`);
+    if (!allLinks || allLinks.length === 0) {
       return new Response(
         JSON.stringify({ success: true, synced: 0, message: 'No linked platforms for this SKU' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
+    // If no quantity provided, fetch current qty from the source platform (or first active platform)
+    if (new_quantity === null || new_quantity === undefined) {
+      const sourceLink = source_platform_id
+        ? allLinks.find(l => l.platform_id === source_platform_id)
+        : allLinks.find(l => l.platforms?.is_active);
+
+      if (!sourceLink) throw new Error('No active source platform found to fetch current quantity');
+
+      const sourcePlatform = sourceLink.platforms;
+      let sourceToken = sourcePlatform?.access_token;
+      if (sourceToken && isEncrypted(sourceToken)) sourceToken = await decrypt(sourceToken);
+      if (!sourceToken) throw new Error('Source platform has no access token');
+
+      new_quantity = await fetchCurrentQty(sourcePlatform, sourceLink, sourceToken);
+      console.log(`[sync-inventory-levels] Resolved qty=${new_quantity} from source platform ${sourcePlatform.platform_type}`);
+    }
+
+    if (new_quantity === null || new_quantity === undefined) {
+      throw new Error('Could not resolve inventory quantity from source platform');
+    }
+
+    console.log(`[sync-inventory-levels] SKU=${sku} qty=${new_quantity} user=${user_id}`);
+
+    // Target links = all platforms except the source
+    const targetLinks = source_platform_id
+      ? allLinks.filter(l => l.platform_id !== source_platform_id)
+      : allLinks.slice(1); // skip the first (used as source above)
+
+    if (targetLinks.length === 0) {
+      return new Response(
+        JSON.stringify({ success: true, synced: 0, message: 'No other platforms to sync to' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const syncResults: any[] = [];
 
-    for (const link of links) {
+    for (const link of targetLinks) {
       const platform = link.platforms;
       if (!platform || !platform.is_active) continue;
 
@@ -112,9 +145,14 @@ serve(async (req) => {
       }
     }
 
+    const resolvedSourceType = source_platform_type
+      ?? allLinks.find(l => l.platform_id === source_platform_id)?.platform_type
+      ?? allLinks[0]?.platform_type;
+
     await supabase.from('inventory_sync_log').insert({
-      user_id, sku, source_platform_type,
-      source_platform_id: source_platform_id ?? null,
+      user_id, sku,
+      source_platform_type: resolvedSourceType,
+      source_platform_id: source_platform_id ?? allLinks[0]?.platform_id ?? null,
       new_quantity, synced_platforms: syncResults,
       triggered_by: triggered_by ?? 'manual',
     });
@@ -135,6 +173,37 @@ serve(async (req) => {
     );
   }
 });
+
+async function fetchCurrentQty(platform: any, link: any, token: string): Promise<number> {
+  switch (platform.platform_type) {
+    case 'shopify': {
+      const shopDomain = platform.shop_domain;
+      const variantId = link.platform_variant_id;
+      if (!variantId) throw new Error('Shopify source link requires a variant ID to fetch current quantity');
+      const res = await fetch(
+        `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/variants/${variantId}.json`,
+        { headers: { 'X-Shopify-Access-Token': token } }
+      );
+      if (!res.ok) throw new Error(`Shopify variant fetch failed: ${res.status}`);
+      const { variant } = await res.json();
+      return variant.inventory_quantity ?? 0;
+    }
+    case 'woocommerce': {
+      const storeUrl = platform.store_url || platform.shop_domain;
+      const [ck, cs] = token.split(':');
+      const credentials = btoa(`${ck}:${cs}`);
+      const endpoint = link.platform_variant_id
+        ? `${storeUrl}/wp-json/wc/v3/products/${link.platform_product_id}/variations/${link.platform_variant_id}`
+        : `${storeUrl}/wp-json/wc/v3/products/${link.platform_product_id}`;
+      const res = await fetch(endpoint, { headers: { 'Authorization': `Basic ${credentials}` } });
+      if (!res.ok) throw new Error(`WooCommerce product fetch failed: ${res.status}`);
+      const data = await res.json();
+      return data.stock_quantity ?? 0;
+    }
+    default:
+      throw new Error(`Cannot fetch current quantity from ${platform.platform_type} — not supported as sync source`);
+  }
+}
 
 async function syncShopify(platform: any, link: any, qty: number, token: string, result: any) {
   const shopDomain = platform.shop_domain;
