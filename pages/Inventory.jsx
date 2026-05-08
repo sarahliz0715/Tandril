@@ -308,6 +308,8 @@ export default function Inventory() {
         </Card>
       </div>
 
+      <SyncLinksPanel />
+
       <Card>
         <CardHeader>
           <div className="flex flex-col sm:flex-row gap-4">
@@ -366,8 +368,6 @@ export default function Inventory() {
           <InventoryAnalytics inventory={inventory} />
         </>
       )}
-
-      <SyncLinksPanel />
 
       <InventoryItemFormModal
         isOpen={showAddModal}

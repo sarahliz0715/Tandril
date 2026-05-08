@@ -536,6 +536,38 @@ serve(async (req) => {
         } catch (syncErr: any) {
           console.warn('[oauth-callback] Etsy listing sync failed (non-critical):', syncErr.message);
         }
+
+        // Register Etsy RECEIPT webhook for instant inventory sync on orders
+        try {
+          const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+          const webhookUrl = `${supabaseUrl}/functions/v1/etsy-order-webhook`;
+          const shopId = result.metadata?.shop_id;
+          const accessToken = result.credentials?.access_token;
+          const clientId = Deno.env.get('ETSY_CLIENT_ID');
+
+          if (shopId && accessToken && clientId) {
+            const whRes = await fetch(
+              `https://openapi.etsy.com/v3/application/shops/${shopId}/webhooks`,
+              {
+                method: 'POST',
+                headers: {
+                  'x-api-key': clientId,
+                  'Authorization': `Bearer ${accessToken}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ event: 'RECEIPT', url: webhookUrl }),
+              }
+            );
+            if (whRes.ok) {
+              console.log(`[oauth-callback] Registered Etsy RECEIPT webhook for shop ${shopId}`);
+            } else {
+              const whErr = await whRes.text();
+              console.warn(`[oauth-callback] Etsy webhook registration failed: ${whRes.status} ${whErr}`);
+            }
+          }
+        } catch (whErr: any) {
+          console.warn('[oauth-callback] Etsy webhook registration failed (non-critical):', whErr.message);
+        }
       }
     }
 

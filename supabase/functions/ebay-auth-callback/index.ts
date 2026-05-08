@@ -207,6 +207,52 @@ serve(async (req) => {
 
     console.log(`[eBay Callback] Successfully connected eBay account for user ${userId}`);
 
+    // Register eBay Commerce Notification subscription for order events
+    try {
+      const isSandbox = ebayEnvironment === 'sandbox';
+      const apiBase = isSandbox ? 'https://api.sandbox.ebay.com' : 'https://api.ebay.com';
+      const accessToken = platformData.credentials.access_token;
+      const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+      const endpointUrl = `${supabaseUrl}/functions/v1/ebay-notification-webhook`;
+      const verificationToken = Deno.env.get('EBAY_NOTIFICATION_VERIFICATION_TOKEN');
+
+      if (verificationToken) {
+        const notifHeaders = {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US',
+        };
+
+        // Register destination endpoint (idempotent — eBay ignores duplicates)
+        await fetch(`${apiBase}/commerce/notification/v1/destination`, {
+          method: 'POST',
+          headers: notifHeaders,
+          body: JSON.stringify({
+            deliveryConfig: {
+              endpoint: endpointUrl,
+              verificationToken,
+            },
+          }),
+        });
+
+        // Subscribe to marketplace ORDER topic
+        await fetch(`${apiBase}/commerce/notification/v1/subscription`, {
+          method: 'POST',
+          headers: notifHeaders,
+          body: JSON.stringify({
+            topicId: 'marketplace.ORDER',
+            deliveryConfig: { endpoint: endpointUrl, verificationToken },
+          }),
+        });
+
+        console.log('[eBay Callback] Registered Commerce Notification subscription for ORDER events');
+      } else {
+        console.warn('[eBay Callback] EBAY_NOTIFICATION_VERIFICATION_TOKEN not set — skipping notification subscription');
+      }
+    } catch (notifErr: any) {
+      console.warn('[eBay Callback] Notification subscription failed (non-critical):', notifErr.message);
+    }
+
     if (isPostFromFrontend) {
       return new Response(
         JSON.stringify({ success: true, username: ebayUsername, platform_id: platform.id }),

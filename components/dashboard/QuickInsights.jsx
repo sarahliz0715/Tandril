@@ -132,12 +132,11 @@ export default function QuickInsights({ orders, products, recommendations, alert
         }
     };
 
-    const getColorClasses = (color, trend) => {
+    const getColorClasses = (color) => {
         const baseClasses = {
-            green: trend === 'up' ? 'text-green-600' : 'text-green-600',
+            green: 'text-green-600',
             blue: 'text-blue-600',
             red: 'text-red-600',
-            green: 'text-green-600',
             emerald: 'text-emerald-600'
         };
         return baseClasses[color] || 'text-slate-600';
@@ -148,7 +147,6 @@ export default function QuickInsights({ orders, products, recommendations, alert
             green: 'bg-green-50 border-green-200',
             blue: 'bg-blue-50 border-blue-200',
             red: 'bg-red-50 border-red-200',
-            green: 'bg-green-50 border-green-200',
             emerald: 'bg-emerald-50 border-emerald-200'
         };
         return bgClasses[color] || 'bg-slate-50 border-slate-200';
