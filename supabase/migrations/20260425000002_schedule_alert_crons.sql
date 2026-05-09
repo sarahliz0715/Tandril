@@ -24,7 +24,7 @@ SELECT cron.schedule(
   $$
   SELECT net.http_post(
     url     := 'https://biksocozipayckfuzzul.supabase.co/functions/v1/check-alerts',
-    headers := '{"Content-Type":"application/json","x-cron-secret":"tandril-alerts-2026"}'::jsonb,
+    headers := '{"Content-Type":"application/json","x-cron-secret":"22a5ba08b8ce3af68fe46cbc23b4c51491686141b6c1e585f0cc319cddc7005a"}'::jsonb,
     body    := '{}'::jsonb
   );
   $$
@@ -41,7 +41,7 @@ SELECT cron.schedule(
   $$
   SELECT net.http_post(
     url     := 'https://biksocozipayckfuzzul.supabase.co/functions/v1/daily-briefing-cron',
-    headers := '{"Content-Type":"application/json","x-cron-secret":"tandril-alerts-2026"}'::jsonb,
+    headers := '{"Content-Type":"application/json","x-cron-secret":"22a5ba08b8ce3af68fe46cbc23b4c51491686141b6c1e585f0cc319cddc7005a"}'::jsonb,
     body    := '{}'::jsonb
   );
   $$
