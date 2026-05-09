@@ -26,6 +26,7 @@ import QuickInsights from '../components/dashboard/QuickInsights';
 import PersonalizedTodos from '../components/dashboard/PersonalizedTodos';
 import QuickActionsHub from '../components/dashboard/QuickActionsHub';
 import SyncHealthCard from '../components/dashboard/SyncHealthCard';
+import OrionDigestCard from '../components/dashboard/OrionDigestCard';
 import DashboardWidget from '../components/dashboard/DashboardWidget';
 import AutomationStatus from '../components/dashboard/AutomationStatus';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -336,6 +337,7 @@ export default function Dashboard() {
           { id: 'top-products', title: 'Top Performing Products', layout: 'main-col', showControls: true },
           { id: 'personalized-todos', title: 'Today\'s Focus', component: PersonalizedTodos, layout: 'side-col' },
           { id: 'low-stock-alerts', title: 'Low Stock Alerts', layout: 'side-col', showControls: true },
+          { id: 'orion-digest', title: 'Orion Daily Digest', component: OrionDigestCard, layout: 'side-col', showControls: true },
           { id: 'sync-health', title: 'Cross-Platform Sync', component: SyncHealthCard, layout: 'side-col', showControls: true },
           { id: 'recommendations', title: 'AI Recommendations', layout: 'side-col', showControls: true },
           { id: 'platform-status', title: 'Platform Status', layout: 'side-col', showControls: true }
@@ -345,7 +347,7 @@ export default function Dashboard() {
           return baseWidgets.filter(w =>
               ['beta-banner', 'mode-toggle', 'agents-hub', 'quick-insights', 'quick-actions',
                'dashboard-advisor', 'ai-activity', 'top-products', 'automation-status',
-               'personalized-todos', 'low-stock-alerts', 'sync-health', 'platform-status'].includes(w.id)
+               'personalized-todos', 'low-stock-alerts', 'orion-digest', 'sync-health', 'platform-status'].includes(w.id)
           ).map(w => {
               if (w.id === 'platform-status') {
                   return { ...w, title: 'Shopify Connection' };

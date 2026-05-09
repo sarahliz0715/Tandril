@@ -27,6 +27,7 @@ import InventoryItemFormModal from '../components/inventory/InventoryItemFormMod
 import SmartInventoryActions from '../components/inventory/SmartInventoryActions';
 import InventoryAnalytics from '../components/inventory/InventoryAnalytics';
 import SyncLinksPanel from '../components/inventory/SyncLinksPanel';
+import ActiveFlashSalesPanel from '../components/inventory/ActiveFlashSalesPanel';
 import { handleAuthError } from '@/utils/authHelpers';
 import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 import { NoDataEmptyState, NoResultsEmptyState } from '../components/common/EmptyState';
@@ -307,6 +308,8 @@ export default function Inventory() {
           </CardContent>
         </Card>
       </div>
+
+      <ActiveFlashSalesPanel />
 
       <SyncLinksPanel />
 
