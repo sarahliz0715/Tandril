@@ -99,7 +99,10 @@ function summarizeOrionAction(action: any): string {
     case 'fulfill_order':   return `Marked order ${action.platform_order_id} as shipped (${action.tracking_number})`;
     case 'cancel_order':    return `Cancelled order ${action.platform_order_id} on ${action.platform_type}`;
     case 'refund_order':    return `Refunded order ${action.platform_order_id} on ${action.platform_type}`;
-    case 'flash_sale': return `Started ${action.discount_percent}% flash sale for ${action.duration_hours}h across ${action.platforms?.join(', ') || 'all platforms'} — auto-restore scheduled`;
+    case 'flash_sale': return action.start_at
+      ? `Scheduled ${action.discount_percent}% sale starting ${new Date(action.start_at).toLocaleString()} for ${action.duration_hours}h — auto-restore queued`
+      : `Started ${action.discount_percent}% flash sale for ${action.duration_hours}h across ${action.platforms?.join(', ') || 'all platforms'} — auto-restore scheduled`;
+    case 'smart_restock': return `Ran restock prediction (${action.days_history || 30}d velocity window)`;
     case 'shopify_create_discount': return `Created Shopify discount code ${action.code || ''}`;
     case 'shopify_delete_discount': return `Deleted Shopify discount${action.code ? ` ${action.code}` : ''}`;
     case 'etsy_create_sale':        return `Started Etsy sale on "${name}"${action.discount_percent ? ` (${action.discount_percent}% off)` : ''}`;
@@ -1033,8 +1036,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     .or('is_active.eq.true,status.eq.connected')
     .limit(1);
 
-  // flash_sale operates across all platforms — Shopify not required
-  const shopifyRequired = action.type !== 'flash_sale';
+  // flash_sale and smart_restock operate across all platforms — Shopify not required
+  const shopifyRequired = action.type !== 'flash_sale' && action.type !== 'smart_restock';
   if (shopifyRequired && (!platforms || platforms.length === 0)) {
     throw new Error('No connected Shopify store found. Connect one in the Platforms tab first.');
   }
@@ -5837,6 +5840,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     case 'flash_sale': {
       // action.discount_percent — required (1–99)
       // action.duration_hours   — required, e.g. 24
+      // action.start_at         — optional ISO string; if future, queues the sale instead of starting now
       // action.platforms        — optional array, defaults to all connected ['shopify','woocommerce','etsy','ebay']
       // action.skus             — optional array of SKUs to limit scope
 
@@ -5844,6 +5848,28 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const durationHrs = Number(action.duration_hours);
       if (!discountPct || discountPct <= 0 || discountPct >= 100) throw new Error('discount_percent must be between 1 and 99.');
       if (!durationHrs || durationHrs <= 0) throw new Error('duration_hours must be a positive number.');
+
+      // ── Scheduled (future) sale ───────────────────────────────────────────
+      if (action.start_at) {
+        const startAt = new Date(action.start_at);
+        if (startAt.getTime() > Date.now() + 60_000) {
+          const targetPlatforms: string[] = action.platforms ?? ['shopify', 'woocommerce', 'etsy', 'ebay'];
+          const targetSkus: string[] | null = action.skus && action.skus.length > 0 ? action.skus : null;
+          const { error: schedErr } = await supabaseClient.from('scheduled_flash_sales').insert({
+            user_id: userId,
+            discount_percent: discountPct,
+            duration_hours: durationHrs,
+            platforms: targetPlatforms,
+            skus: targetSkus,
+            start_at: startAt.toISOString(),
+          });
+          if (schedErr) throw new Error(`Failed to schedule sale: ${schedErr.message}`);
+          const startLabel = startAt.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+          const endLabel = new Date(startAt.getTime() + durationHrs * 3600 * 1000).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+          return { message: `Sale scheduled! ${discountPct}% off goes live ${startLabel} and restores automatically at ${endLabel}. Nothing else needed.` };
+        }
+        // start_at is in the past or within 1 min — treat as immediate
+      }
 
       const restoreAt = new Date(Date.now() + durationHrs * 3600 * 1000).toISOString();
       const flashSaleId = crypto.randomUUID();
@@ -6044,6 +6070,233 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       let msg = `Flash sale is live! ${discountPct}% off across ${platformList}. Prices restore automatically at ${restoreTime} — no action needed.`;
       if (errored.length > 0) msg += ` Could not apply to: ${errored.map(r => r.platform).join(', ')}.`;
       return { message: msg };
+    }
+
+    // ── Smart Restock Prediction ─────────────────────────────────────────────
+    case 'smart_restock': {
+      // action.days_history?    — window for velocity (default 30, max 90)
+      // action.lead_time_buffer? — multiplier for "order soon" threshold (default 1.5×)
+      // action.skus?            — optional SKU filter
+      const daysHistory = Math.min(Number(action.days_history) || 30, 90);
+      const buffer = Number(action.lead_time_buffer) || 1.5;
+      const targetSkus: string[] | null = action.skus && action.skus.length > 0 ? action.skus : null;
+
+      // 1. Build velocity from orders
+      const since = new Date(Date.now() - daysHistory * 86400000).toISOString();
+      const { data: recentOrders } = await supabaseClient
+        .from('orders')
+        .select('line_items, order_date')
+        .eq('user_id', userId)
+        .gte('order_date', since);
+
+      const velocityMap: Record<string, { units_sold: number; daily_velocity: number }> = {};
+      for (const o of (recentOrders || [])) {
+        for (const item of (o.line_items || [])) {
+          const key = item.sku || item.title || '';
+          if (!key) continue;
+          if (targetSkus && !targetSkus.includes(key)) continue;
+          if (!velocityMap[key]) velocityMap[key] = { units_sold: 0, daily_velocity: 0 };
+          velocityMap[key].units_sold += (item.quantity || 1);
+        }
+      }
+      for (const key of Object.keys(velocityMap)) {
+        velocityMap[key].daily_velocity = velocityMap[key].units_sold / daysHistory;
+      }
+
+      // 2. Supplier lead times
+      const { data: supplierRows } = await supabaseClient
+        .from('product_suppliers')
+        .select('sku, supplier_name, lead_time_days')
+        .eq('user_id', userId);
+
+      const leadTimeMap: Record<string, { lead_time_days: number; supplier_name: string }> = {};
+      for (const s of (supplierRows || [])) {
+        if (s.sku && s.lead_time_days) {
+          leadTimeMap[s.sku] = { lead_time_days: Number(s.lead_time_days), supplier_name: s.supplier_name || 'Unknown supplier' };
+        }
+      }
+
+      // 3. Current inventory from connected platforms
+      const inventoryMap: Record<string, { current_stock: number; product_name: string; platform: string }> = {};
+
+      // Shopify
+      if (platforms && platforms.length > 0 && shopDomain) {
+        try {
+          const invRes = await fetch(`${shopifyBase}/products.json?limit=250&fields=id,title,variants`, { headers });
+          if (invRes.ok) {
+            const { products: shopProds } = await invRes.json();
+            for (const p of shopProds) {
+              for (const v of (p.variants || [])) {
+                const sku = v.sku || p.title;
+                if (!sku) continue;
+                if (targetSkus && !targetSkus.includes(sku)) continue;
+                inventoryMap[sku] = {
+                  current_stock: Number(v.inventory_quantity) || 0,
+                  product_name: `${p.title}${v.title !== 'Default Title' ? ` — ${v.title}` : ''}`,
+                  platform: 'Shopify',
+                };
+              }
+            }
+          }
+        } catch (_e) { /* skip */ }
+      }
+
+      // WooCommerce
+      try {
+        const { data: wooPlats } = await supabaseClient.from('platforms').select('*')
+          .eq('user_id', userId).eq('platform_type', 'woocommerce').or('is_active.eq.true,status.eq.connected').limit(1);
+        if (wooPlats && wooPlats.length > 0) {
+          const wooPl = wooPlats[0];
+          const wooToken = wooPl.access_token;
+          const ck = wooToken ? wooToken.split(':')[0] : wooPl.credentials?.consumer_key;
+          const cs = wooToken ? wooToken.split(':')[1] : wooPl.credentials?.consumer_secret;
+          const wooBase = wooPl.store_url || wooPl.shop_domain;
+          if (ck && cs && wooBase) {
+            const wooAuth = `Basic ${btoa(`${ck}:${cs}`)}`;
+            const wooRes = await fetch(
+              `${wooBase}/wp-json/wc/v3/products?per_page=100&status=publish&_fields=id,name,sku,stock_quantity`,
+              { headers: { Authorization: wooAuth } }
+            );
+            if (wooRes.ok) {
+              const wooProds = await wooRes.json();
+              for (const p of wooProds) {
+                const sku = p.sku || p.name;
+                if (!sku) continue;
+                if (targetSkus && !targetSkus.includes(sku)) continue;
+                if (!inventoryMap[sku]) {
+                  inventoryMap[sku] = {
+                    current_stock: Number(p.stock_quantity) || 0,
+                    product_name: p.name,
+                    platform: 'WooCommerce',
+                  };
+                }
+              }
+            }
+          }
+        }
+      } catch (_e) { /* skip */ }
+
+      // 4. Score each SKU
+      const urgencyOrder: Record<string, number> = { critical: 0, warning: 1, watch: 2, ok: 3 };
+      type UrLevel = 'critical' | 'warning' | 'watch' | 'ok';
+
+      interface RestockEntry {
+        sku: string;
+        product_name: string;
+        platform: string;
+        current_stock: number;
+        daily_velocity: number;
+        units_sold: number;
+        days_until_stockout: number;
+        lead_time_days: number | null;
+        supplier_name: string | null;
+        urgency: UrLevel;
+        recommendation: string;
+      }
+
+      const report: RestockEntry[] = [];
+      const allSkus = new Set([...Object.keys(velocityMap), ...Object.keys(inventoryMap)]);
+
+      for (const sku of allSkus) {
+        if (targetSkus && !targetSkus.includes(sku)) continue;
+        const vel = velocityMap[sku];
+        const inv = inventoryMap[sku];
+        if (!vel || vel.daily_velocity === 0) continue;
+        if (!inv) continue;
+
+        const daysUntilStockout = inv.current_stock / vel.daily_velocity;
+        const leadInfo = leadTimeMap[sku];
+        const leadTime = leadInfo?.lead_time_days ?? null;
+
+        let urgency: UrLevel;
+        let recommendation: string;
+
+        if (leadTime !== null) {
+          const threshold = leadTime * buffer;
+          if (daysUntilStockout <= leadTime) {
+            urgency = 'critical';
+            recommendation = daysUntilStockout < leadTime
+              ? `Order immediately — sells out in ${Math.round(daysUntilStockout)}d but supplier takes ${leadTime}d. Already behind schedule.`
+              : `Order today from ${leadInfo!.supplier_name}. Sells out in ${Math.round(daysUntilStockout)}d, lead time ${leadTime}d.`;
+          } else if (daysUntilStockout <= threshold) {
+            urgency = 'warning';
+            recommendation = `Order soon from ${leadInfo!.supplier_name}. Sells out in ${Math.round(daysUntilStockout)}d, lead time ${leadTime}d.`;
+          } else if (daysUntilStockout <= leadTime * 2.5) {
+            urgency = 'watch';
+            recommendation = `Monitor — ~${Math.round(daysUntilStockout)}d of stock. Lead time ${leadTime}d from ${leadInfo!.supplier_name}.`;
+          } else {
+            urgency = 'ok';
+            recommendation = `Sufficient stock (~${Math.round(daysUntilStockout)}d remaining).`;
+          }
+        } else {
+          if (daysUntilStockout <= 7) {
+            urgency = 'critical';
+            recommendation = `Sells out in ~${Math.round(daysUntilStockout)}d. No supplier linked — add one in the Suppliers tab.`;
+          } else if (daysUntilStockout <= 21) {
+            urgency = 'warning';
+            recommendation = `Sells out in ~${Math.round(daysUntilStockout)}d. No supplier lead time on record.`;
+          } else if (daysUntilStockout <= 45) {
+            urgency = 'watch';
+            recommendation = `~${Math.round(daysUntilStockout)}d of stock remaining.`;
+          } else {
+            urgency = 'ok';
+            recommendation = `Sufficient stock (~${Math.round(daysUntilStockout)}d remaining).`;
+          }
+        }
+
+        report.push({
+          sku, product_name: inv.product_name, platform: inv.platform,
+          current_stock: inv.current_stock,
+          daily_velocity: parseFloat(vel.daily_velocity.toFixed(3)),
+          units_sold: vel.units_sold,
+          days_until_stockout: parseFloat(daysUntilStockout.toFixed(1)),
+          lead_time_days: leadTime,
+          supplier_name: leadInfo?.supplier_name ?? null,
+          urgency, recommendation,
+        });
+      }
+
+      report.sort((a, b) => urgencyOrder[a.urgency] - urgencyOrder[b.urgency]);
+
+      if (report.length === 0) {
+        return {
+          message: `No restock predictions available. Either no order history found in the last ${daysHistory} days or no inventory data from connected platforms.`,
+          report: [],
+        };
+      }
+
+      const critical = report.filter(r => r.urgency === 'critical');
+      const warning  = report.filter(r => r.urgency === 'warning');
+      const watch    = report.filter(r => r.urgency === 'watch');
+      const okCount  = report.filter(r => r.urgency === 'ok').length;
+
+      const lines: string[] = [`**Restock Prediction — last ${daysHistory} days of velocity**\n`];
+      if (critical.length > 0) {
+        lines.push('🔴 **ORDER NOW:**');
+        for (const r of critical) {
+          lines.push(`• ${r.product_name} (${r.sku}) — ${r.recommendation} [${r.current_stock} units, ${r.daily_velocity.toFixed(1)}/day]`);
+        }
+      }
+      if (warning.length > 0) {
+        lines.push('\n🟡 **ORDER SOON:**');
+        for (const r of warning) {
+          lines.push(`• ${r.product_name} (${r.sku}) — ${r.recommendation} [${r.current_stock} units, ${r.daily_velocity.toFixed(1)}/day]`);
+        }
+      }
+      if (watch.length > 0) {
+        lines.push('\n🔵 **WATCH:**');
+        for (const r of watch) {
+          lines.push(`• ${r.product_name} (${r.sku}) — ${r.recommendation}`);
+        }
+      }
+      if (okCount > 0) {
+        lines.push(`\n✅ ${okCount} product${okCount !== 1 ? 's' : ''} have sufficient stock.`);
+      }
+      if (critical.length === 0 && warning.length === 0 && watch.length === 0) {
+        lines.push('\n✅ All tracked products have sufficient stock based on current velocity.');
+      }
+
+      return { message: lines.join('\n'), report };
     }
 
     default:
@@ -6719,6 +6972,28 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     last_sync_at: lastSyncAt ?? null,
   };
 
+  // ── Sales velocity (last 30 days, per SKU) ───────────────────────────────
+  // Used by smart_restock to predict when products will sell out.
+  const since30 = new Date(Date.now() - 30 * 86400000).toISOString();
+  const { data: recentOrders30 } = await supabaseClient
+    .from('orders')
+    .select('line_items, order_date')
+    .eq('user_id', userId)
+    .gte('order_date', since30);
+
+  const velocityMap: Record<string, { units_sold: number; daily_velocity: number }> = {};
+  for (const o of (recentOrders30 || [])) {
+    for (const item of (o.line_items || [])) {
+      const key = item.sku || item.title || '';
+      if (!key) continue;
+      if (!velocityMap[key]) velocityMap[key] = { units_sold: 0, daily_velocity: 0 };
+      velocityMap[key].units_sold += (item.quantity || 1);
+    }
+  }
+  for (const key of Object.keys(velocityMap)) {
+    velocityMap[key].daily_velocity = parseFloat((velocityMap[key].units_sold / 30).toFixed(3));
+  }
+
   return {
     platforms: platforms || [],
     products,
@@ -6728,6 +7003,7 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     low_stock_products: lowStockProducts,
     ebay_fetch_errors: ebayFetchErrors,
     sync_summary: syncSummary,
+    velocity: velocityMap,
     metrics: {
       total_revenue: totalRevenue,
       avg_order_value: avgOrderValue,
@@ -7054,9 +7330,12 @@ When the user asks you to create a product, add inventory, change a price, renam
   • send_message  — { type, platform_type: 'etsy', conversation_id, body }
                   Sends a reply to an Etsy conversation (only Etsy supports reply API in v3).
   Flash Sale (cross-platform, automatic price restore):
+  • smart_restock — { type, days_history?: 30, lead_time_buffer?: 1.5, skus?: [...] }
+                  Velocity-based stockout prediction. Returns urgency-ranked list of products.
   • flash_sale — { type, discount_percent, duration_hours, platforms?: [...], skus?: [...] }
     - discount_percent: 1–99 (e.g. 20 for 20% off)
     - duration_hours: how long the sale runs (e.g. 24, 4, 0.5)
+    - start_at: optional ISO timestamp — if provided and in the future, queues the sale to start automatically at that time
     - platforms: optional — omit to target ALL connected platforms; or specify ["shopify","etsy","ebay","woocommerce"]
     - skus: optional — omit to apply to ALL products; or list specific SKUs
     Shopify: updates variant prices (sets compare_at_price = original so strikethrough shows in storefront)
@@ -7068,16 +7347,46 @@ Example:
 [ORION_ACTION:{"type":"flash_sale","discount_percent":20,"duration_hours":24}]
 [ORION_ACTION:{"type":"flash_sale","discount_percent":30,"duration_hours":4,"platforms":["shopify","etsy"]}]
 [ORION_ACTION:{"type":"flash_sale","discount_percent":15,"duration_hours":48,"skus":["SHIRT-BLK-M","SHIRT-WHT-L"]}]
+[ORION_ACTION:{"type":"flash_sale","discount_percent":25,"duration_hours":72,"start_at":"2026-11-29T00:00:00Z"}]
 
 **Flash Sale Workflow:**
-When the user says anything like "run a flash sale", "put everything on sale", "20% off for the weekend", or "24-hour sale":
+When the user says anything like "run a flash sale", "put everything on sale", "20% off for the weekend", "24-hour sale", or "schedule a sale for [date/time]":
 1. Confirm: discount percent + duration. If either is missing, ask before generating the action.
-2. Ask which platforms if the user specifies ("just Shopify and Etsy") — otherwise default to all connected.
-3. Generate a single flash_sale action block. ONE block for all platforms — not one per platform.
-4. After confirming, reassure: "Prices restore automatically at [time] — you don't need to do anything."
+2. If the user mentions a future date/time ("Black Friday", "this weekend", "next Saturday at 9pm"), convert it to an ISO timestamp and include start_at. The cron will fire the sale automatically at that time.
+3. Ask which platforms if the user specifies; otherwise default to all connected.
+4. Generate a single flash_sale action block. ONE block for all platforms — not one per platform.
+5. After confirming: "Prices go live at [start] and restore automatically at [end] — nothing else needed."
 
-⚠️ NEVER say "I'll remind you to restore prices" or "you'll need to end the sale manually" — the restore is fully automatic.
-⚠️ flash_sale handles all connected platforms in one action. Do NOT generate separate update_price/ebay_update_price/etsy_update_price blocks alongside it.
+⚠️ NEVER say "I'll remind you to restore prices" or "you'll need to end the sale manually" — both start and restore are fully automatic.
+⚠️ flash_sale handles all connected platforms in one action. Do NOT generate separate update_price blocks alongside it.
+⚠️ When start_at is provided and in the future, Orion queues the sale — it is NOT live yet. Make this clear to the user.
+
+  Smart Restock Prediction:
+  • smart_restock — { type, days_history?: 30, lead_time_buffer?: 1.5, skus?: [...] }
+    - days_history: how many days of order history to use for velocity (default 30, max 90)
+    - lead_time_buffer: multiplier on supplier lead time for the "order soon" threshold (default 1.5 = 1.5× lead time)
+    - skus: optional — omit to check ALL products; or list specific SKUs
+    Returns: urgency-ranked list — 🔴 ORDER NOW / 🟡 ORDER SOON / 🔵 WATCH / ✅ OK
+    Logic: daily_velocity = units_sold / days_history. days_until_stockout = current_stock / daily_velocity.
+      • Critical: days_until_stockout ≤ lead_time_days (will stock out before supplier delivers)
+      • Warning: days_until_stockout ≤ lead_time_days × lead_time_buffer
+      • Watch: days_until_stockout ≤ lead_time_days × 2.5
+    Supplier lead times come from the product_suppliers table. Products with no supplier are flagged with a note to add one.
+Example:
+[ORION_ACTION:{"type":"smart_restock"}]
+[ORION_ACTION:{"type":"smart_restock","days_history":14}]
+[ORION_ACTION:{"type":"smart_restock","skus":["SHIRT-BLK-M","MUG-WHT"]}]
+
+**Smart Restock Workflow:**
+When the user says "what do I need to reorder", "what's running low", "restock prediction", "what will sell out", "smart restock", or anything about stock levels vs sales velocity:
+1. Generate a single smart_restock action with no extra parameters unless the user specifies a time window or specific SKUs.
+2. Present the result in sections: ORDER NOW → ORDER SOON → WATCH → OK.
+3. If critical items have suppliers, immediately offer to create draft purchase orders for them: "Want me to create draft POs for the critical items?"
+4. If items are critical but have no supplier linked, suggest adding one in the Suppliers tab.
+5. Do NOT manually calculate velocity or guess stock levels — always use the smart_restock action to get live data.
+
+⚠️ smart_restock is read-only — it never modifies prices or inventory. It only analyzes and reports.
+⚠️ Do NOT use check_reorder_needs when the user asks for a restock prediction. Use smart_restock — it includes velocity and lead-time-aware urgency scoring.
 
   Auto-reorder / Purchase Orders:
   • check_reorder_needs         — { type, low_stock_threshold?: 10, create_draft_pos?: false }
