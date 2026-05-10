@@ -34,7 +34,92 @@ serve(async (req) => {
       throw new Error('Unauthorized');
     }
 
-    console.log(`[AI Insights] Generating insights for user ${user.id}`);
+    // Parse request body
+    const body = await req.json().catch(() => ({}));
+    const { niche, analysis_types } = body;
+
+    // ── Niche market intelligence path ──────────────────────────────────────
+    if (niche) {
+      const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY');
+      if (!anthropicKey) throw new Error('ANTHROPIC_API_KEY not set');
+
+      const types: string[] = analysis_types || ['trending_products', 'niche_analysis', 'competitor_analysis', 'keyword_performance'];
+      const savedIds: string[] = [];
+
+      const prompts: Record<string, string> = {
+        trending_products: `You are a market research analyst. List the top 8 trending products in the "${niche}" niche right now. For each product include: name, why it's trending, estimated demand level (high/medium/low), price range, and one actionable tip for sellers. Be specific and practical. Format as JSON array with fields: name, trend_reason, demand, price_range, seller_tip.`,
+        niche_analysis: `You are a market research analyst. Provide a comprehensive analysis of the "${niche}" niche. Include: market size estimate, growth trend, key buyer demographics, top 5 opportunities, top 3 threats, and seasonality notes. Format as JSON with fields: market_size, growth_trend, demographics, opportunities (array), threats (array), seasonality.`,
+        competitor_analysis: `You are a market research analyst. Analyze the market landscape for sellers in the "${niche}" niche. Describe the types of sellers competing, typical price points, common differentiation strategies, gaps in the market, and what separates top performers. Do NOT name specific seller accounts or stores — focus on patterns and strategies. Format as JSON with fields: seller_types, typical_price_points, differentiation_strategies (array), market_gaps (array), success_factors (array).`,
+        keyword_performance: `You are an e-commerce SEO specialist. List the top 15 keywords and search terms buyers use when looking for products in the "${niche}" niche. For each keyword include: the term, search intent (browse/buy/compare), competition level (high/medium/low), and a usage tip. Format as JSON array with fields: keyword, intent, competition, tip.`,
+      };
+
+      for (const dataType of types) {
+        const prompt = prompts[dataType];
+        if (!prompt) continue;
+
+        try {
+          const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': anthropicKey,
+              'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+              model: 'claude-haiku-4-5-20251001',
+              max_tokens: 1024,
+              messages: [{ role: 'user', content: prompt }],
+            }),
+          });
+
+          if (!claudeRes.ok) continue;
+          const claudeData = await claudeRes.json();
+          const rawText = claudeData.content[0].text.trim();
+
+          let parsedContent: any;
+          try {
+            const jsonMatch = rawText.match(/```json\n?([\s\S]*?)\n?```/) || rawText.match(/(\[[\s\S]*\]|\{[\s\S]*\})/);
+            parsedContent = JSON.parse(jsonMatch ? jsonMatch[1] : rawText);
+          } catch {
+            parsedContent = { raw: rawText };
+          }
+
+          const titles: Record<string, string> = {
+            trending_products: `Trending Products — ${niche}`,
+            niche_analysis: `Niche Analysis — ${niche}`,
+            competitor_analysis: `Market Landscape — ${niche}`,
+            keyword_performance: `Keyword Opportunities — ${niche}`,
+          };
+
+          // Delete old entries for this niche/type before inserting fresh ones
+          await supabaseClient.from('market_intelligence')
+            .delete()
+            .eq('user_id', user.id)
+            .eq('niche', niche)
+            .eq('data_type', dataType);
+
+          const { data: inserted } = await supabaseClient.from('market_intelligence').insert({
+            user_id: user.id,
+            niche,
+            data_type: dataType,
+            title: titles[dataType],
+            content: parsedContent,
+          }).select('id').single();
+
+          if (inserted?.id) savedIds.push(inserted.id);
+        } catch (e) {
+          console.error(`[AI Insights] niche analysis ${dataType}:`, e.message);
+        }
+      }
+
+      return new Response(
+        JSON.stringify({ success: savedIds.length > 0, saved: savedIds.length }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // ── Store health insights path (original behaviour) ──────────────────────
+    console.log(`[AI Insights] Generating store insights for user ${user.id}`);
 
     // Get active Shopify platforms
     const { data: platforms, error: platformsError } = await supabaseClient

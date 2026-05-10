@@ -44,7 +44,7 @@ const comparisonData = [
     feature: 'Pricing',
     sellbrite: { text: 'Manually update prices or set basic rules.' },
     tandril: {
-      text: 'Dynamic AI-driven pricing based on sales velocity, competitor data, and profit goals.',
+      text: 'Dynamic AI-driven pricing based on sales velocity, market trends, and profit goals.',
       highlight: true
     },
   },

@@ -162,8 +162,8 @@ export default function Intelligence() {
     }
 
     await confirm({
-      title: 'Generate Market Intelligence?',
-      description: `This will analyze current market trends, competitors, and opportunities for ${selectedNiches.length} ${selectedNiches.length === 1 ? 'niche' : 'niches'}: ${selectedNiches.join(', ')}. It may take a few moments.`,
+      title: 'Generate Market Insights?',
+      description: `This will analyze market trends and opportunities for ${selectedNiches.length} ${selectedNiches.length === 1 ? 'niche' : 'niches'}: ${selectedNiches.join(', ')}. It may take a few moments.`,
       confirmText: 'Generate',
       onConfirm: async () => {
         setIsGenerating(true);
@@ -283,7 +283,7 @@ export default function Intelligence() {
             ) : (
               <>
                 <RefreshCw className="w-4 h-4 mr-2" />
-                Generate Intelligence
+                Generate Market Insights
               </>
             )}
           </Button>
@@ -426,7 +426,7 @@ export default function Intelligence() {
             Niche Analysis
           </TabsTrigger>
           <TabsTrigger value="competitors">
-            Competitors
+            Market Landscape
           </TabsTrigger>
           <TabsTrigger value="keywords">
             Keywords
@@ -472,7 +472,7 @@ export default function Intelligence() {
             </div>
           ) : (
             <NoDataEmptyState
-              entityName="Competitor Intelligence"
+              entityName="Market Landscape"
               onCreate={handleGenerateIntelligence}
             />
           )}
