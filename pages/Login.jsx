@@ -6,8 +6,10 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Mail, Lock, Chrome, Github } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import { supabaseAuthService } from '@/lib/supabaseAuth';
+import { REMEMBER_ME_KEY } from '@/lib/supabaseClient';
 import { createPageUrl } from '@/utils';
 import TandrilVineLogo from '@/components/logos/TandrilVineLogo';
 
@@ -18,6 +20,9 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [rememberMe, setRememberMe] = useState(
+    localStorage.getItem(REMEMBER_ME_KEY) === 'true'
+  );
 
   // Get redirect URL from query params
   const params = new URLSearchParams(location.search);
@@ -33,6 +38,12 @@ export default function Login() {
     }
 
     setIsLoading(true);
+
+    if (rememberMe) {
+      localStorage.setItem(REMEMBER_ME_KEY, 'true');
+    } else {
+      localStorage.removeItem(REMEMBER_ME_KEY);
+    }
 
     try {
       await supabaseAuthService.signIn(email, password);
@@ -134,6 +145,18 @@ export default function Login() {
                     required
                   />
                 </div>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="remember-me"
+                  checked={rememberMe}
+                  onCheckedChange={(checked) => setRememberMe(!!checked)}
+                  disabled={isLoading}
+                />
+                <Label htmlFor="remember-me" className="text-sm font-normal text-slate-600 cursor-pointer">
+                  Stay signed in
+                </Label>
               </div>
 
               <Button
