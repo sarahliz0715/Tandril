@@ -178,7 +178,7 @@ export default function Intelligence() {
 
           const results = await Promise.allSettled(promises);
           
-          const successCount = results.filter(r => r.status === 'fulfilled' && r.value?.data?.success).length;
+          const successCount = results.filter(r => r.status === 'fulfilled' && (r.value?.success || r.value?.data?.success)).length;
           const failCount = results.length - successCount;
 
           if (successCount > 0) {
