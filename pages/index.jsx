@@ -230,7 +230,7 @@ function PagesContent() {
         <Layout currentPageName={currentPage}>
             <Routes>
 
-                    <Route path="/" element={<Pricing />} />
+                    <Route path="/" element={<Home />} />
                 
                 
                 <Route path="/Dashboard" element={<Dashboard />} />
