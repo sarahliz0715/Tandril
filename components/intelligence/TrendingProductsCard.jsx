@@ -2,12 +2,20 @@ import React from 'react';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { TrendingUp, Package, Sparkles } from 'lucide-react';
+import { TrendingUp, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 
+const demandColor = (level) => {
+    if (!level) return 'bg-slate-100 text-slate-700';
+    if (level.toLowerCase() === 'high') return 'bg-green-100 text-green-800';
+    if (level.toLowerCase() === 'medium') return 'bg-yellow-100 text-yellow-800';
+    return 'bg-red-100 text-red-800';
+};
+
 export default function TrendingProductsCard({ data }) {
     const navigate = useNavigate();
+    const products = Array.isArray(data.content) ? data.content : [];
 
     return (
         <Card className="flex flex-col h-full bg-white/80 backdrop-blur-sm border-slate-200/60 hover:shadow-xl transition-shadow">
@@ -18,29 +26,38 @@ export default function TrendingProductsCard({ data }) {
                             <TrendingUp className="w-5 h-5 text-green-500" />
                             Trending Products
                         </CardTitle>
-                        <p className="text-sm text-slate-500 mt-1">in "{data.category}"</p>
+                        <p className="text-sm text-slate-500 mt-1">in "{data.niche}"</p>
                     </div>
-                    <Badge variant="outline">Confidence: {data.confidence_score || 'N/A'}</Badge>
                 </div>
             </CardHeader>
-            <CardContent className="flex-grow">
-                <p className="text-sm text-slate-600 mb-4">{data.insights?.summary}</p>
-                <div className="space-y-3">
-                    {data.trending_products_data?.slice(0, 3).map((product, index) => (
-                        <div key={index} className="flex items-center gap-3 p-2 rounded-lg bg-slate-50 border border-slate-100">
-                            <img src={product.image_url} alt={product.name} className="w-10 h-10 object-cover rounded-md" />
-                            <div className="flex-1">
-                                <p className="text-sm font-medium text-slate-800">{product.name}</p>
-                                <p className="text-xs text-green-600">Trend Score: {product.trend_score}</p>
-                            </div>
+            <CardContent className="flex-grow space-y-3">
+                {products.slice(0, 5).map((product, index) => (
+                    <div key={index} className="p-3 rounded-lg bg-slate-50 border border-slate-100 space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-slate-800">{product.name}</p>
+                            {product.demand && (
+                                <Badge className={demandColor(product.demand)}>{product.demand} demand</Badge>
+                            )}
                         </div>
-                    ))}
-                </div>
+                        {product.price_range && (
+                            <p className="text-xs text-slate-500">Price range: {product.price_range}</p>
+                        )}
+                        {product.trend_reason && (
+                            <p className="text-xs text-slate-600">{product.trend_reason}</p>
+                        )}
+                        {product.seller_tip && (
+                            <p className="text-xs text-emerald-700 font-medium">Tip: {product.seller_tip}</p>
+                        )}
+                    </div>
+                ))}
+                {products.length === 0 && (
+                    <p className="text-sm text-slate-400 italic">No trending products data available.</p>
+                )}
             </CardContent>
             <CardFooter>
-                 <Button 
-                    className="w-full bg-emerald-600 hover:bg-emerald-700" 
-                    onClick={() => navigate(createPageUrl('Commands?prompt=' + encodeURIComponent(`Create a new product listing inspired by trending items in ${data.category}`)))}
+                <Button
+                    className="w-full bg-emerald-600 hover:bg-emerald-700"
+                    onClick={() => navigate(createPageUrl('Commands?prompt=' + encodeURIComponent(`Create a new product listing inspired by trending items in ${data.niche}`)))}
                 >
                     <Sparkles className="w-4 h-4 mr-2" />
                     Create Inspired Listing
