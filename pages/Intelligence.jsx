@@ -37,7 +37,7 @@ export default function Intelligence() {
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
-  const [activeTab, setActiveTab] = useState('trending');
+  const [activeTab, setActiveTab] = useState('niches');
   const [customNiche, setCustomNiche] = useState('');
   const [selectedNiches, setSelectedNiches] = useState([]);
   const [showNicheInput, setShowNicheInput] = useState(false);
@@ -419,34 +419,19 @@ export default function Intelligence() {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-2 lg:grid-cols-4">
-          <TabsTrigger value="trending">
-            Trending Products
-          </TabsTrigger>
           <TabsTrigger value="niches">
             Niche Analysis
           </TabsTrigger>
           <TabsTrigger value="competitors">
-            Market Landscape
+            Seller Positioning
+          </TabsTrigger>
+          <TabsTrigger value="trending">
+            Trending Products
           </TabsTrigger>
           <TabsTrigger value="keywords">
             Keywords
           </TabsTrigger>
         </TabsList>
-
-        <TabsContent value="trending" className="mt-6">
-          {groupedIntelligence.trending_products.length > 0 ? (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {groupedIntelligence.trending_products.map((item) => (
-                <TrendingProductsCard key={item.id} data={item} />
-              ))}
-            </div>
-          ) : (
-            <NoDataEmptyState
-              entityName="Trending Products Intelligence"
-              onCreate={handleGenerateIntelligence}
-            />
-          )}
-        </TabsContent>
 
         <TabsContent value="niches" className="mt-6">
           {groupedIntelligence.niche_analysis.length > 0 ? (
@@ -472,7 +457,22 @@ export default function Intelligence() {
             </div>
           ) : (
             <NoDataEmptyState
-              entityName="Market Landscape"
+              entityName="Seller Positioning"
+              onCreate={handleGenerateIntelligence}
+            />
+          )}
+        </TabsContent>
+
+        <TabsContent value="trending" className="mt-6">
+          {groupedIntelligence.trending_products.length > 0 ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {groupedIntelligence.trending_products.map((item) => (
+                <TrendingProductsCard key={item.id} data={item} />
+              ))}
+            </div>
+          ) : (
+            <NoDataEmptyState
+              entityName="Trending Products Intelligence"
               onCreate={handleGenerateIntelligence}
             />
           )}

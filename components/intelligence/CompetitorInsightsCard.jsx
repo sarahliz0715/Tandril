@@ -20,7 +20,7 @@ export default function CompetitorInsightsCard({ data }) {
                     <div>
                         <CardTitle className="flex items-center gap-2 text-lg">
                             <Eye className="w-5 h-5 text-blue-500" />
-                            Market Landscape
+                            Seller Positioning
                         </CardTitle>
                         <p className="text-sm text-slate-500 mt-1">for "{data.niche}"</p>
                     </div>
