@@ -7,7 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import {
   Menu, X, LogOut, Settings, LayoutDashboard, MessageSquare, Briefcase, Bot,
   TrendingUp, BarChart3, Package, Users, FileText, LifeBuoy, Building2,
-  DollarSign, Command, Repeat, ShoppingCart, History, GripVertical, CreditCard, Bell, AlertTriangle
+  DollarSign, Command, Repeat, ShoppingCart, History, GripVertical, CreditCard, Bell, AlertTriangle, Rocket
 } from 'lucide-react';
 import TandrilVineLogo from '@/components/logos/TandrilVineLogo';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -357,6 +357,25 @@ export default function Layout({ children, currentPageName }) {
                                         </DragDropContext>
 
                                         <div className="mt-6 pt-6 border-t border-slate-200 space-y-1">
+                                            {/* Getting Started — always visible, indicator dot if not completed */}
+                                            <Link
+                                                to={createPageUrl('Onboarding')}
+                                                className={`
+                                                    flex items-center gap-3 px-3 py-2 rounded-lg transition-colors
+                                                    ${location.pathname.includes('Onboarding')
+                                                        ? 'bg-emerald-50 text-emerald-700'
+                                                        : 'text-slate-700 hover:bg-slate-50'
+                                                    }
+                                                `}
+                                                onClick={() => setSidebarOpen(false)}
+                                            >
+                                                <Rocket className={`w-5 h-5 flex-shrink-0 ${location.pathname.includes('Onboarding') ? 'text-emerald-600' : 'text-slate-600'}`} />
+                                                <span className="font-medium">Getting Started</span>
+                                                {user && !user.onboarding_completed && (
+                                                    <span className="ml-auto w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+                                                )}
+                                            </Link>
+
                                             {secondaryNavigation
                                                 .filter(item => {
                                                     // Hide beta-only items for beta users
