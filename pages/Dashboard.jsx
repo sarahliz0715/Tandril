@@ -833,11 +833,20 @@ export default function Dashboard() {
         {hasBetaAccess && (
             <Alert className="mb-6 border-blue-200 bg-blue-50">
                 <Sparkles className="h-4 w-4 text-blue-600" />
-                <AlertTitle className="text-blue-900">Welcome to Shopify Beta!</AlertTitle>
-                <AlertDescription className="text-blue-700">
-                    You're testing our Shopify-focused MVP. Connect your store, ask Orion questions, and try SEO optimization.
-                    We'd love your feedback!
-                </AlertDescription>
+                <div className="flex items-center justify-between gap-4">
+                    <div>
+                        <AlertTitle className="text-blue-900">Welcome to Shopify Beta!</AlertTitle>
+                        <AlertDescription className="text-blue-700">
+                            You're testing our Shopify-focused MVP. Connect your store, ask Orion questions, and try SEO optimization.
+                            We'd love your feedback!
+                        </AlertDescription>
+                    </div>
+                    <Link to={createPageUrl('Onboarding')} className="shrink-0">
+                        <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
+                            Getting Started
+                        </Button>
+                    </Link>
+                </div>
             </Alert>
         )}
 
