@@ -28,6 +28,7 @@ import TrendingProductsCard from '../components/intelligence/TrendingProductsCar
 import NicheAnalysisCard from '../components/intelligence/NicheAnalysisCard';
 import CompetitorInsightsCard from '../components/intelligence/CompetitorInsightsCard';
 import KeywordOpportunitiesCard from '../components/intelligence/KeywordOpportunitiesCard';
+import PriceBenchmarkCard from '../components/intelligence/PriceBenchmarkCard';
 import { handleAuthError } from '@/utils/authHelpers';
 import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 import { NoDataEmptyState } from '../components/common/EmptyState';
@@ -418,7 +419,7 @@ export default function Intelligence() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-2 lg:grid-cols-4">
+        <TabsList className="grid w-full grid-cols-2 lg:grid-cols-5">
           <TabsTrigger value="niches">
             Niche Analysis
           </TabsTrigger>
@@ -430,6 +431,9 @@ export default function Intelligence() {
           </TabsTrigger>
           <TabsTrigger value="keywords">
             Keywords
+          </TabsTrigger>
+          <TabsTrigger value="price-benchmark">
+            Price Benchmark
           </TabsTrigger>
         </TabsList>
 
@@ -491,6 +495,12 @@ export default function Intelligence() {
               onCreate={handleGenerateIntelligence}
             />
           )}
+        </TabsContent>
+
+        <TabsContent value="price-benchmark" className="mt-6">
+          <div className="max-w-2xl">
+            <PriceBenchmarkCard />
+          </div>
         </TabsContent>
       </Tabs>
 

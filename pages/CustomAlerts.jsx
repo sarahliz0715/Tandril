@@ -37,7 +37,7 @@ const triggerIcons = {
     revenue_milestone: DollarSign,
     new_review: Star,
     low_rating_review: Star,
-    competitor_price_drop: DollarSign,
+    price_benchmark: DollarSign,
     platform_disconnect: Activity,
     order_threshold: Activity,
     conversion_rate_drop: TrendingDown,
