@@ -47,8 +47,8 @@ const WORKFLOW_PRESETS = [
     },
     {
         id: 'price_monitoring',
-        name: 'Competitor Price Monitor',
-        description: 'Weekly check for competitive pricing opportunities',
+        name: 'Price Benchmark Monitor',
+        description: 'Weekly check on how your pricing compares to the market',
         icon: DollarSign,
         category: 'pricing',
         schedule: 'weekly',
@@ -473,7 +473,7 @@ Return JSON with:
                                 What's your biggest challenge with managing your Shopify store?
                             </p>
                             <p className="text-sm text-slate-600">
-                                For example: keeping product descriptions updated, managing inventory, finding time for SEO, tracking competitors, etc.
+                                For example: keeping product descriptions updated, managing inventory, finding time for SEO, keeping up with market pricing, etc.
                             </p>
                         </div>
 

@@ -201,7 +201,7 @@ export default function BetaCapabilities() {
               />
               <CommandExample 
                   command="Analyze my product pricing compared to market trends"
-                  description="Get competitive insights"
+                  description="Get market pricing insights"
               />
 
               {/* What's Coming Next */}
