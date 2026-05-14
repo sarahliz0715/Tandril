@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -151,8 +152,8 @@ export default function PriceBenchmarkCard() {
             )}
 
             {result.analysis && (
-              <div className="text-sm text-slate-700 leading-relaxed bg-emerald-50 rounded-lg p-3 border border-emerald-100">
-                {result.analysis}
+              <div className="text-sm text-slate-700 leading-relaxed bg-emerald-50 rounded-lg p-3 border border-emerald-100 prose prose-sm prose-slate max-w-none">
+                <ReactMarkdown>{result.analysis}</ReactMarkdown>
               </div>
             )}
           </div>

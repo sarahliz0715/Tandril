@@ -38,7 +38,7 @@ export default function Intelligence() {
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
-  const [activeTab, setActiveTab] = useState('niches');
+  const [activeTab, setActiveTab] = useState('trending');
   const [customNiche, setCustomNiche] = useState('');
   const [selectedNiches, setSelectedNiches] = useState([]);
   const [showNicheInput, setShowNicheInput] = useState(false);
@@ -420,12 +420,6 @@ export default function Intelligence() {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-2 lg:grid-cols-5">
-          <TabsTrigger value="niches">
-            Niche Analysis
-          </TabsTrigger>
-          <TabsTrigger value="competitors">
-            Seller Positioning
-          </TabsTrigger>
           <TabsTrigger value="trending">
             Trending Products
           </TabsTrigger>
@@ -434,6 +428,12 @@ export default function Intelligence() {
           </TabsTrigger>
           <TabsTrigger value="price-benchmark">
             Price Benchmark
+          </TabsTrigger>
+          <TabsTrigger value="niches">
+            Niche Analysis
+          </TabsTrigger>
+          <TabsTrigger value="competitors">
+            Seller Positioning
           </TabsTrigger>
         </TabsList>
 
