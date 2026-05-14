@@ -67,7 +67,7 @@ serve(async (req) => {
             },
             body: JSON.stringify({
               model: 'claude-haiku-4-5-20251001',
-              max_tokens: 1024,
+              max_tokens: 2048,
               messages: [{ role: 'user', content: prompt }],
             }),
           });
@@ -78,8 +78,19 @@ serve(async (req) => {
 
           let parsedContent: any;
           try {
-            const jsonMatch = rawText.match(/```json\n?([\s\S]*?)\n?```/) || rawText.match(/(\[[\s\S]*\]|\{[\s\S]*\})/);
-            parsedContent = JSON.parse(jsonMatch ? jsonMatch[1] : rawText);
+            // Try code-fenced JSON first, then find the outermost [ or { block
+            const fenced = rawText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+            if (fenced) {
+              parsedContent = JSON.parse(fenced[1].trim());
+            } else {
+              // Strip any leading prose before the first [ or {
+              const firstBracket = Math.min(
+                rawText.indexOf('[') === -1 ? Infinity : rawText.indexOf('['),
+                rawText.indexOf('{') === -1 ? Infinity : rawText.indexOf('{')
+              );
+              const jsonStr = firstBracket < Infinity ? rawText.slice(firstBracket) : rawText;
+              parsedContent = JSON.parse(jsonStr);
+            }
           } catch {
             parsedContent = { raw: rawText };
           }

@@ -256,6 +256,11 @@ export default function PlatformCard({
         <p className="text-sm text-slate-600 line-clamp-3">
           {platformType?.description}
         </p>
+        {platformType.type_id === 'etsy' && (
+          <p className="mt-3 text-xs text-slate-400 leading-snug">
+            The term "Etsy" is a trademark of Etsy, Inc. This application uses the Etsy API but is not endorsed or certified by Etsy, Inc.
+          </p>
+        )}
         {isProcessing && (
             <div className="mt-4 space-y-2">
                 <Progress value={syncProgress.percentage} className="w-full" />
