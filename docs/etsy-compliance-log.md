@@ -12,6 +12,7 @@ Maintained for reference during future Etsy developer portal submissions.
 | Original | Denied | AI involvement | — |
 | April 2026 (after correspondence) | Eva approved — directed to resubmit | — | #24354334 |
 | May 7, 2026 | Denied (Banned) | "Security-related / Other" — Competition Analysis flagged | #24716820 |
+| May 2026 (submitted as "Orion - Multishop AI Assistant") | Did not reach Etsy — not found in portal | Resubmission required per Shivangi | — |
 
 ---
 
@@ -47,6 +48,29 @@ Maintained for reference during future Etsy developer portal submissions.
 - **`CompetitorInsightsCard` component name** — internal code only, not user-visible.
 - **`CustomAlerts` competitor_price_drop alert type** — this alert type monitors the seller's own price history, not competitor prices via Etsy API. No change needed.
 - **Core AI behavior** — Orion/AI assistant does not use the Etsy API to access any seller's data other than the authenticated connected seller. No change was needed here; the issue was purely labeling.
+
+---
+
+## Changes Made — May 15, 2026
+
+**Trigger:** Etsy API Terms of Use review during resubmission preparation.
+
+### UI / Copy Changes
+
+| File | Change |
+|---|---|
+| `components/platforms/PlatformCard.jsx` | Added required Etsy trademark notice to the Etsy platform card: "The term 'Etsy' is a trademark of Etsy, Inc. This application uses the Etsy API but is not endorsed or certified by Etsy, Inc." |
+| `components/alerts/CreateCustomAlertModal.jsx` | Alert type `competitor_price_drop` renamed to `price_benchmark`; label changed from "Competitor Price Drop" to "Price Benchmark Alert" |
+| `components/onboarding/BetaOnboardingFlow.jsx` | "Competitor Price Monitor" → "Price Benchmark Monitor"; copy updated to remove "tracking competitors" language |
+| `pages/BetaCapabilities.jsx` | "Get competitive insights" → "Get market pricing insights" |
+| `pages/CustomAlerts.jsx` | Icon map key updated: `competitor_price_drop` → `price_benchmark` |
+
+### New Features
+
+| File | Change |
+|---|---|
+| `supabase/functions/price-benchmark/index.ts` | New edge function: Price Benchmark tool. Uses eBay Finding API (public market data, not Etsy API) and Claude AI to compare a seller's price against similar products across the broader market. No Etsy API data used. |
+| `components/intelligence/PriceBenchmarkCard.jsx` | New UI component for the Price Benchmark feature on the Intelligence page. |
 
 ---
 
