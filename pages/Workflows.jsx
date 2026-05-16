@@ -63,7 +63,7 @@ export default function Workflows() {
   const [isLoading, setIsLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [activeTab, setActiveTab] = useState('active');
+  const [activeTab, setActiveTab] = useState('templates');
   const navigate = useNavigate();
   const { isOpen, config, confirm, cancel } = useConfirmDialog();
 
@@ -304,7 +304,8 @@ export default function Workflows() {
       const workflowData = {
         ...template.workflow_data,
         name: `${template.name} (Copy)`,
-        is_active: false
+        is_active: false,
+        trigger_type: template.workflow_data?.trigger_type || template.trigger_type || 'manual',
       };
 
       await AIWorkflow.create(workflowData);
