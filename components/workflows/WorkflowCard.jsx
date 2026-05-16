@@ -18,9 +18,16 @@ export default function WorkflowCard({ workflow, onEdit, onToggle, onDelete }) {
     const formatTrigger = () => {
         switch (triggerType) {
             case 'schedule':
-                const frequency = triggerConfig.frequency || 'daily';
-                const hour = triggerConfig.hour || 9;
-                return `${frequency.charAt(0).toUpperCase() + frequency.slice(1)} at ${hour}:00`;
+                if (triggerConfig.label) return triggerConfig.label;
+                if (triggerConfig.cron) {
+                    const parts = triggerConfig.cron.split(' ');
+                    const hour = parseInt(parts[1]);
+                    if (!isNaN(hour)) {
+                        const display = hour === 0 ? '12:00 AM' : hour < 12 ? `${hour}:00 AM` : hour === 12 ? '12:00 PM' : `${hour - 12}:00 PM`;
+                        return `Daily at ${display}`;
+                    }
+                }
+                return `Daily at ${triggerConfig.hour || 9}:00`;
             case 'event':
                 return `On ${triggerConfig.event_name || 'event'}`;
             case 'manual':

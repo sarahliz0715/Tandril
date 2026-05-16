@@ -45,17 +45,24 @@ function calcNextRunAt(cron) {
     return next.toISOString();
 }
 
-export default function CreateWorkflowModal({ onClose, onSuccess }) {
+export default function CreateWorkflowModal({ onClose, onSuccess, editingWorkflow }) {
+    const isEditing = !!editingWorkflow;
+    const existingAction = editingWorkflow?.actions?.[0]?.config || {};
+
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [workflowType, setWorkflowType] = useState('action');
-    const [name, setName] = useState('');
-    const [description, setDescription] = useState('');
-    const [triggerType, setTriggerType] = useState('manual');
-    const [cron, setCron] = useState('0 9 * * *');
-    const [commands, setCommands] = useState(['']);
-    const [platform, setPlatform] = useState('shopify');
-    const [actionType, setActionType] = useState('');
-    const [actionConfig, setActionConfig] = useState({});
+    const [workflowType, setWorkflowType] = useState(
+        editingWorkflow?.actions?.[0]?.type === 'command' ? 'command' : 'action'
+    );
+    const [name, setName] = useState(editingWorkflow?.name || '');
+    const [description, setDescription] = useState(editingWorkflow?.description || '');
+    const [triggerType, setTriggerType] = useState(editingWorkflow?.trigger_type || 'manual');
+    const [cron, setCron] = useState(editingWorkflow?.trigger_config?.cron || '0 9 * * *');
+    const [commands, setCommands] = useState(editingWorkflow?.commands?.length ? editingWorkflow.commands : ['']);
+    const [platform, setPlatform] = useState(editingWorkflow?.platforms?.[0] || 'shopify');
+    const [actionType, setActionType] = useState(existingAction.action_type || '');
+    const [actionConfig, setActionConfig] = useState(
+        existingAction.action_type ? { ...existingAction, action_type: undefined } : {}
+    );
 
     const handleActionConfigChange = (field, value) => {
         setActionConfig(prev => ({ ...prev, [field]: value }));
@@ -127,13 +134,18 @@ export default function CreateWorkflowModal({ onClose, onSuccess }) {
                 ...(triggerType === 'schedule' && cron ? { next_run_at: calcNextRunAt(cron) } : {}),
             };
 
-            await api.entities.AIWorkflow.create(payload);
-            toast.success("Workflow created successfully!");
+            if (isEditing) {
+                await api.entities.AIWorkflow.update(editingWorkflow.id, payload);
+                toast.success("Workflow updated successfully!");
+            } else {
+                await api.entities.AIWorkflow.create(payload);
+                toast.success("Workflow created successfully!");
+            }
             onSuccess();
             onClose();
         } catch (error) {
-            console.error('Failed to create workflow:', error);
-            toast.error("Failed to create workflow", { description: error.message });
+            console.error('Failed to save workflow:', error);
+            toast.error("Failed to save workflow", { description: error.message });
         } finally {
             setIsSubmitting(false);
         }
@@ -145,10 +157,10 @@ export default function CreateWorkflowModal({ onClose, onSuccess }) {
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <Zap className="w-5 h-5 text-emerald-600" />
-                        Create New Workflow
+                        {isEditing ? 'Edit Workflow' : 'Create New Workflow'}
                     </DialogTitle>
                     <DialogDescription>
-                        Create an automated workflow to run commands on a schedule or trigger.
+                        {isEditing ? 'Update your workflow settings.' : 'Create an automated workflow to run commands on a schedule or trigger.'}
                     </DialogDescription>
                 </DialogHeader>
 
@@ -348,10 +360,10 @@ export default function CreateWorkflowModal({ onClose, onSuccess }) {
                         {isSubmitting ? (
                             <>
                                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                Creating...
+                                {isEditing ? 'Saving...' : 'Creating...'}
                             </>
                         ) : (
-                            'Create Workflow'
+                            isEditing ? 'Save Changes' : 'Create Workflow'
                         )}
                     </Button>
                 </DialogFooter>

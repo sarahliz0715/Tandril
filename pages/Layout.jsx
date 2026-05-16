@@ -101,12 +101,29 @@ export default function Layout({ children, currentPageName }) {
             authHandled = true;
 
             if (!session) {
+                localStorage.removeItem('tandril_persistent');
                 setUser(null);
                 setAuthCheckComplete(true);
                 if (!publicPages.includes(currentPageName)) {
                     console.log('User not authenticated in layout');
-                    console.log(`Redirecting from ${currentPageName} to Home due to authentication failure`);
                     toast.error('Session expired', { description: 'Please log in again to continue.' });
+                    navigate(createPageUrl('Login'));
+                }
+                return;
+            }
+
+            // Detect stale session: Supabase kept session in localStorage after tab was closed,
+            // but neither our tab-session nor persistent flag is present.
+            const isPersistent = localStorage.getItem('tandril_persistent');
+            const isTabSession = sessionStorage.getItem('tandril_session');
+            const isOAuth = session.user?.app_metadata?.provider && session.user.app_metadata.provider !== 'email';
+
+            if (!isPersistent && !isTabSession && !isOAuth) {
+                console.log('Stale session detected — signing out');
+                supabase.auth.signOut();
+                setUser(null);
+                setAuthCheckComplete(true);
+                if (!publicPages.includes(currentPageName)) {
                     navigate(createPageUrl('Login'));
                 }
                 return;
