@@ -124,7 +124,7 @@ async function createTestAccount() {
     console.log('   • 1 year trial period\n');
 
     console.log('📝 Next Steps:');
-    console.log('   1. Log in to https://tandril-mvp.vercel.app/Login');
+    console.log('   1. Log in to https://www.tandril.org/Login');
     console.log('   2. Use the credentials above');
     console.log('   3. Generate demo data from the dashboard if needed');
     console.log('   4. Connect a Shopify development store to test integrations\n');

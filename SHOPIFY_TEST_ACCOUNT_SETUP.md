@@ -7,7 +7,7 @@ This guide will help you create a dedicated test account for Shopify app reviewe
 ### Step 1: Create the Account
 
 1. **Open an incognito/private browser window**
-2. **Go to:** https://tandril-mvp.vercel.app/Signup
+2. **Go to:** https://www.tandril.org/Signup
 3. **Sign up with:**
    - Email: `shopify-test@tandril.com`
    - Password: `TandrilTest2026!`
@@ -129,7 +129,7 @@ Before submitting to Shopify, verify the test account has:
 ## Testing the Account
 
 ### Login URL:
-https://tandril-mvp.vercel.app/Login
+https://www.tandril.org/Login
 
 ### To verify beta mode is working:
 1. Log in with test credentials
