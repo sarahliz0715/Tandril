@@ -69,8 +69,8 @@ const betaNavigationItems = [
 
 const secondaryNavigation = [
     { name: 'Settings', href: 'Settings', icon: Settings, betaHidden: false },
-    { name: 'Resources', href: 'Capabilities', icon: FileText, betaHidden: true },
-    { name: 'Seller Card', href: 'SellerCard', icon: CreditCard, betaHidden: true },
+    { name: 'Resources', href: 'Capabilities', icon: FileText, betaHidden: true, adminOnly: true },
+    { name: 'Seller Card', href: 'SellerCard', icon: CreditCard, betaHidden: true, adminOnly: true },
     { name: 'Support', href: 'support', icon: LifeBuoy, isModal: true },
 ];
 
