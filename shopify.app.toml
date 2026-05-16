@@ -2,18 +2,19 @@
 
 client_id = "41641b42c46bc650c3f4472682f3b6d9"
 name = "Tandril Beta"
-application_url = "https://tandril-mvp.vercel.app"
+application_url = "https://www.tandril.org"
 embedded = false
 
 [build]
 automatically_update_urls_on_dev = true
-dev_store_url = "https://tandril-mvp.vercel.app"
+dev_store_url = "https://www.tandril.org"
 
 [access_scopes]
 scopes = "read_customers,write_price_rules,write_discounts,write_inventory,read_inventory,read_orders,read_product_listings,write_product_listings,read_products,write_products"
 
 [auth]
 redirect_urls = [
+  "https://www.tandril.org/api/shopify-callback",
   "https://biksocozipayckfuzzul.supabase.co/functions/v1/shopify-auth-callback"
 ]
 
