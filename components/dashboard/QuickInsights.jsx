@@ -1,98 +1,133 @@
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { TrendingUp, TrendingDown, AlertTriangle, Package, DollarSign, Users, ArrowUpRight, ArrowDownRight, Zap } from 'lucide-react';
+import { TrendingUp, AlertTriangle, Package, DollarSign, ArrowUpRight, ArrowDownRight, Zap, Store } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { User } from '@/lib/entities';
 
-export default function QuickInsights({ orders, products, recommendations, alerts }) {
+export default function QuickInsights({ products, platforms, alerts, recommendations, stats }) {
     const navigate = useNavigate();
-    const [user, setUser] = useState(null);
-    const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        const fetchUser = async () => {
-            try {
-                const currentUser = await User.me();
-                setUser(currentUser);
-            } catch (error) {
-                if (error.response?.status === 401) {
-                    console.log('User not authenticated in QuickInsights');
-                    navigate(createPageUrl('Home'));
-                    return;
-                }
-                console.error('Error fetching user in QuickInsights:', error);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchUser();
-    }, [navigate]);
-
-    if (loading || !user) {
-        return null; // Don't render anything while loading or if user is not authenticated
-    }
-
-    // Generate insights based on available data
     const generateInsights = () => {
         const insights = [];
-        
-        // Revenue insight (mock data for demo)
-        insights.push({
-            title: 'Revenue Trend',
-            value: '$12,450',
-            change: '+8.2%',
-            trend: 'up',
-            description: 'vs last month',
-            color: 'green',
-            icon: DollarSign,
-            action: () => navigate(createPageUrl('Analytics'))
-        });
 
-        // Order volume insight
-        if (orders && orders.length > 0) {
+        // Real: total products from connected store
+        const productCount = products?.length || 0;
+        if (productCount > 0) {
+            insights.push({
+                title: 'Products in Store',
+                value: productCount.toString(),
+                change: 'Live data',
+                trend: 'up',
+                description: 'from connected store',
+                color: 'green',
+                icon: Package,
+                action: () => navigate(createPageUrl('Products'))
+            });
+        }
+
+        // Real: low / out of stock items
+        const lowStockCount = products?.filter(p =>
+            p.status === 'low_stock' || p.status === 'out_of_stock'
+        ).length || 0;
+        if (lowStockCount > 0) {
+            insights.push({
+                title: 'Low Stock Items',
+                value: lowStockCount.toString(),
+                change: 'Needs attention',
+                trend: 'warning',
+                description: 'below reorder point',
+                color: 'red',
+                icon: AlertTriangle,
+                action: () => navigate(createPageUrl('Inventory'))
+            });
+        }
+
+        // Real: orders this week (only show if > 0 so we don't display a meaningless $0)
+        if (stats?.recentOrders > 0) {
             insights.push({
                 title: 'Orders This Week',
-                value: '47',
-                change: '+23%',
+                value: stats.recentOrders.toString(),
+                change: stats.recentRevenue > 0 ? `$${Number(stats.recentRevenue).toFixed(0)} revenue` : '',
                 trend: 'up',
-                description: 'vs last week',
+                description: 'in the last 7 days',
                 color: 'blue',
                 icon: Package,
                 action: () => navigate(createPageUrl('Orders'))
             });
         }
 
-        // Critical alerts
-        if (alerts && alerts.length > 0) {
-            const criticalCount = alerts.filter(a => a.priority === 'urgent' || a.priority === 'high').length;
-            if (criticalCount > 0) {
-                insights.push({
-                    title: 'Critical Alerts',
-                    value: criticalCount.toString(),
-                    change: 'Needs attention',
-                    trend: 'warning',
-                    description: 'Require action',
-                    color: 'red',
-                    icon: AlertTriangle,
-                    action: () => navigate(createPageUrl('Inbox'))
-                });
-            }
+        // Real: revenue this week (only if not already covered by orders card)
+        if (stats?.recentRevenue > 0 && !insights.find(i => i.title === 'Orders This Week')) {
+            insights.push({
+                title: 'Revenue This Week',
+                value: `$${Number(stats.recentRevenue).toFixed(0)}`,
+                change: '',
+                trend: 'up',
+                description: 'in the last 7 days',
+                color: 'green',
+                icon: DollarSign,
+                action: () => navigate(createPageUrl('Analytics'))
+            });
         }
 
-        // Growth opportunities
-        if (recommendations && recommendations.length > 0) {
-            const highImpactRecs = recommendations.filter(r => r.impact_level === 'High' || r.impact_level === 'Critical').length;
-            if (highImpactRecs > 0) {
+        // Real: time saved from automation commands
+        if (stats?.automationsRun > 0 && stats?.timeAutomated) {
+            insights.push({
+                title: 'Time Saved This Week',
+                value: stats.timeAutomated,
+                change: `${stats.automationsRun} command${stats.automationsRun !== 1 ? 's' : ''}`,
+                trend: 'up',
+                description: 'through automation',
+                color: 'emerald',
+                icon: Zap,
+                action: () => navigate(createPageUrl('History'))
+            });
+        }
+
+        // Real: critical alerts
+        const criticalCount = stats?.criticalAlerts ||
+            (alerts || []).filter(a => a.priority === 'high' || a.priority === 'urgent').length;
+        if (criticalCount > 0) {
+            insights.push({
+                title: 'Critical Alerts',
+                value: criticalCount.toString(),
+                change: 'Needs attention',
+                trend: 'warning',
+                description: 'require action',
+                color: 'red',
+                icon: AlertTriangle,
+                action: () => navigate(createPageUrl('Inbox'))
+            });
+        }
+
+        // Real: connected platforms (good filler if not enough cards)
+        if (platforms?.length > 0 && insights.length < 3) {
+            insights.push({
+                title: 'Connected Platforms',
+                value: platforms.length.toString(),
+                change: 'Live mode',
+                trend: 'up',
+                description: platforms.slice(0, 2).map(p => p.platform_type || p.shop_name || 'Store').join(', '),
+                color: 'blue',
+                icon: Store,
+                action: () => navigate(createPageUrl('Platforms'))
+            });
+        }
+
+        // Real: growth opportunities from AI recommendations
+        if (insights.length < 3 && recommendations?.length > 0) {
+            const highImpact = recommendations.filter(
+                r => r.impact_level === 'High' || r.impact_level === 'Critical'
+            ).length;
+            if (highImpact > 0) {
                 insights.push({
                     title: 'Growth Opportunities',
-                    value: highImpactRecs.toString(),
+                    value: highImpact.toString(),
                     change: 'High impact',
                     trend: 'up',
-                    description: 'Ready to implement',
+                    description: 'ready to implement',
                     color: 'green',
                     icon: TrendingUp,
                     action: () => navigate(createPageUrl('AIAdvisor'))
@@ -100,57 +135,47 @@ export default function QuickInsights({ orders, products, recommendations, alert
             }
         }
 
-        // If we don't have enough insights, add some general ones
-        if (insights.length < 3) {
+        // If still empty (brand new account, no data yet), show a helpful prompt
+        if (insights.length === 0) {
             insights.push({
-                title: 'Automation Score',
-                value: '72%',
-                change: '+5%',
+                title: 'Connect a Store',
+                value: '—',
+                change: 'Get started',
                 trend: 'up',
-                description: 'vs last month',
-                color: 'emerald',
-                icon: Zap,
-                action: () => navigate(createPageUrl('Commands'))
+                description: 'to see live insights',
+                color: 'green',
+                icon: Store,
+                action: () => navigate(createPageUrl('Platforms'))
             });
         }
 
-        return insights.slice(0, 4); // Show max 4 insights
+        return insights.slice(0, 4);
     };
 
     const insights = generateInsights();
 
     const getIcon = (trend) => {
         switch (trend) {
-            case 'up':
-                return <ArrowUpRight className="w-4 h-4" />;
-            case 'down':
-                return <ArrowDownRight className="w-4 h-4" />;
-            case 'warning':
-                return <AlertTriangle className="w-4 h-4" />;
-            default:
-                return null;
+            case 'up': return <ArrowUpRight className="w-4 h-4" />;
+            case 'down': return <ArrowDownRight className="w-4 h-4" />;
+            case 'warning': return <AlertTriangle className="w-4 h-4" />;
+            default: return null;
         }
     };
 
-    const getColorClasses = (color) => {
-        const baseClasses = {
-            green: 'text-green-600',
-            blue: 'text-blue-600',
-            red: 'text-red-600',
-            emerald: 'text-emerald-600'
-        };
-        return baseClasses[color] || 'text-slate-600';
-    };
+    const getColorClasses = (color) => ({
+        green: 'text-green-600',
+        blue: 'text-blue-600',
+        red: 'text-red-600',
+        emerald: 'text-emerald-600'
+    }[color] || 'text-slate-600');
 
-    const getBgColorClasses = (color) => {
-        const bgClasses = {
-            green: 'bg-green-50 border-green-200',
-            blue: 'bg-blue-50 border-blue-200',
-            red: 'bg-red-50 border-red-200',
-            emerald: 'bg-emerald-50 border-emerald-200'
-        };
-        return bgClasses[color] || 'bg-slate-50 border-slate-200';
-    };
+    const getBgColorClasses = (color) => ({
+        green: 'bg-green-50 border-green-200',
+        blue: 'bg-blue-50 border-blue-200',
+        red: 'bg-red-50 border-red-200',
+        emerald: 'bg-emerald-50 border-emerald-200'
+    }[color] || 'bg-slate-50 border-slate-200');
 
     return (
         <Card className="bg-white/80 backdrop-blur-sm shadow-none border-none">
@@ -169,8 +194,8 @@ export default function QuickInsights({ orders, products, recommendations, alert
                             className={`group cursor-pointer p-4 rounded-lg border transition-all duration-200 hover:shadow-md ${getBgColorClasses(insight.color)}`}
                         >
                             <div className="flex items-start justify-between mb-2">
-                                <insight.icon className={`w-5 h-5 ${getColorClasses(insight.color, insight.trend)}`} />
-                                <div className={`flex items-center gap-1 text-xs ${getColorClasses(insight.color, insight.trend)}`}>
+                                <insight.icon className={`w-5 h-5 ${getColorClasses(insight.color)}`} />
+                                <div className={`flex items-center gap-1 text-xs ${getColorClasses(insight.color)}`}>
                                     {getIcon(insight.trend)}
                                     <span className="font-medium">{insight.change}</span>
                                 </div>
@@ -181,11 +206,11 @@ export default function QuickInsights({ orders, products, recommendations, alert
                         </div>
                     ))}
                 </div>
-                
+
                 <div className="mt-4 pt-4 border-t border-slate-200">
-                    <Button 
-                        variant="outline" 
-                        size="sm" 
+                    <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => navigate(createPageUrl('Analytics'))}
                         className="w-full"
                     >
