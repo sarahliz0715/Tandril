@@ -235,6 +235,21 @@ export default function Platforms() {
         }
     }, [navigate]);
 
+    // Auto-switch to live mode when a platform connects
+    const handleConnectionSuccess = useCallback(async () => {
+        if (currentUser && currentUser.user_mode !== 'live') {
+            try {
+                await User.updateMyUserData({ user_mode: 'live' });
+                toast.success('Switched to Live Mode', {
+                    description: 'Your store is connected. You\'re now working with real data.'
+                });
+            } catch (e) {
+                console.error('Failed to auto-switch to live mode:', e);
+            }
+        }
+        loadData();
+    }, [currentUser, loadData]);
+
     useEffect(() => {
         loadData();
     }, [loadData]);
@@ -441,7 +456,7 @@ export default function Platforms() {
                                         connectedPlatform={platform}
                                         onDisconnect={() => handleDisconnect(platform)}
                                         onForceCleanup={() => handleForceCleanup(platformType)}
-                                        onConnectionSuccess={loadData}
+                                        onConnectionSuccess={handleConnectionSuccess}
                                         isBeta={hasBetaAccess}
                                         isAtLimit={isAtLimit}
                                         currentUser={currentUser}
@@ -471,7 +486,7 @@ export default function Platforms() {
                                         connectedPlatform={platform}
                                         onDisconnect={() => handleDisconnect(platform)}
                                         onForceCleanup={() => handleForceCleanup(platformType)}
-                                        onConnectionSuccess={loadData}
+                                        onConnectionSuccess={handleConnectionSuccess}
                                         isBeta={hasBetaAccess}
                                         isAtLimit={isAtLimit}
                                         currentUser={currentUser}
@@ -501,7 +516,7 @@ export default function Platforms() {
                                         connectedPlatform={platform}
                                         onDisconnect={() => handleDisconnect(platform)}
                                         onForceCleanup={() => handleForceCleanup(platformType)}
-                                        onConnectionSuccess={loadData}
+                                        onConnectionSuccess={handleConnectionSuccess}
                                         isBeta={hasBetaAccess}
                                         isAtLimit={isAtLimit}
                                         currentUser={currentUser}
@@ -556,7 +571,7 @@ export default function Platforms() {
                                                     key={platformType.type_id}
                                                     platformType={platformType}
                                                     connectedPlatform={null} // Null indicates it's an available platform for connection
-                                                    onConnectionSuccess={loadData}
+                                                    onConnectionSuccess={handleConnectionSuccess}
                                                     isBeta={hasBetaAccess}
                                                     isComingSoon={isComingSoon}
                                                     isAtLimit={isAtLimit}
