@@ -207,7 +207,22 @@ export default function Platforms() {
                 p && typeof p === 'object' && p.id
             );
 
-            setPlatforms(validUserPlatformInstances); // Set the main platforms state
+            setPlatforms(validUserPlatformInstances);
+
+            // Auto-switch to live mode if a platform is already connected but user is still in demo mode
+            const hasConnected = validUserPlatformInstances.some(p => p.is_active !== false);
+            if (hasConnected && user && user.user_mode !== 'live') {
+                try {
+                    await User.updateMyUserData({ user_mode: 'live' });
+                    toast.success('Switched to Live Mode', {
+                        description: 'You have a connected store — switching to live data automatically.'
+                    });
+                    user.user_mode = 'live';
+                    setCurrentUser({ ...user, user_mode: 'live' });
+                } catch (e) {
+                    console.error('Failed to auto-switch to live mode:', e);
+                }
+            } // Set the main platforms state
 
         } catch (error) {
             console.error('Failed to load data:', error);
