@@ -33,6 +33,7 @@ import { minutesForCommand, calculateTotalMinutesSaved, formatTimeSaved } from '
 import { handleAuthError } from '@/utils/authHelpers';
 import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 import { NoDataEmptyState, NoResultsEmptyState } from '../components/common/EmptyState';
+import { executeCommand } from '@/lib/supabaseFunctions';
 
 // Helper function to format command log messages
 const formatCommandLogMessage = (command) => {
@@ -68,6 +69,7 @@ export default function History() {
   const [platformFilter, setPlatformFilter] = useState('all');
   const [sourceFilter, setSourceFilter] = useState('command');
   const [sortBy, setSortBy] = useState('newest');
+  const [undoingCommand, setUndoingCommand] = useState(null);
   const [trackingStartDates, setTrackingStartDates] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('timeSaved_trackingStartDates') || '{}');
@@ -203,6 +205,50 @@ export default function History() {
     });
   }, [confirm, navigate, loadData]);
 
+  // Handle undoing a completed price adjustment command
+  const handleUndo = useCallback(async (command) => {
+    const actions = command.actions_planned;
+    const priceActions = (actions || []).filter(
+      a => a.type === 'update_products' && a.parameters?.price_adjustment !== undefined
+    );
+
+    if (priceActions.length === 0) {
+      toast.error("Cannot undo this command", {
+        description: "Only price adjustment commands can be automatically undone."
+      });
+      return;
+    }
+
+    const confirmed = await confirm({
+      title: 'Undo Command?',
+      description: `This will reverse the price change from "${command.command_text?.substring(0, 60)}". Continue?`,
+      confirmText: 'Undo',
+      variant: 'destructive',
+    });
+
+    if (!confirmed) return;
+
+    setUndoingCommand(command.id);
+    try {
+      const inverseActions = priceActions.map(a => ({
+        type: 'update_products',
+        parameters: {
+          ...a.parameters,
+          price_adjustment: -(a.parameters.price_adjustment),
+        },
+      }));
+
+      await executeCommand(null, inverseActions, command.platform_targets || []);
+      await AICommand.update(command.id, { status: 'undone' });
+      toast.success("Command undone successfully");
+      loadData();
+    } catch (error) {
+      toast.error("Failed to undo command", { description: error.message });
+    } finally {
+      setUndoingCommand(null);
+    }
+  }, [confirm, loadData]);
+
   // Handle running command again
   const handleRunAgain = useCallback((command) => {
     navigate(createPageUrl('Commands?prompt=' + encodeURIComponent(command.command_text)));
@@ -315,6 +361,7 @@ export default function History() {
       failed: { color: 'bg-red-100 text-red-800 border-red-200', icon: XCircle },
       executing: { color: 'bg-blue-100 text-blue-800 border-blue-200', icon: Loader2 },
       pending: { color: 'bg-yellow-100 text-yellow-800 border-yellow-200', icon: Clock },
+      undone: { color: 'bg-orange-100 text-orange-700 border-orange-200', icon: RotateCcw },
     }[status] || { color: 'bg-slate-100 text-slate-800 border-slate-200', icon: AlertCircle };
 
     const Icon = config.icon;
@@ -535,6 +582,21 @@ export default function History() {
                     >
                       <FileText className="w-4 h-4" />
                     </Button>
+                    {command.status === 'completed' && (command.source || 'command') === 'command' && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleUndo(command)}
+                        disabled={undoingCommand === command.id}
+                        title="Undo"
+                        className="text-orange-500 hover:text-orange-700 hover:bg-orange-50"
+                      >
+                        {undoingCommand === command.id
+                          ? <Loader2 className="w-4 h-4 animate-spin" />
+                          : <RotateCcw className="w-4 h-4" />
+                        }
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"
