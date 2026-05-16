@@ -42,7 +42,7 @@ export default function CommandDetailsModal({ command, onClose, onCommandUpdate 
 
     if (!command) return null;
 
-    const results = command.shopify_results || [];
+    const results = command.shopify_results || command.execution_results?.results || [];
 
     return (
         <Dialog open={!!command} onOpenChange={onClose}>

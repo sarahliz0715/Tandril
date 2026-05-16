@@ -66,7 +66,7 @@ export default function History() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [platformFilter, setPlatformFilter] = useState('all');
-  const [sourceFilter, setSourceFilter] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState('command');
   const [sortBy, setSortBy] = useState('newest');
   const [trackingStartDates, setTrackingStartDates] = useState(() => {
     try {
