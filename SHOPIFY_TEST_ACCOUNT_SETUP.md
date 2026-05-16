@@ -9,7 +9,7 @@ This guide will help you create a dedicated test account for Shopify app reviewe
 1. **Open an incognito/private browser window**
 2. **Go to:** https://www.tandril.org/Signup
 3. **Sign up with:**
-   - Email: `shopify-test@tandril.com`
+   - Email: `shopify-test@tandril.org`
    - Password: `TandrilTest2026!`
    - Full Name: `Shopify Test Account`
 
@@ -97,7 +97,7 @@ Once created, use these credentials for Shopify app submission:
 
 **Username/Email:**
 ```
-shopify-test@tandril.com
+shopify-test@tandril.org
 ```
 
 **Password:**

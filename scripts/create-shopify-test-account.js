@@ -30,7 +30,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
 });
 
 async function createTestAccount() {
-  const testEmail = 'shopify-test@tandril.com';
+  const testEmail = 'shopify-test@tandril.org';
   const testPassword = 'TandrilTest2026!'; // Simple but secure
 
   console.log('🔧 Creating Shopify test account...\n');
