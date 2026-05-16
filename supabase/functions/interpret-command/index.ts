@@ -122,7 +122,7 @@ Your job is to convert these commands into a structured JSON response with the f
       "type": "update_products" | "create_products" | "get_products" | "update_inventory" | "apply_discount" | "update_seo" | "create_collection" | etc,
       "description": "Human-readable description of what this action does",
       "parameters": {
-        // Action-specific parameters
+        // Action-specific parameters — see schema below
       },
       "requires_confirmation": true | false
     }
@@ -131,6 +131,34 @@ Your job is to convert these commands into a structured JSON response with the f
   "warnings": ["Any warnings or things the user should know"],
   "estimated_impact": "Description of what will change"
 }
+
+PARAMETER SCHEMA — always use these exact field names:
+
+update_products:
+  - product_ids: array of Shopify product IDs (omit or use [] to target ALL products)
+  - price_adjustment: number — positive to raise price, negative to lower price (e.g. -1 to lower by $1)
+  - new_price: number — set a specific absolute price (use instead of price_adjustment if user gives a fixed price)
+  - updates: object — any other product-level field updates (title, body_html, etc.)
+
+get_products:
+  - filter: "inventory_quantity" | "price" | "title"
+  - operator: "less_than" | "greater_than" | "equals"
+  - value: number or string
+  - limit: number (default 50)
+
+update_inventory:
+  - inventory_item_id: string
+  - location_id: string
+  - available: number
+
+apply_discount:
+  - discount_type: "percentage" | "fixed"
+  - discount_value: number
+  - product_ids: array (optional)
+
+update_seo:
+  - product_ids: array
+  - seo_updates: { meta_title, meta_description }
 
 Platform targets: ${platformTargets.join(', ')}
 ${fileUrls.length > 0 ? `Attached files: ${fileUrls.join(', ')}` : ''}
@@ -145,7 +173,7 @@ Be specific with your actions and parameters. If you're unsure about something, 
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-3-haiku-20240307',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 2048,
       system: systemPrompt,
       messages: [

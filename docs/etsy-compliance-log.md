@@ -13,6 +13,8 @@ Maintained for reference during future Etsy developer portal submissions.
 | April 2026 (after correspondence) | Eva approved — directed to resubmit | — | #24354334 |
 | May 7, 2026 | Denied (Banned) | "Security-related / Other" — Competition Analysis flagged | #24716820 |
 | May 2026 (submitted as "Orion - Multishop AI Assistant") | Did not reach Etsy — not found in portal | Resubmission required per Shivangi | — |
+| May 15, 2026 (submitted as "Orion - Multishop AI Assistant") | Banned | Security-related reason not disclosed | — |
+| May 16, 2026 (submitted as "Seller Shop Management Tools") | Banned | "Other" — no specific reason given. Support agent: Adiba. | Key string: r9hfhgc98o4u2ulqijp62nfx |
 
 ---
 

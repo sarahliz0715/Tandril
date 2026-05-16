@@ -7,8 +7,8 @@ Use these step-by-step instructions to test the core Tandril experience with a c
 Go to: https://www.tandril.org/Login
 
 Sign in with the provided test credentials:
-- Email: [INSERT]
-- Password: [INSERT]
+- Email: shopify-test@tandril.org
+- Password: TandrilTest2026!
 
 ---
 
