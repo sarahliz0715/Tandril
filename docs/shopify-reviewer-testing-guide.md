@@ -19,6 +19,7 @@ Sign in with the provided test credentials:
 3. Enter your development store name (e.g. `my-store` — without `.myshopify.com`)
 4. You'll be taken to Shopify briefly to confirm the connection using your existing Shopify login
 5. You'll be brought back to Tandril automatically — the store will show as **Connected**
+6. Tandril will automatically switch to **Live Mode** — you'll see a confirmation toast
 
 > Note: No separate Shopify login prompt is shown if you're already logged into Shopify in your browser. This is expected behavior — Shopify confirms your existing session.
 
