@@ -185,6 +185,11 @@ export default function AIBusinessCoach() {
   };
 
   const handleClearChat = async () => {
+    const confirmed = window.confirm(
+      'Start a new chat?\n\nThis will permanently delete your entire conversation history with Orion and cannot be undone.'
+    );
+    if (!confirmed) return;
+
     try { sessionStorage.removeItem('orion_chat'); } catch {}
     setConversationId(null);
     setChatMessages([]);
