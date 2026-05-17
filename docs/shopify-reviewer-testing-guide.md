@@ -28,12 +28,12 @@ Sign in with the provided test credentials:
 ## Part 2 — Verify Data is Pulling In
 
 Navigate to **Products** in the left sidebar and confirm:
-- Product titles, prices, SKUs, and descriptions are displaying
+- Product titles, prices, SKUs, and descriptions are displaying from your connected store
 - Inventory quantities are visible
 
 Navigate to **Inventory** and confirm stock levels are showing from your connected store.
 
-Navigate to **Dashboard** and confirm it's showing real metrics from your connected store.
+> Note: The Dashboard shows aggregated analytics that build up over time. For immediate data verification, Products and Inventory are the best places to confirm the live connection is working.
 
 ---
 
