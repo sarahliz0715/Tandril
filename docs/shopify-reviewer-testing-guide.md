@@ -16,7 +16,7 @@ Sign in with the provided test credentials:
 
 1. Go to **Platforms** in the left sidebar
 2. Click **Connect Shopify**
-3. Enter your development store name (e.g. `my-store` — without `.myshopify.com`)
+3. Enter the development store name: `omhbridge-dev`
 4. You'll be taken to Shopify briefly to confirm the connection using your existing Shopify login
 5. You'll be brought back to Tandril automatically — the store will show as **Connected**
 6. Tandril will automatically switch to **Live Mode** — you'll see a confirmation toast
@@ -28,7 +28,7 @@ Sign in with the provided test credentials:
 ## Part 2 — Verify Data is Pulling In
 
 Navigate to **Products** in the left sidebar and confirm:
-- Product titles, prices, SKUs, and descriptions are displaying
+- Product titles, prices, and descriptions are displaying
 - Inventory quantities are visible
 
 Navigate to **Inventory** and confirm stock levels are showing from your connected store.
@@ -89,6 +89,8 @@ Navigate to **Commands** in the left sidebar.
 - Navigate to **Products** to verify the price changed back to **$25.99**
 
 > This demonstrates that no action in Tandril is permanent — everything can be reviewed before it runs and undone after.
+>
+> The same command format works at any scale: lower the price on every product in your store at once, apply a change across all your connected platforms simultaneously, or target just one specific store. Tandril handles the scope — you just describe what you want.
 
 ---
 
