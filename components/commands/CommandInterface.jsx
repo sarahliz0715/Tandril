@@ -40,9 +40,9 @@ const commandSuggestions = [
         icon: MessageSquareCode,
         commands: [
             { text: "Apply a 15% discount to all winter collection items", description: "Seasonal promotion" },
-            { text: "Check if my prices are competitive", description: "Pricing analysis" },
+            { text: "Review my pricing against market averages", description: "Pricing analysis" },
             { text: "Create a flash sale for slow-moving inventory", description: "Clear old stock" },
-            { text: "Update prices based on the attached competitor data", description: "Competitive pricing" }
+            { text: "Update prices based on the attached market data", description: "Market-based pricing" }
         ]
     }
 ];

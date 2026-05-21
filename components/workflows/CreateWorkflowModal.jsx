@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { Loader2, Zap } from 'lucide-react';
 
 const scheduleOptions = [
+    { value: '*/2 * * * *', label: 'In 2 minutes' },
     { value: '0 * * * *', label: 'Every Hour' },
     { value: '0 6 * * *', label: 'Every Day at 6 AM' },
     { value: '0 8 * * *', label: 'Every Day at 8 AM' },
@@ -24,6 +25,9 @@ const actionTypes = [
 ];
 
 function calcNextRunAt(cron) {
+    if (cron === '*/2 * * * *') {
+        return new Date(Date.now() + 2 * 60 * 1000).toISOString();
+    }
     const now = new Date();
     const parts = cron.trim().split(' ');
     const minute = parseInt(parts[0]);
@@ -130,7 +134,7 @@ export default function CreateWorkflowModal({ onClose, onSuccess, editingWorkflo
                 trigger_config: triggerConfig,
                 actions,
                 platforms: [platform],
-                is_active: false,
+                is_active: triggerType === 'schedule',
                 ...(triggerType === 'schedule' && cron ? { next_run_at: calcNextRunAt(cron) } : {}),
             };
 

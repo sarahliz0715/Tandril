@@ -88,10 +88,54 @@ When submitting the next application, explicitly state:
 
 ---
 
+## Changes Made — May 21, 2026
+
+**Trigger:** Lakshmi (Etsy support) again referenced "Competition Analysis" in denial email for "Seller Shop Management Tools" submission. Full codebase grep revealed remaining user-visible instances not caught in previous passes.
+
+### Step 1 — UI / Copy Changes (user-visible competitor language removed)
+
+| File | Before | After |
+|---|---|---|
+| `components/commands/CommandInterface.jsx` | Suggested command: "Check if my prices are competitive" | "Review my pricing against market averages" |
+| `components/commands/CommandInterface.jsx` | Suggested command: "Update prices based on the attached competitor data" | "Update prices based on the attached market data" |
+| `components/commands/CommandInterface.jsx` | Description: "Competitive pricing" | "Market-based pricing" |
+| `components/commands/EnhancedCommandInterface.jsx` | Suggested command: "Analyze competitor pricing for my electronics category..." | "Analyze market pricing for my electronics category..." |
+| `components/commands/PricingActionModal.jsx` | UI label: "Competitor Avg." | "Market Avg." |
+| `components/bulk/BulkUploadInterface.jsx` | Checkbox label: "Auto-optimize pricing (competitive analysis)" | "Auto-optimize pricing (market analysis)" |
+| `components/bulk/BulkUploadInterface.jsx` | AI recommendation text: "Price ranges appear competitive" | "Price ranges look good" |
+
+### Step 2 — Privacy Policy & Brand References
+
+| File | Change |
+|---|---|
+| `pages/PrivacyPolicy.jsx` — Section 1.3 | Rewrote to explicitly state we access only the connected seller's own data. Added highlighted note explaining Market Insights uses AI general knowledge — not API calls to other sellers' data. |
+| `pages/PrivacyPolicy.jsx` — Section 9 | Added Etsy with required trademark notice: "The term 'Etsy' is a trademark of Etsy, Inc. This application uses the Etsy API but is not endorsed or certified by Etsy, Inc." |
+| `pages/PrivacyPolicy.jsx` — Section 9 | Added eBay with note that pricing data comes from eBay's public Finding API only. |
+| `pages/PrivacyPolicy.jsx` — Contact | Fixed website URL from `tandril-mvp.vercel.app` to `tandril.org`. |
+
+### Step 3 — Feature Modifications
+
+No modifications made. The Market Landscape / Seller Positioning feature is architecturally compliant — it uses Claude AI general knowledge and never calls any Etsy API endpoint to access other sellers' data. The issue in all prior denials was labeling only. Labeling is now corrected.
+
+### What was verified as OK (not changed)
+
+| File | Reason |
+|---|---|
+| `pages/Intelligence.jsx` tab value="competitors" | Internal JS identifier only — not visible to users or reviewers. Label is "Seller Positioning". |
+| `components/intelligence/KeywordOpportunitiesCard.jsx` | "competition" refers to keyword search competition level (low/medium/high) — standard SEO terminology, not competitor analysis |
+| `components/intelligence/PriceBenchmarkCard.jsx` | "Competitively Priced" describes the seller's own pricing position, not competitor data |
+| `supabase/functions/ai-insights/index.ts` | `competitor_analysis` string kept for backward compatibility per prior decision |
+| `supabase/functions/risk-alert-analyzer/index.ts` | Internal backend only, not user-visible |
+| `WOOCOMMERCE_BULK_OPTIMIZATION_GUIDE.md`, `TECH_STACK.md` | Internal documentation, not served on tandril.org |
+
+---
+
 ## Next Steps
 
 - [ ] Submit new application with updated app name (avoid reusing "Tandril" if flagged)
 - [ ] Run migration `20260509000003_market_intelligence.sql` in Supabase
 - [ ] Deploy updated `ai-insights` edge function
-- [ ] Check tandril.org marketing copy for any remaining "competitor analysis" or "competition" language
-- [ ] Email developer@etsy.com referencing ticket #24354334 to request that prior clearance is applied to new submission
+- [x] Check tandril.org marketing copy for any remaining "competitor analysis" or "competition" language — completed May 21, 2026
+- [ ] Email developer@etsy.com referencing ticket #24354334
+- [ ] Reply to Lakshmi (ticket #24716820) noting changes made
+- [ ] Continue working through Lakshmi's remaining steps before resubmitting

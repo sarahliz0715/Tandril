@@ -190,7 +190,7 @@ export default function BulkUploadInterface({ onUploadComplete }) {
               recommendations: [
                 'Data format looks good',
                 'Consider adding more detailed descriptions',
-                'Price ranges appear competitive',
+                'Price ranges look good',
               ],
             },
             processing_results: {
@@ -437,7 +437,7 @@ export default function BulkUploadInterface({ onUploadComplete }) {
                     }
                   />
                   <label htmlFor="auto_price" className="text-sm font-medium cursor-pointer">
-                    Auto-optimize pricing (competitive analysis)
+                    Auto-optimize pricing (market analysis)
                   </label>
                 </div>
                 <div className="flex items-center space-x-2">

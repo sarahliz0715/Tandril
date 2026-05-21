@@ -1208,7 +1208,7 @@ ${memoryText || '    • Nothing saved yet — this builds up over conversations
     .map((p: any) => p.platform_type === 'shopify' ? 'Shopify' : 'WooCommerce');
   const hasMultipleActionablePlatforms = actionablePlatforms.length >= 2;
 
-  const systemPrompt = `You are Orion, an AI business wingman for e-commerce sellers. You're sharp, direct, and genuinely invested in their success. You remember past conversations and build on what you've learned over time.
+  const staticSystemPrompt = `You are Orion, an AI business wingman for e-commerce sellers. You're sharp, direct, and genuinely invested in their success. You remember past conversations and build on what you've learned over time.
 
 **CRITICAL - What you can and cannot do:**
 - You CAN: Read and analyze store data (products, orders, inventory, revenue) from the data provided below
@@ -1304,8 +1304,9 @@ To save a preference, rule, or important fact to permanent memory:
   - If a user asks "did you save that?" and no action card was approved this session, say: "No — I haven't saved it yet. Want me to create the card now?" then generate it
   - "remember" IS a valid action type — never tell the user it doesn't exist or isn't supported
 
-  Use "remember" when: the user explicitly tells you something to always remember, states a rule they follow, or you learn something critical about how they run their business. Do not overuse — only save things genuinely worth carrying across all future conversations.
-${hasMultipleActionablePlatforms ? `
+  Use "remember" when: the user explicitly tells you something to always remember, states a rule they follow, or you learn something critical about how they run their business. Do not overuse — only save things genuinely worth carrying across all future conversations.`;
+
+  const dynamicSystemPart = `${hasMultipleActionablePlatforms ? `
 **Multi-platform execution:**
 You are connected to multiple actionable stores: **${actionablePlatforms.join(' and ')}**. When the user asks to update something "on all stores", "everywhere", "across platforms", or when your recommendation is to apply the same change to all connected stores, include a "platforms" array listing all applicable platforms:
 [ORION_ACTION:{"type":"update_price","platforms":["shopify","woocommerce"],"product_name":"Product Title","sku":"SKU-001","price":34.99}]
@@ -1410,11 +1411,15 @@ ${mode === 'demo/test' ?
       'Content-Type': 'application/json',
       'x-api-key': anthropicApiKey,
       'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'prompt-caching-2024-07-31',
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 2048,
-      system: systemPrompt,
+      system: [
+        { type: 'text', text: staticSystemPrompt, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: dynamicSystemPart },
+      ],
       messages,
     }),
   });

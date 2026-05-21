@@ -49,11 +49,15 @@ export default function PrivacyPolicy() {
               </ul>
 
               <h3 className="text-xl font-semibold text-slate-800 mt-4">1.3 Information from Connected Platforms</h3>
+              <p className="text-slate-700 mb-2">When you connect a platform, Tandril accesses <strong>only your own store's data</strong> — the data belonging to your connected account. We do not access, retrieve, store, or analyze data belonging to any other seller on any platform.</p>
               <ul className="list-disc pl-6 space-y-2 text-slate-700">
-                <li><strong>Shopify Data:</strong> Products, orders, customers, inventory, and store settings (as authorized by you).</li>
-                <li><strong>Store Analytics:</strong> Sales data, performance metrics, and business intelligence.</li>
-                <li><strong>Customer Data:</strong> Customer names, emails, order history, and purchase behavior (to provide our services).</li>
+                <li><strong>Store Data:</strong> Products, orders, inventory, and store settings from your connected store (as authorized by you via OAuth).</li>
+                <li><strong>Store Analytics:</strong> Sales data, performance metrics, and business intelligence from your own store.</li>
+                <li><strong>Customer Data:</strong> Customer names, emails, order history, and purchase behavior associated with your store (to provide our services).</li>
               </ul>
+              <p className="text-slate-700 mt-3 p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm">
+                <strong>Market Insights features</strong> (such as market pricing analysis and niche research) are generated using AI with general market knowledge. These features do not call any platform API to retrieve data about other sellers, other shops, or any marketplace-wide seller data. All database queries enforce user-level access controls — no user can access another user's data.
+              </p>
             </section>
 
             {/* 2. How We Use Your Information */}
@@ -186,9 +190,11 @@ export default function PrivacyPolicy() {
               <p className="text-slate-700 mb-3">We integrate with third-party services that have their own privacy policies:</p>
               <ul className="list-disc pl-6 space-y-2 text-slate-700">
                 <li><strong>Shopify:</strong> <a href="https://www.shopify.com/legal/privacy" target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline">Privacy Policy</a></li>
+                <li><strong>Etsy:</strong> <a href="https://www.etsy.com/legal/privacy" target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline">Privacy Policy</a> — The term "Etsy" is a trademark of Etsy, Inc. This application uses the Etsy API but is not endorsed or certified by Etsy, Inc.</li>
                 <li><strong>Stripe:</strong> <a href="https://stripe.com/privacy" target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline">Privacy Policy</a></li>
                 <li><strong>Supabase:</strong> <a href="https://supabase.com/privacy" target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline">Privacy Policy</a></li>
                 <li><strong>Anthropic:</strong> <a href="https://www.anthropic.com/privacy" target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline">Privacy Policy</a></li>
+                <li><strong>eBay:</strong> <a href="https://www.ebay.com/help/policies/member-behaviour-policies/user-privacy-notice-privacy-policy" target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline">Privacy Policy</a> — Market pricing data sourced from eBay's public Finding API.</li>
               </ul>
             </section>
 
@@ -228,7 +234,7 @@ export default function PrivacyPolicy() {
               <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-2">
                 <p className="text-slate-800"><strong>Tandril, Inc.</strong></p>
                 <p className="text-slate-700">Email: <a href="mailto:hello@tandril.org" className="text-emerald-600 hover:underline font-semibold">hello@tandril.org</a></p>
-                <p className="text-slate-700">Website: <a href="https://tandril-mvp.vercel.app" className="text-emerald-600 hover:underline font-semibold">https://tandril-mvp.vercel.app</a></p>
+                <p className="text-slate-700">Website: <a href="https://www.tandril.org" className="text-emerald-600 hover:underline font-semibold">https://www.tandril.org</a></p>
               </div>
             </section>
 

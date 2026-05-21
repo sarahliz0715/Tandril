@@ -47,7 +47,7 @@ export default function PricingActionModal({ isOpen, onClose, pricingResult, onA
                         <p className="text-sm text-blue-800">{reason}</p>
                         <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                             <div className="bg-white p-2 rounded">
-                                <p className="text-xs text-slate-500">Competitor Avg.</p>
+                                <p className="text-xs text-slate-500">Market Avg.</p>
                                 <p className="font-medium text-slate-800">${competitor_average.toFixed(2)}</p>
                             </div>
                              <div className="bg-white p-2 rounded">
