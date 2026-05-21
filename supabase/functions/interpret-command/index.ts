@@ -107,7 +107,7 @@ async function interpretWithClaude(
   fileUrls: string[],
   apiKey: string
 ): Promise<any> {
-  const systemPrompt = `You are an AI assistant that interprets e-commerce management commands and converts them into structured actions.
+  const staticSystemPrompt = `You are an AI assistant that interprets e-commerce management commands and converts them into structured actions.
 
 The user manages one or more Shopify stores. They will give you natural language commands like:
 - "Update all products in the Winter Collection to be 20% off"
@@ -160,10 +160,9 @@ update_seo:
   - product_ids: array
   - seo_updates: { meta_title, meta_description }
 
-Platform targets: ${platformTargets.join(', ')}
-${fileUrls.length > 0 ? `Attached files: ${fileUrls.join(', ')}` : ''}
-
 Be specific with your actions and parameters. If you're unsure about something, set requires_confirmation to true.`;
+
+  const dynamicContext = `Platform targets: ${platformTargets.join(', ')}${fileUrls.length > 0 ? `\nAttached files: ${fileUrls.join(', ')}` : ''}`;
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -171,11 +170,15 @@ Be specific with your actions and parameters. If you're unsure about something, 
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'prompt-caching-2024-07-31',
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 2048,
-      system: systemPrompt,
+      system: [
+        { type: 'text', text: staticSystemPrompt, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: dynamicContext },
+      ],
       messages: [
         {
           role: 'user',
