@@ -88,10 +88,41 @@ When submitting the next application, explicitly state:
 
 ---
 
+## Changes Made — May 21, 2026
+
+**Trigger:** Lakshmi (Etsy support) again referenced "Competition Analysis" in denial email for "Seller Shop Management Tools" submission. Full codebase grep revealed remaining user-visible instances not caught in previous passes.
+
+### UI / Copy Changes
+
+| File | Before | After |
+|---|---|---|
+| `components/commands/CommandInterface.jsx` | Suggested command: "Check if my prices are competitive" | "Review my pricing against market averages" |
+| `components/commands/CommandInterface.jsx` | Suggested command: "Update prices based on the attached competitor data" | "Update prices based on the attached market data" |
+| `components/commands/CommandInterface.jsx` | Description: "Competitive pricing" | "Market-based pricing" |
+| `components/commands/EnhancedCommandInterface.jsx` | Suggested command: "Analyze competitor pricing for my electronics category..." | "Analyze market pricing for my electronics category..." |
+| `components/commands/PricingActionModal.jsx` | UI label: "Competitor Avg." | "Market Avg." |
+| `components/bulk/BulkUploadInterface.jsx` | Checkbox label: "Auto-optimize pricing (competitive analysis)" | "Auto-optimize pricing (market analysis)" |
+| `components/bulk/BulkUploadInterface.jsx` | AI recommendation text: "Price ranges appear competitive" | "Price ranges look good" |
+
+### What was verified as OK (not changed)
+
+| File | Reason |
+|---|---|
+| `pages/Intelligence.jsx` tab value="competitors" | Internal JS identifier only — not visible to users or reviewers. Label is "Seller Positioning". |
+| `components/intelligence/KeywordOpportunitiesCard.jsx` | "competition" refers to keyword search competition level (low/medium/high) — standard SEO terminology, not competitor analysis |
+| `components/intelligence/PriceBenchmarkCard.jsx` | "Competitively Priced" describes the seller's own pricing position, not competitor data |
+| `supabase/functions/ai-insights/index.ts` | `competitor_analysis` string kept for backward compatibility per prior decision |
+| `supabase/functions/risk-alert-analyzer/index.ts` | Internal backend only, not user-visible |
+| `WOOCOMMERCE_BULK_OPTIMIZATION_GUIDE.md`, `TECH_STACK.md` | Internal documentation, not served on tandril.org |
+
+---
+
 ## Next Steps
 
 - [ ] Submit new application with updated app name (avoid reusing "Tandril" if flagged)
 - [ ] Run migration `20260509000003_market_intelligence.sql` in Supabase
 - [ ] Deploy updated `ai-insights` edge function
-- [ ] Check tandril.org marketing copy for any remaining "competitor analysis" or "competition" language
-- [ ] Email developer@etsy.com referencing ticket #24354334 to request that prior clearance is applied to new submission
+- [x] Check tandril.org marketing copy for any remaining "competitor analysis" or "competition" language — completed May 21, 2026
+- [ ] Email developer@etsy.com referencing ticket #24354334
+- [ ] Reply to Lakshmi (ticket #24716820) noting changes made
+- [ ] Continue working through Lakshmi's remaining steps before resubmitting
