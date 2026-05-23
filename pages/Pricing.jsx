@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { User } from '@/lib/entities';
+import { User, Platform } from '@/lib/entities';
 import { CheckCircle, ArrowRight, Star, Sparkles, Loader2, Heart, Shield, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import TandrilVineLogo from '../components/logos/TandrilVineLogo';
 import { toast } from 'sonner';
 import { createPageUrl } from '@/utils';
+import { api } from '@/lib/apiClient';
 
 const plans = [
     {
@@ -148,6 +149,7 @@ const PlanCard = ({ plan, onSelect, isLoading, currentTier }) => {
 
 export default function Pricing() {
     const [user, setUser] = useState(null);
+    const [hasShopify, setHasShopify] = useState(false);
     const [loadingPlan, setLoadingPlan] = useState(null);
     const [authChecked, setAuthChecked] = useState(false);
 
@@ -157,6 +159,16 @@ export default function Pricing() {
                 const currentUser = await User.me();
                 console.log('Current user on pricing page:', currentUser);
                 setUser(currentUser);
+
+                // Check if user has a Shopify store connected — if so, use
+                // Shopify Billing API instead of Stripe for paid plans
+                try {
+                    const platforms = await Platform.filter({ user_id: currentUser.id });
+                    const shopifyConnected = platforms.some(p => p.platform_type === 'shopify');
+                    setHasShopify(shopifyConnected);
+                } catch (_) {
+                    // Non-fatal — fall back to Stripe
+                }
             } catch (e) {
                 console.log('User not authenticated on pricing page:', e);
             } finally {
@@ -200,16 +212,36 @@ export default function Pricing() {
                 return;
             }
 
-            // For paid plans - redirect directly to Stripe checkout
+            // For paid plans — require sign-in first
             if (!user) {
                 toast.info("Please sign in to upgrade to a paid plan.");
                 User.redirectToLogin(window.location.pathname);
                 return;
             }
 
+            // Route Shopify merchants through Shopify Billing API;
+            // everyone else goes to Stripe
+            if (hasShopify) {
+                console.log('Shopify merchant detected — using Shopify Billing API for:', plan.name);
+                try {
+                    toast.info(`Setting up ${plan.name} via Shopify…`);
+                    const result = await api.functions.invoke('shopify-billing', {
+                        action: 'create',
+                        planId: plan.priceId,
+                    });
+                    if (result?.error) throw new Error(result.error);
+                    if (!result?.confirmationUrl) throw new Error('No confirmation URL returned');
+                    window.location.href = result.confirmationUrl;
+                } catch (err) {
+                    console.error('[Pricing] Shopify billing error:', err);
+                    toast.error('Could not start Shopify checkout: ' + err.message);
+                }
+                return;
+            }
+
             console.log('Redirecting to Stripe checkout for:', plan.name);
 
-            // Redirect directly to Stripe checkout URL
+            // Non-Shopify merchants — Stripe checkout
             if (plan.checkoutUrl) {
                 toast.success(`Redirecting to checkout for ${plan.name}...`);
                 window.location.href = plan.checkoutUrl;
