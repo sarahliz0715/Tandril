@@ -340,7 +340,7 @@ export default function Workflows() {
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col items-center gap-4 text-center">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Workflows</h1>
           <p className="text-slate-600 mt-1">Automate repetitive tasks with AI-powered workflows</p>
