@@ -100,7 +100,7 @@ serve(async (req) => {
     }
 
     // Get shop information from Shopify
-    const shopInfoResponse = await fetch(`https://${shop}/admin/api/2024-01/shop.json`, {
+    const shopInfoResponse = await fetch(`https://${shop}/admin/api/2025-10/shop.json`, {
       headers: {
         'X-Shopify-Access-Token': access_token,
       },
@@ -152,7 +152,7 @@ serve(async (req) => {
     try {
       const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/shopify-order-webhook`;
       const whHeaders = { 'X-Shopify-Access-Token': access_token, 'Content-Type': 'application/json' };
-      const whBase = `https://${shop}/admin/api/2024-01/webhooks.json`;
+      const whBase = `https://${shop}/admin/api/2025-10/webhooks.json`;
       await Promise.all([
         fetch(whBase, { method: 'POST', headers: whHeaders, body: JSON.stringify({ webhook: { topic: 'orders/paid', address: webhookUrl, format: 'json' } }) }),
         fetch(whBase, { method: 'POST', headers: whHeaders, body: JSON.stringify({ webhook: { topic: 'orders/cancelled', address: webhookUrl, format: 'json' } }) }),
