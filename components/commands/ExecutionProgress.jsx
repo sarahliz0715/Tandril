@@ -45,7 +45,7 @@ export default function ExecutionProgress({ command, onCancel }) {
             </CardHeader>
             <CardContent className="space-y-6">
                 {/* Progress Steps */}
-                <nav aria-label="Progress">
+                <nav aria-label="Progress" className="pb-8">
                     <ol role="list" className="flex items-center">
                         {steps.map((step, stepIdx) => (
                             <li key={step.name} className={cn("relative", stepIdx !== steps.length - 1 ? "pr-8 sm:pr-20 flex-1" : "")}>
