@@ -325,7 +325,7 @@ export default function Dashboard() {
 
   const getAvailableWidgets = useCallback(() => {
       const baseWidgets = [
-          { id: 'beta-banner', title: 'Beta Notice', component: BetaBanner, layout: 'top', showControls: false },
+          
           { id: 'mode-toggle', title: 'Operating Mode', component: ModeToggle, layout: 'top', showControls: false },
           { id: 'agents-hub', title: 'AI Agents', layout: 'top', showControls: false },
           { id: 'ai-hub', title: 'AI Performance Hub', component: AIHub, layout: 'top' },
