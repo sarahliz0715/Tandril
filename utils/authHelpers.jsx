@@ -16,7 +16,7 @@ export const handleAuthError = (error, navigate, options = {}) => {
     } = options;
 
     // Check for 401 status
-    if (error.response?.status === 401 || error.status === 401) {
+    const _em = (error?.message || '').toLowerCase(); if (error.response?.status === 401 || error.status === 401 || _em.includes('session') || _em.includes('jwt') || _em.includes('auth session') || (error?.name || '').includes('Auth')) {
         if (showToast) {
             toast.error("Authentication Required", {
                 description: customMessage,
