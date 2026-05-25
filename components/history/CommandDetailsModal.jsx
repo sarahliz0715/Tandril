@@ -5,6 +5,18 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { CheckCircle, XCircle, RotateCcw, Info } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
+// Safely convert an action result to a displayable string — prevents React
+// error #31 when result is an object like { updated, failed, results }.
+function renderActionResult(result) {
+    if (!result) return null;
+    if (typeof result === 'string') return result;
+    if (result.message) return result.message;
+    if (result.updated !== undefined) {
+        return `Updated ${result.updated} variant(s)${result.failed ? `, ${result.failed} failed` : ''}`;
+    }
+    return JSON.stringify(result);
+}
+
 export default function CommandDetailsModal({ command, onClose }) {
     if (!command) return null;
 
@@ -47,8 +59,8 @@ export default function CommandDetailsModal({ command, onClose }) {
                                       }
                                       <p className="flex-1 break-words">
                                           {command.status === 'undone'
-                                            ? <span className="line-through text-slate-400">{action.result?.message || action.result || 'Action completed'}</span>
-                                            : (action.result?.message || action.result || action.error || 'No details available.')
+                                            ? <span className="line-through text-slate-400">{renderActionResult(action.result) || 'Action completed'}</span>
+                                            : (renderActionResult(action.result) || action.error || 'No details available.')
                                           }
                                       </p>
                                       {command.status === 'undone' && (
