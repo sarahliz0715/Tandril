@@ -54,7 +54,7 @@ const formatCommandLogMessage = (command) => {
     case 'CTA Update':
       return `Added CTAs to ${successCount} products`;
     default:
-      return command.command_text?.substring(0, 80) || 'Command executed';
+      
   }
 };
 
