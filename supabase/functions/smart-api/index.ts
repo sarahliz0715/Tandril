@@ -698,11 +698,16 @@ Only include genuinely useful facts. Return ONLY the JSON array, no other text.`
 
 /** Find a Shopify product by SKU or title, with fuzzy title fallback. */
 function findProduct(allProducts: any[], sku: string, productName: string): any | null {
-  // 1. Exact SKU match (most reliable)
+  // 1. Exact SKU match (most reliable).
+  // Also handles comma-separated SKU strings that the context produces for multi-variant
+  // products (e.g. "SKU-SM, SKU-MD, SKU-LG") by trying each individual SKU.
   if (sku) {
-    for (const p of allProducts) {
-      const match = (p.variants || []).find((v: any) => v.sku === sku);
-      if (match) return p;
+    const skuCandidates = sku.split(',').map((s: string) => s.trim()).filter(Boolean);
+    for (const candidate of skuCandidates) {
+      for (const p of allProducts) {
+        const match = (p.variants || []).find((v: any) => v.sku === candidate);
+        if (match) return p;
+      }
     }
   }
   if (!productName) return null;
@@ -716,19 +721,31 @@ function findProduct(allProducts: any[], sku: string, productName: string): any 
   for (const p of allProducts) {
     if (p.title.toLowerCase().includes(needle)) return p;
   }
-  // 4. Search name contains the Shopify title (model may have added extra words)
+  // 4. Search name contains the Shopify title (model may have added extra words).
+  // Guard: the matched title must cover at least 60% of the needle's words so that
+  // a short generic title (e.g. "Pocket Tee") can't steal a match meant for a longer,
+  // more specific product (e.g. "Casual Spring Pocket Tee – Soft Heather Gray Cotton").
   for (const p of allProducts) {
-    if (needle.includes(p.title.toLowerCase().trim())) return p;
+    const titleLower = p.title.toLowerCase().trim();
+    if (needle.includes(titleLower)) {
+      const titleWords = titleLower.split(/\s+/).filter((w: string) => w.length > 2);
+      const needleWords = needle.split(/\s+/).filter((w: string) => w.length > 2);
+      if (needleWords.length === 0 || titleWords.length / needleWords.length >= 0.6) {
+        return p;
+      }
+    }
   }
-  // 5. Significant word overlap (≥2 words matching, ignoring short words)
-  const needleWords = needle.split(/\s+/).filter(w => w.length > 3);
+  // 5. Significant word overlap (≥3 words matching, ignoring short words).
+  // Raised from 2 to 3 to prevent accidental cross-product matches when product names
+  // share common words like "Spring", "Cotton", "Tee".
+  const needleWords = needle.split(/\s+/).filter((w: string) => w.length > 3);
   if (needleWords.length > 0) {
     let bestMatch: any = null;
     let bestScore = 0;
     for (const p of allProducts) {
       const titleWords = p.title.toLowerCase().split(/\s+/);
-      const score = needleWords.filter(w => titleWords.some(tw => tw.includes(w) || w.includes(tw))).length;
-      if (score >= 2 && score > bestScore) { bestScore = score; bestMatch = p; }
+      const score = needleWords.filter((w: string) => titleWords.some((tw: string) => tw === w)).length;
+      if (score >= 3 && score > bestScore) { bestScore = score; bestMatch = p; }
     }
     if (bestMatch) return bestMatch;
   }
@@ -1580,18 +1597,39 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
 
       const priceProduct = findProduct(allProducts, action.sku, action.product_name);
       if (!priceProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
-      const targetVariant = action.sku
-        ? (priceProduct.variants || []).find((v: any) => v.sku === action.sku) || priceProduct.variants?.[0]
-        : priceProduct.variants?.[0];
-      if (!targetVariant) throw new Error(`Product "${priceProduct.title}" has no variants.`);
 
-      const updateRes = await fetch(`${shopifyBase}/variants/${targetVariant.id}.json`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({ variant: { id: targetVariant.id, price: String(action.price) } }),
-      });
-      if (!updateRes.ok) throw new Error(`Shopify price update failed: ${await updateRes.text()}`);
-      return { message: `Updated price for "${action.sku || action.product_name}" to $${action.price}` };
+      const variants: any[] = priceProduct.variants || [];
+      if (variants.length === 0) throw new Error(`Product "${priceProduct.title}" has no variants.`);
+
+      // Determine which variants to update:
+      // • If the action carries a single, exact variant SKU → update only that variant.
+      // • If the SKU is a comma-separated list (the context collapses all variant SKUs
+      //   into one string), or if no SKU is provided → update ALL variants so that every
+      //   size/colour gets the same new price.  Updating only variants[0] would leave the
+      //   remaining variants at the old price, making it look like multiple products were
+      //   inconsistently changed.
+      const skuCandidates = (action.sku || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+      const exactMatch = skuCandidates.length === 1
+        ? variants.find((v: any) => v.sku === skuCandidates[0])
+        : null;
+      const variantsToUpdate = exactMatch ? [exactMatch] : variants;
+
+      const updateErrors: string[] = [];
+      for (const variant of variantsToUpdate) {
+        const updateRes = await fetch(`${shopifyBase}/variants/${variant.id}.json`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ variant: { id: variant.id, price: String(action.price) } }),
+        });
+        if (!updateRes.ok) {
+          updateErrors.push(`variant ${variant.sku || variant.id}: ${await updateRes.text()}`);
+        }
+      }
+      if (updateErrors.length > 0) throw new Error(`Shopify price update failed: ${updateErrors.join('; ')}`);
+      const label = exactMatch
+        ? `variant "${exactMatch.sku || exactMatch.id}" of`
+        : variantsToUpdate.length > 1 ? `all ${variantsToUpdate.length} variants of` : '';
+      return { message: `Updated price for ${label} "${priceProduct.title}" to $${action.price}` };
     }
 
     case 'broadcast_price_change': {
@@ -7571,6 +7609,12 @@ Action grouping — choose the most efficient approach:
 3. MULTIPLE products, DIFFERENT changes per product → emit a separate [ORION_ACTION:...] block for each product (user can "Confirm All" at once)
 4. Maximum 10 [ORION_ACTION:...] blocks per response — if more than 10 products need changes, ask the user to narrow it down or use batch_update
 - Never do one block at a time when the user clearly asked for multiple — that forces unnecessary back-and-forth
+
+**CRITICAL — Single-product scoping rules (prevent accidental multi-product changes):**
+- When the user asks to update ONE specific product by name, ALWAYS use a single `update_price` / `update_inventory` / etc. block — NEVER `batch_update` with multiple entries.
+- `batch_update` is only for commands that explicitly mention multiple products (e.g. "raise all prices by $5", "lower the price on every tee").  A command like "lower the price $10 on the Casual Spring Pocket Tee" targets EXACTLY ONE product — no batch_update.
+- SKU formatting in the product list: multi-variant products show their SKUs combined (e.g. "SKU-SM, SKU-MD, SKU-LG"). When writing an action block, use the FIRST SKU listed (or the full comma-separated string) — the backend will automatically apply the price change to ALL variants. Do NOT generate one action block per variant.
+- If a product exists on multiple platforms (e.g. Shopify and eBay), only update the platform the user specified. If they didn't specify a platform, default to Shopify. Ask "Should I also update [other platform]?" — do NOT silently generate a second action block for the other platform unless the user explicitly asked for a cross-platform update.
 
 **Current Mode:** ${mode === 'demo/test' ? 'Demo/Test Mode - No real store connected yet' : 'Production Mode - Real store data loaded below'}
 
