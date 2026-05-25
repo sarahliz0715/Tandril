@@ -35,7 +35,7 @@ export default function EnhancedCommandInterface({ onRunCommand, isExecuting, pl
             urgency: "high"
         },
         {
-            text: "Analyze competitor pricing for my electronics category and suggest price adjustments",
+            text: "Analyze market pricing for my electronics category and suggest price adjustments",
             category: "Pricing Strategy",
             icon: TrendingUp,
             urgency: "medium"

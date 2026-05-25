@@ -12,14 +12,7 @@ export default function Onboarding() {
     useEffect(() => {
         const checkUser = async () => {
             try {
-                const currentUser = await api.auth.me();
-
-                // If onboarding is already completed, redirect to dashboard
-                if (currentUser.onboarding_completed) {
-                    navigate(createPageUrl('Dashboard'));
-                    return;
-                }
-
+                await api.auth.me();
                 setLoading(false);
             } catch (error) {
                 console.error('Error checking user:', error);

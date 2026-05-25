@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { api } from '@/lib/apiClient';
+import ProductLinkerModal from './ProductLinkerModal';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,12 +10,13 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Link2, Plus, Trash2, RefreshCw, CheckCircle, XCircle, Loader2, Clock } from 'lucide-react';
+import { Link2, Plus, Trash2, RefreshCw, CheckCircle, XCircle, Loader2, Clock, AlertTriangle } from 'lucide-react';
 
 export default function SyncLinksPanel() {
     const [links, setLinks] = useState([]);
     const [platforms, setPlatforms] = useState([]);
     const [syncLog, setSyncLog] = useState([]);
+    const [retryQueue, setRetryQueue] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [showAddModal, setShowAddModal] = useState(false);
     const [isSyncing, setIsSyncing] = useState(null);
@@ -24,6 +26,10 @@ export default function SyncLinksPanel() {
         platform_product_id: '',
         platform_variant_id: '',
     });
+    const [variants, setVariants] = useState([]);
+    const [isFetchingVariants, setIsFetchingVariants] = useState(false);
+    const [isReconciling, setIsReconciling] = useState(false);
+    const [showLinker, setShowLinker] = useState(false);
 
     const loadData = useCallback(async () => {
         setIsLoading(true);
@@ -31,7 +37,7 @@ export default function SyncLinksPanel() {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) return;
 
-            const [linksRes, platformsRes, logRes] = await Promise.all([
+            const [linksRes, platformsRes, logRes, retryRes] = await Promise.all([
                 supabase
                     .from('platform_product_links')
                     .select('*, platforms(shop_name, shop_domain, platform_type)')
@@ -48,11 +54,17 @@ export default function SyncLinksPanel() {
                     .eq('user_id', user.id)
                     .order('created_at', { ascending: false })
                     .limit(20),
+                supabase
+                    .from('sync_retry_queue')
+                    .select('target_platform_id, sku, last_error, last_attempted_at, attempt_count, resolved_at')
+                    .eq('user_id', user.id)
+                    .or('resolved_at.is.null,and(resolved_at.not.is.null,last_error.not.is.null)'),
             ]);
 
             setLinks(linksRes.data ?? []);
             setPlatforms(platformsRes.data ?? []);
             setSyncLog(logRes.data ?? []);
+            setRetryQueue(retryRes.data ?? []);
         } catch (err) {
             console.error('SyncLinksPanel load error:', err);
         } finally {
@@ -89,6 +101,7 @@ export default function SyncLinksPanel() {
         toast.success('Product link added');
         setShowAddModal(false);
         setForm({ sku: '', platform_id: '', platform_product_id: '', platform_variant_id: '' });
+        setVariants([]);
         loadData();
     };
 
@@ -99,29 +112,93 @@ export default function SyncLinksPanel() {
         loadData();
     };
 
+    const handleReconcileAll = async () => {
+        setIsReconciling(true);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            const skus = [...new Set(links.map(l => l.sku))];
+            if (skus.length === 0) { toast.info('No linked SKUs to reconcile'); return; }
+
+            toast.info(`Reconciling ${skus.length} SKU(s)…`);
+            let totalSynced = 0;
+            let totalFailed = 0;
+
+            await Promise.all(skus.map(async (sku) => {
+                try {
+                    const result = await api.functions.invoke('sync-inventory-levels', {
+                        user_id: user.id,
+                        sku,
+                        triggered_by: 'reconcile',
+                    });
+                    const data = result?.data ?? result;
+                    if (data?.success) {
+                        totalSynced += data.synced ?? 0;
+                        totalFailed += (data.total ?? 0) - (data.synced ?? 0);
+                    }
+                } catch { totalFailed++; }
+            }));
+
+            toast.success(`Reconcile complete — ${totalSynced} sync(s) pushed${totalFailed > 0 ? `, ${totalFailed} failed (queued for retry)` : ''}`);
+            loadData();
+        } catch (err) {
+            toast.error(`Reconcile failed: ${err.message}`);
+        } finally {
+            setIsReconciling(false);
+        }
+    };
+
+    const handleFetchVariants = async () => {
+        if (!form.platform_id || !form.platform_product_id) return;
+        setIsFetchingVariants(true);
+        setVariants([]);
+        setForm(f => ({ ...f, platform_variant_id: '' }));
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            const result = await api.functions.invoke('fetch-product-variants', {
+                user_id: user.id,
+                platform_id: form.platform_id,
+                product_id: form.platform_product_id,
+            });
+            const data = result?.data ?? result;
+            if (data?.variants?.length > 0) {
+                setVariants(data.variants);
+            } else {
+                toast.info('No variants found — this is a simple product');
+            }
+        } catch (err) {
+            toast.error(`Could not load variants: ${err.message}`);
+        } finally {
+            setIsFetchingVariants(false);
+        }
+    };
+
     const handleManualSync = async (sku) => {
         setIsSyncing(sku);
         try {
             const { data: { user } } = await supabase.auth.getUser();
-            // Get current quantity from first linked Shopify platform for this SKU
-            const shopifyLink = links.find(l => l.sku === sku && l.platform_type === 'shopify');
-            if (!shopifyLink) {
-                toast.error('No Shopify platform linked for this SKU — sync requires a Shopify source');
+            // Use the first linked platform as source — backend will fetch current qty from it
+            const sourceLink = links.find(l => l.sku === sku);
+            if (!sourceLink) {
+                toast.error('No linked platforms found for this SKU');
                 return;
             }
 
             const result = await api.functions.invoke('sync-inventory-levels', {
                 user_id: user.id,
                 sku,
-                new_quantity: null, // null = fetch current qty from source
-                source_platform_id: shopifyLink.platform_id,
-                source_platform_type: 'shopify',
+                source_platform_id: sourceLink.platform_id,
+                source_platform_type: sourceLink.platform_type,
                 triggered_by: 'manual',
             });
 
             const data = result?.data ?? result;
             if (data?.success) {
-                toast.success(`Synced ${data.synced ?? 0} platform(s) for SKU ${sku}`);
+                const qty = data.results?.find(r => r.success)?.quantity ?? '';
+                const qtyNote = qty !== '' ? ` → qty ${qty}` : '';
+                toast.success(`Synced ${data.synced ?? 0} of ${data.total ?? 0} platform(s) for ${sku}${qtyNote}`);
+                if ((data.total ?? 0) > (data.synced ?? 0)) {
+                    toast.warning(`${(data.total ?? 0) - (data.synced ?? 0)} platform(s) failed — will retry automatically`);
+                }
                 loadData();
             } else {
                 throw new Error(data?.error || 'Sync failed');
@@ -168,21 +245,60 @@ export default function SyncLinksPanel() {
                             <Link2 className="w-5 h-5 text-emerald-600" />
                             <CardTitle>Cross-Platform Sync Links</CardTitle>
                         </div>
-                        <Button onClick={() => setShowAddModal(true)} className="bg-emerald-600 hover:bg-emerald-700">
-                            <Plus className="w-4 h-4 mr-2" />
-                            Link Product
-                        </Button>
+                        <div className="flex gap-2">
+                            {links.length > 0 && (
+                                <Button
+                                    variant="outline"
+                                    onClick={handleReconcileAll}
+                                    disabled={isReconciling}
+                                    title="Fetch current inventory from each source platform and push to all linked platforms"
+                                >
+                                    {isReconciling
+                                        ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                        : <RefreshCw className="w-4 h-4 mr-2" />}
+                                    Reconcile All
+                                </Button>
+                            )}
+                            <Button variant="outline" onClick={() => setShowLinker(true)}>
+                                <Link2 className="w-4 h-4 mr-2" />
+                                Browse &amp; Link
+                            </Button>
+                            <Button onClick={() => setShowAddModal(true)} className="bg-emerald-600 hover:bg-emerald-700">
+                                <Plus className="w-4 h-4 mr-2" />
+                                Quick Link
+                            </Button>
+                        </div>
                     </div>
                     <p className="text-sm text-slate-500 mt-1">
                         Link the same product across platforms by SKU. When it sells on one, inventory updates everywhere.
                     </p>
                 </CardHeader>
                 <CardContent>
+                    {retryQueue.length > 0 && (() => {
+                        const gaveUp = retryQueue.filter(r => r.resolved_at && r.last_error);
+                        const retrying = retryQueue.filter(r => !r.resolved_at);
+                        return (
+                            <>
+                                {retrying.length > 0 && (
+                                    <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                                        <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                                        <span>{retrying.length} sync{retrying.length !== 1 ? 's' : ''} failed and will retry automatically. Click <strong>Sync Now</strong> or <strong>Reconcile All</strong> to force an immediate retry.</span>
+                                    </div>
+                                )}
+                                {gaveUp.length > 0 && (
+                                    <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
+                                        <XCircle className="w-4 h-4 flex-shrink-0" />
+                                        <span>{gaveUp.length} sync{gaveUp.length !== 1 ? 's' : ''} failed after all retry attempts. Click <strong>Reconcile All</strong> to try again manually.</span>
+                                    </div>
+                                )}
+                            </>
+                        );
+                    })()}
                     {Object.keys(linksBySku).length === 0 ? (
                         <div className="text-center py-12 text-slate-500">
                             <Link2 className="w-10 h-10 mx-auto mb-3 text-slate-300" />
                             <p className="font-medium">No product links yet</p>
-                            <p className="text-sm mt-1">Add a link to start syncing inventory across platforms automatically.</p>
+                            <p className="text-sm mt-1">Use <strong>Browse &amp; Link</strong> to visually match products, or <strong>Quick Link</strong> if you know the IDs.</p>
                         </div>
                     ) : (
                         <div className="space-y-3">
@@ -206,24 +322,35 @@ export default function SyncLinksPanel() {
                                         </Button>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
-                                        {skuLinks.map(link => (
-                                            <div key={link.id} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-md px-3 py-1.5">
-                                                <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${platformColor(link.platform_type)}`}>
-                                                    {link.platform_type}
-                                                </span>
-                                                <span className="text-sm text-slate-700">{platformLabel(link)}</span>
-                                                <span className="text-xs text-slate-400 font-mono">#{link.platform_product_id}{link.platform_variant_id ? `/${link.platform_variant_id}` : ''}</span>
-                                                {link.last_synced_at && (
-                                                    <span className="text-xs text-slate-400 flex items-center gap-1">
-                                                        <Clock className="w-3 h-3" />
-                                                        {new Date(link.last_synced_at).toLocaleDateString()}
+                                        {skuLinks.map(link => {
+                                            const hasPendingRetry = retryQueue.some(
+                                                r => r.target_platform_id === link.platform_id && r.sku === link.sku
+                                            );
+                                            const hasError = !!link.last_sync_error;
+                                            return (
+                                                <div key={link.id} className={`flex items-center gap-2 rounded-md px-3 py-1.5 border ${hasError || hasPendingRetry ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}>
+                                                    {hasError || hasPendingRetry
+                                                        ? <AlertTriangle className="w-3 h-3 text-red-500 flex-shrink-0" title={link.last_sync_error ?? 'Sync failed — queued for retry'} />
+                                                        : link.last_synced_at
+                                                            ? <CheckCircle className="w-3 h-3 text-green-500 flex-shrink-0" />
+                                                            : <Clock className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                                                    }
+                                                    <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${platformColor(link.platform_type)}`}>
+                                                        {link.platform_type}
                                                     </span>
-                                                )}
-                                                <button onClick={() => handleDelete(link.id)} className="text-slate-400 hover:text-red-500 ml-1">
-                                                    <Trash2 className="w-3 h-3" />
-                                                </button>
-                                            </div>
-                                        ))}
+                                                    <span className="text-sm text-slate-700">{platformLabel(link)}</span>
+                                                    <span className="text-xs text-slate-400 font-mono">#{link.platform_product_id}{link.platform_variant_id ? `/${link.platform_variant_id}` : ''}</span>
+                                                    {link.last_synced_at && link.last_synced_quantity != null && (
+                                                        <span className="text-xs text-slate-400">
+                                                            qty {link.last_synced_quantity} · {new Date(link.last_synced_at).toLocaleDateString()}
+                                                        </span>
+                                                    )}
+                                                    <button onClick={() => handleDelete(link.id)} className="text-slate-400 hover:text-red-500 ml-1">
+                                                        <Trash2 className="w-3 h-3" />
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             ))}
@@ -268,7 +395,14 @@ export default function SyncLinksPanel() {
                 </Card>
             )}
 
-            {/* Add Link Modal */}
+            <ProductLinkerModal
+                open={showLinker}
+                onClose={() => setShowLinker(false)}
+                platforms={platforms}
+                onLinked={loadData}
+            />
+
+            {/* Quick Link Modal (manual ID entry) */}
             <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
                 <DialogContent className="max-w-lg">
                     <DialogHeader>
@@ -288,7 +422,7 @@ export default function SyncLinksPanel() {
                         </div>
                         <div>
                             <Label>Platform *</Label>
-                            <Select value={form.platform_id} onValueChange={v => setForm(f => ({ ...f, platform_id: v }))}>
+                            <Select value={form.platform_id} onValueChange={v => { setForm(f => ({ ...f, platform_id: v, platform_variant_id: '' })); setVariants([]); }}>
                                 <SelectTrigger>
                                     <SelectValue placeholder="Select a connected platform..." />
                                 </SelectTrigger>
@@ -303,19 +437,55 @@ export default function SyncLinksPanel() {
                         </div>
                         <div>
                             <Label>Product ID on that platform *</Label>
-                            <Input
-                                placeholder="e.g. 7234567890123 (Shopify product ID)"
-                                value={form.platform_product_id}
-                                onChange={e => setForm(f => ({ ...f, platform_product_id: e.target.value }))}
-                            />
+                            <div className="flex gap-2">
+                                <Input
+                                    placeholder="e.g. 7234567890123 (Shopify product ID)"
+                                    value={form.platform_product_id}
+                                    onChange={e => {
+                                        setForm(f => ({ ...f, platform_product_id: e.target.value, platform_variant_id: '' }));
+                                        setVariants([]);
+                                    }}
+                                />
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="shrink-0"
+                                    disabled={!form.platform_id || !form.platform_product_id || isFetchingVariants}
+                                    onClick={handleFetchVariants}
+                                >
+                                    {isFetchingVariants
+                                        ? <Loader2 className="w-4 h-4 animate-spin" />
+                                        : 'Load Variants'}
+                                </Button>
+                            </div>
                         </div>
                         <div>
-                            <Label>Variant ID <span className="text-slate-400">(optional — only if product has variants)</span></Label>
-                            <Input
-                                placeholder="e.g. 41234567890123"
-                                value={form.platform_variant_id}
-                                onChange={e => setForm(f => ({ ...f, platform_variant_id: e.target.value }))}
-                            />
+                            <Label>
+                                Variant{' '}
+                                <span className="text-slate-400">(optional — only if product has variants)</span>
+                            </Label>
+                            {variants.length > 0 ? (
+                                <Select
+                                    value={form.platform_variant_id}
+                                    onValueChange={v => setForm(f => ({ ...f, platform_variant_id: v }))}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select a variant..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {variants.map(v => (
+                                            <SelectItem key={v.id} value={v.id}>{v.label}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            ) : (
+                                <Input
+                                    placeholder="e.g. 41234567890123 — or click Load Variants above"
+                                    value={form.platform_variant_id}
+                                    onChange={e => setForm(f => ({ ...f, platform_variant_id: e.target.value }))}
+                                />
+                            )}
                         </div>
                     </div>
                     <DialogFooter>

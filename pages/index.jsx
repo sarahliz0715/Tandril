@@ -43,6 +43,7 @@ import Pricing from "./Pricing";
 import EmailSignups from "./EmailSignups";
 
 import ShopifyCallback from "./ShopifyCallback";
+import ShopifyBillingCallback from "./ShopifyBillingCallback";
 
 import SellbriteComparison from "./SellbriteComparison";
 
@@ -230,7 +231,7 @@ function PagesContent() {
         <Layout currentPageName={currentPage}>
             <Routes>
 
-                    <Route path="/" element={<Pricing />} />
+                    <Route path="/" element={<Home />} />
                 
                 
                 <Route path="/Dashboard" element={<Dashboard />} />
@@ -274,7 +275,8 @@ function PagesContent() {
                 <Route path="/EmailSignups" element={<EmailSignups />} />
                 
                 <Route path="/ShopifyCallback" element={<ShopifyCallback />} />
-                
+                <Route path="/shopify-billing-callback" element={<ShopifyBillingCallback />} />
+
                 <Route path="/SellbriteComparison" element={<SellbriteComparison />} />
                 
                 <Route path="/PrintableComparison" element={<PrintableComparison />} />

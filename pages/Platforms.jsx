@@ -207,7 +207,22 @@ export default function Platforms() {
                 p && typeof p === 'object' && p.id
             );
 
-            setPlatforms(validUserPlatformInstances); // Set the main platforms state
+            setPlatforms(validUserPlatformInstances);
+
+            // Auto-switch to live mode if a platform is already connected but user is still in demo mode
+            const hasConnected = validUserPlatformInstances.some(p => p.is_active !== false);
+            if (hasConnected && user && user.user_mode !== 'live') {
+                try {
+                    await User.updateMyUserData({ user_mode: 'live' });
+                    toast.success('Switched to Live Mode', {
+                        description: 'You have a connected store — switching to live data automatically.'
+                    });
+                    user.user_mode = 'live';
+                    setCurrentUser({ ...user, user_mode: 'live' });
+                } catch (e) {
+                    console.error('Failed to auto-switch to live mode:', e);
+                }
+            } // Set the main platforms state
 
         } catch (error) {
             console.error('Failed to load data:', error);
@@ -234,6 +249,21 @@ export default function Platforms() {
             setIsLoading(false);
         }
     }, [navigate]);
+
+    // Auto-switch to live mode when a platform connects
+    const handleConnectionSuccess = useCallback(async () => {
+        if (currentUser && currentUser.user_mode !== 'live') {
+            try {
+                await User.updateMyUserData({ user_mode: 'live' });
+                toast.success('Switched to Live Mode', {
+                    description: 'Your store is connected. You\'re now working with real data.'
+                });
+            } catch (e) {
+                console.error('Failed to auto-switch to live mode:', e);
+            }
+        }
+        loadData();
+    }, [currentUser, loadData]);
 
     useEffect(() => {
         loadData();
@@ -441,7 +471,7 @@ export default function Platforms() {
                                         connectedPlatform={platform}
                                         onDisconnect={() => handleDisconnect(platform)}
                                         onForceCleanup={() => handleForceCleanup(platformType)}
-                                        onConnectionSuccess={loadData}
+                                        onConnectionSuccess={handleConnectionSuccess}
                                         isBeta={hasBetaAccess}
                                         isAtLimit={isAtLimit}
                                         currentUser={currentUser}
@@ -471,7 +501,7 @@ export default function Platforms() {
                                         connectedPlatform={platform}
                                         onDisconnect={() => handleDisconnect(platform)}
                                         onForceCleanup={() => handleForceCleanup(platformType)}
-                                        onConnectionSuccess={loadData}
+                                        onConnectionSuccess={handleConnectionSuccess}
                                         isBeta={hasBetaAccess}
                                         isAtLimit={isAtLimit}
                                         currentUser={currentUser}
@@ -501,7 +531,7 @@ export default function Platforms() {
                                         connectedPlatform={platform}
                                         onDisconnect={() => handleDisconnect(platform)}
                                         onForceCleanup={() => handleForceCleanup(platformType)}
-                                        onConnectionSuccess={loadData}
+                                        onConnectionSuccess={handleConnectionSuccess}
                                         isBeta={hasBetaAccess}
                                         isAtLimit={isAtLimit}
                                         currentUser={currentUser}
@@ -556,7 +586,7 @@ export default function Platforms() {
                                                     key={platformType.type_id}
                                                     platformType={platformType}
                                                     connectedPlatform={null} // Null indicates it's an available platform for connection
-                                                    onConnectionSuccess={loadData}
+                                                    onConnectionSuccess={handleConnectionSuccess}
                                                     isBeta={hasBetaAccess}
                                                     isComingSoon={isComingSoon}
                                                     isAtLimit={isAtLimit}

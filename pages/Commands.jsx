@@ -397,6 +397,15 @@ function CommandsPage() {
               <p className="text-sm text-slate-600 mt-2">
                 Tell Orion what you want to do with your products. Be specific for best results.
               </p>
+              <p className="text-xs text-slate-400 mt-1">
+                Commands are for one-time manual actions. For scheduled or recurring tasks (e.g. daily inventory checks), use{' '}
+                <button
+                  onClick={() => navigate(createPageUrl('Workflows'))}
+                  className="text-emerald-600 hover:underline font-medium"
+                >
+                  Workflows
+                </button>{' '}instead.
+              </p>
             </CardHeader>
             <CardContent className="p-6 space-y-4">
               <div className="space-y-2">

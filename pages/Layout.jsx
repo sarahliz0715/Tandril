@@ -7,7 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import {
   Menu, X, LogOut, Settings, LayoutDashboard, MessageSquare, Briefcase, Bot,
   TrendingUp, BarChart3, Package, Users, FileText, LifeBuoy, Building2,
-  DollarSign, Command, Repeat, ShoppingCart, History, GripVertical, CreditCard, Bell, AlertTriangle
+  DollarSign, Command, Repeat, ShoppingCart, History, GripVertical, CreditCard, Bell, AlertTriangle, Rocket
 } from 'lucide-react';
 import TandrilVineLogo from '@/components/logos/TandrilVineLogo';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -28,20 +28,20 @@ import NotificationBell from '@/components/notifications/NotificationBell';
 const defaultNavigationItems = [
     { name: 'Dashboard', href: 'Dashboard', icon: LayoutDashboard, color: 'text-blue-600' },
     { name: 'AI Advisor', href: 'AIAdvisor', icon: Bot, color: 'text-green-600' },
-    { name: 'P&L Dashboard', href: 'FinancialDashboard', icon: DollarSign, color: 'text-green-600' },
-    { name: 'Order Intelligence', href: 'OrderIntelligence', icon: AlertTriangle, color: 'text-red-600' },
     { name: 'Platforms', href: 'Platforms', icon: Briefcase, color: 'text-green-600' },
     { name: 'Commands', href: 'Commands', icon: Command, color: 'text-emerald-600' },
-    { name: 'History', href: 'History', icon: History, color: 'text-slate-600' },
     { name: 'Workflows', href: 'Workflows', icon: Repeat, color: 'text-cyan-600' },
-    { name: 'Custom Alerts', href: 'CustomAlerts', icon: Bell, color: 'text-amber-600' },
-    { name: 'Inbox', href: 'Inbox', icon: MessageSquare, color: 'text-pink-600' },
-    { name: 'Orders', href: 'Orders', icon: ShoppingCart, color: 'text-orange-600' },
-    { name: 'Ads', href: 'Ads', icon: DollarSign, color: 'text-yellow-600' },
-    { name: 'Intelligence', href: 'Intelligence', icon: TrendingUp, color: 'text-emerald-600' },
-    { name: 'Analytics', href: 'Analytics', icon: BarChart3, color: 'text-emerald-600' },
-    { name: 'Inventory', href: 'Inventory', icon: Package, color: 'text-amber-600' },
     { name: 'Products', href: 'Products', icon: Package, color: 'text-emerald-600' },
+    { name: 'Inventory', href: 'Inventory', icon: Package, color: 'text-amber-600' },
+    { name: 'History', href: 'History', icon: History, color: 'text-slate-600' },
+    { name: 'Custom Alerts', href: 'CustomAlerts', icon: Bell, color: 'text-amber-600' },
+    { name: 'Orders', href: 'Orders', icon: ShoppingCart, color: 'text-orange-600' },
+    { name: 'Order Intelligence', href: 'OrderIntelligence', icon: AlertTriangle, color: 'text-red-600' },
+    { name: 'Inbox', href: 'Inbox', icon: MessageSquare, color: 'text-pink-600' },
+    { name: 'Intelligence', href: 'Intelligence', icon: TrendingUp, color: 'text-emerald-600' },
+    { name: 'Ads', href: 'Ads', icon: DollarSign, color: 'text-yellow-600' },
+    { name: 'Analytics', href: 'Analytics', icon: BarChart3, color: 'text-emerald-600' },
+    { name: 'P&L Dashboard', href: 'FinancialDashboard', icon: DollarSign, color: 'text-green-600' },
     { name: 'Suppliers', href: 'Suppliers', icon: Building2, color: 'text-slate-600' },
     { name: 'Purchase Orders', href: 'PurchaseOrders', icon: FileText, color: 'text-blue-600' },
 ];
@@ -49,28 +49,28 @@ const defaultNavigationItems = [
 const betaNavigationItems = [
     { name: 'Dashboard', href: 'Dashboard', icon: LayoutDashboard, color: 'text-blue-600' },
     { name: 'AI Advisor', href: 'AIAdvisor', icon: Bot, color: 'text-green-600' },
-    { name: 'P&L Dashboard', href: 'FinancialDashboard', icon: DollarSign, color: 'text-green-600' },
-    { name: 'Order Intelligence', href: 'OrderIntelligence', icon: AlertTriangle, color: 'text-red-600' },
     { name: 'Platforms', href: 'Platforms', icon: Briefcase, color: 'text-green-600' },
     { name: 'Commands', href: 'Commands', icon: Command, color: 'text-emerald-600' },
-    { name: 'History', href: 'History', icon: History, color: 'text-slate-600' },
     { name: 'Workflows', href: 'Workflows', icon: Repeat, color: 'text-cyan-600' },
-    { name: 'Custom Alerts', href: 'CustomAlerts', icon: Bell, color: 'text-amber-600' },
-    { name: 'Inbox', href: 'Inbox', icon: MessageSquare, color: 'text-pink-600' },
-    { name: 'Orders', href: 'Orders', icon: ShoppingCart, color: 'text-orange-600' },
-    { name: 'Ads', href: 'Ads', icon: DollarSign, color: 'text-yellow-600' },
-    { name: 'Intelligence', href: 'Intelligence', icon: TrendingUp, color: 'text-emerald-600' },
-    { name: 'Analytics', href: 'Analytics', icon: BarChart3, color: 'text-emerald-600' },
-    { name: 'Inventory', href: 'Inventory', icon: Package, color: 'text-amber-600' },
     { name: 'Products', href: 'Products', icon: Package, color: 'text-emerald-600' },
+    { name: 'Inventory', href: 'Inventory', icon: Package, color: 'text-amber-600' },
+    { name: 'History', href: 'History', icon: History, color: 'text-slate-600' },
+    { name: 'Custom Alerts', href: 'CustomAlerts', icon: Bell, color: 'text-amber-600' },
+    { name: 'Orders', href: 'Orders', icon: ShoppingCart, color: 'text-orange-600' },
+    { name: 'Order Intelligence', href: 'OrderIntelligence', icon: AlertTriangle, color: 'text-red-600' },
+    { name: 'Inbox', href: 'Inbox', icon: MessageSquare, color: 'text-pink-600' },
+    { name: 'Intelligence', href: 'Intelligence', icon: TrendingUp, color: 'text-emerald-600' },
+    { name: 'Ads', href: 'Ads', icon: DollarSign, color: 'text-yellow-600' },
+    { name: 'Analytics', href: 'Analytics', icon: BarChart3, color: 'text-emerald-600' },
+    { name: 'P&L Dashboard', href: 'FinancialDashboard', icon: DollarSign, color: 'text-green-600' },
     { name: 'Suppliers', href: 'Suppliers', icon: Building2, color: 'text-slate-600' },
     { name: 'Purchase Orders', href: 'PurchaseOrders', icon: FileText, color: 'text-blue-600' },
 ];
 
 const secondaryNavigation = [
     { name: 'Settings', href: 'Settings', icon: Settings, betaHidden: false },
-    { name: 'Resources', href: 'Capabilities', icon: FileText, betaHidden: true },
-    { name: 'Seller Card', href: 'SellerCard', icon: CreditCard, betaHidden: true },
+    { name: 'Resources', href: 'Capabilities', icon: FileText, betaHidden: true, adminOnly: true },
+    { name: 'Seller Card', href: 'SellerCard', icon: CreditCard, betaHidden: true, adminOnly: true },
     { name: 'Support', href: 'support', icon: LifeBuoy, isModal: true },
 ];
 
@@ -114,12 +114,29 @@ export default function Layout({ children, currentPageName }) {
             }
 
             if (!resolvedSession) {
+                localStorage.removeItem('tandril_persistent');
                 setUser(null);
                 setAuthCheckComplete(true);
                 if (!publicPages.includes(currentPageName)) {
                     console.log('User not authenticated in layout');
-                    console.log(`Redirecting from ${currentPageName} to Login due to authentication failure`);
                     toast.error('Session expired', { description: 'Please log in again to continue.' });
+                    navigate(createPageUrl('Login'));
+                }
+                return;
+            }
+
+            // Detect stale session: Supabase kept session in localStorage after tab was closed,
+            // but neither our tab-session nor persistent flag is present.
+            const isPersistent = localStorage.getItem('tandril_persistent');
+            const isTabSession = sessionStorage.getItem('tandril_session');
+            const isOAuth = session.user?.app_metadata?.provider && session.user.app_metadata.provider !== 'email';
+
+            if (!isPersistent && !isTabSession && !isOAuth) {
+                console.log('Stale session detected — signing out');
+                supabase.auth.signOut();
+                setUser(null);
+                setAuthCheckComplete(true);
+                if (!publicPages.includes(currentPageName)) {
                     navigate(createPageUrl('Login'));
                 }
                 return;
@@ -367,6 +384,25 @@ export default function Layout({ children, currentPageName }) {
                                         </DragDropContext>
 
                                         <div className="mt-6 pt-6 border-t border-slate-200 space-y-1">
+                                            {/* Getting Started — always visible, indicator dot if not completed */}
+                                            <Link
+                                                to={createPageUrl('Onboarding')}
+                                                className={`
+                                                    flex items-center gap-3 px-3 py-2 rounded-lg transition-colors
+                                                    ${location.pathname.includes('Onboarding')
+                                                        ? 'bg-emerald-50 text-emerald-700'
+                                                        : 'text-slate-700 hover:bg-slate-50'
+                                                    }
+                                                `}
+                                                onClick={() => setSidebarOpen(false)}
+                                            >
+                                                <Rocket className={`w-5 h-5 flex-shrink-0 ${location.pathname.includes('Onboarding') ? 'text-emerald-600' : 'text-slate-600'}`} />
+                                                <span className="font-medium">Getting Started</span>
+                                                {user && !user.onboarding_completed && (
+                                                    <span className="ml-auto w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+                                                )}
+                                            </Link>
+
                                             {secondaryNavigation
                                                 .filter(item => {
                                                     // Hide beta-only items for beta users

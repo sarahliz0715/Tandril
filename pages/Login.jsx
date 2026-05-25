@@ -3,6 +3,7 @@ import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Mail, Lock, Chrome, Github } from 'lucide-react';
@@ -16,6 +17,7 @@ export default function Login() {
   const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [staySignedIn, setStaySignedIn] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -36,6 +38,13 @@ export default function Login() {
 
     try {
       await supabaseAuthService.signIn(email, password);
+      if (staySignedIn) {
+        localStorage.setItem('tandril_persistent', '1');
+        sessionStorage.removeItem('tandril_session');
+      } else {
+        sessionStorage.setItem('tandril_session', '1');
+        localStorage.removeItem('tandril_persistent');
+      }
       toast.success('Welcome back!');
       navigate(redirectUrl);
     } catch (err) {
@@ -134,6 +143,18 @@ export default function Login() {
                     required
                   />
                 </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="stay-signed-in"
+                  checked={staySignedIn}
+                  onCheckedChange={setStaySignedIn}
+                  disabled={isLoading}
+                />
+                <Label htmlFor="stay-signed-in" className="text-sm font-normal text-slate-600 cursor-pointer">
+                  Stay signed in
+                </Label>
               </div>
 
               <Button

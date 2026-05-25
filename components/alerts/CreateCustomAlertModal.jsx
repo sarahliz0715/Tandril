@@ -19,7 +19,7 @@ const triggerTypes = [
     { value: 'revenue_milestone', label: 'Revenue Milestone', icon: '💰' },
     { value: 'new_review', label: 'New Review', icon: '⭐' },
     { value: 'low_rating_review', label: 'Low Rating Review', icon: '⚠️' },
-    { value: 'competitor_price_drop', label: 'Competitor Price Drop', icon: '💸' },
+    { value: 'price_benchmark', label: 'Price Benchmark Alert', icon: '💸' },
     { value: 'platform_disconnect', label: 'Platform Disconnect', icon: '🔌' },
     { value: 'order_threshold', label: 'Order Threshold', icon: '🛒' },
     { value: 'conversion_rate_drop', label: 'Conversion Rate Drop', icon: '📊' },

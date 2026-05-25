@@ -47,7 +47,7 @@ serve(async (req) => {
 
     const rawBody = await req.text();
 
-    if (!['orders/create', 'orders/paid'].includes(topic)) {
+    if (!['orders/create', 'orders/paid', 'orders/cancelled', 'refunds/create'].includes(topic)) {
       return new Response('ok', { status: 200 });
     }
 
@@ -81,12 +81,17 @@ serve(async (req) => {
       }
     }
 
-    const order = JSON.parse(rawBody);
-    console.log(`[shopify-order-webhook] Processing order ${order.id} for ${shopDomain}`);
+    const payload = JSON.parse(rawBody);
+    console.log(`[shopify-order-webhook] topic=${topic} id=${payload.id} shop=${shopDomain}`);
+
+    // For refunds, affected line items are nested under refund_line_items
+    const lineItems = topic === 'refunds/create'
+      ? (payload.refund_line_items ?? []).map((r: any) => r.line_item).filter(Boolean)
+      : (payload.line_items ?? []);
 
     const skuUpdates: { sku: string; quantity: number }[] = [];
 
-    for (const lineItem of order.line_items ?? []) {
+    for (const lineItem of lineItems) {
       const sku = lineItem.sku;
       if (!sku) continue;
 

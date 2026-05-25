@@ -63,7 +63,8 @@ export default function Workflows() {
   const [isLoading, setIsLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [activeTab, setActiveTab] = useState('active');
+  const [editingWorkflow, setEditingWorkflow] = useState(null);
+  const [activeTab, setActiveTab] = useState('templates');
   const navigate = useNavigate();
   const { isOpen, config, confirm, cancel } = useConfirmDialog();
 
@@ -304,7 +305,8 @@ export default function Workflows() {
       const workflowData = {
         ...template.workflow_data,
         name: `${template.name} (Copy)`,
-        is_active: false
+        is_active: false,
+        trigger_type: template.workflow_data?.trigger_type || template.trigger_type || 'manual',
       };
 
       await AIWorkflow.create(workflowData);
@@ -338,7 +340,7 @@ export default function Workflows() {
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col items-center gap-4 text-center">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Workflows</h1>
           <p className="text-slate-600 mt-1">Automate repetitive tasks with AI-powered workflows</p>
@@ -385,6 +387,7 @@ export default function Workflows() {
                 <WorkflowCard
                   key={workflow.id}
                   workflow={workflow}
+                  onEdit={setEditingWorkflow}
                   onToggle={handleToggleWorkflow}
                   onDelete={handleDeleteWorkflow}
                   onRun={handleRunWorkflow}
@@ -408,6 +411,7 @@ export default function Workflows() {
                 <WorkflowCard
                   key={workflow.id}
                   workflow={workflow}
+                  onEdit={setEditingWorkflow}
                   onToggle={handleToggleWorkflow}
                   onDelete={handleDeleteWorkflow}
                   onRun={handleRunWorkflow}
@@ -440,14 +444,12 @@ export default function Workflows() {
         </TabsContent>
       </Tabs>
 
-      {/* Create Workflow Modal */}
-      {showCreateModal && (
+      {/* Create / Edit Workflow Modal */}
+      {(showCreateModal || editingWorkflow) && (
         <CreateWorkflowModal
-          onClose={() => setShowCreateModal(false)}
-          onSuccess={() => {
-            setShowCreateModal(false);
-            loadData();
-          }}
+          onClose={() => { setShowCreateModal(false); setEditingWorkflow(null); }}
+          onSuccess={() => { setShowCreateModal(false); setEditingWorkflow(null); loadData(); }}
+          editingWorkflow={editingWorkflow}
         />
       )}
 

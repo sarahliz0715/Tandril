@@ -11,6 +11,7 @@ import { Loader2, Zap } from 'lucide-react';
 import AutomationBuilder from '../automations/AutomationBuilder';
 
 const scheduleOptions = [
+    { value: '*/2 * * * *', label: 'In 2 minutes' },
     { value: '0 * * * *',   label: 'Every Hour' },
     { value: '0 6 * * *',   label: 'Every Day at 6 AM' },
     { value: '0 8 * * *',   label: 'Every Day at 8 AM' },
@@ -20,6 +21,9 @@ const scheduleOptions = [
 ];
 
 function calcNextRunAt(cron) {
+    if (cron === '*/2 * * * *') {
+        return new Date(Date.now() + 2 * 60 * 1000).toISOString();
+    }
     const now = new Date();
     const parts = cron.trim().split(' ');
     const minute = parseInt(parts[0]);
@@ -41,14 +45,16 @@ function calcNextRunAt(cron) {
     return next.toISOString();
 }
 
-export default function CreateWorkflowModal({ onClose, onSuccess }) {
+export default function CreateWorkflowModal({ onClose, onSuccess, editingWorkflow }) {
+    const isEditing = !!editingWorkflow;
+
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [name, setName] = useState('');
-    const [description, setDescription] = useState('');
-    const [triggerType, setTriggerType] = useState('manual');
-    const [cron, setCron] = useState('0 9 * * *');
+    const [name, setName] = useState(editingWorkflow?.name || '');
+    const [description, setDescription] = useState(editingWorkflow?.description || '');
+    const [triggerType, setTriggerType] = useState(editingWorkflow?.trigger_type || 'manual');
+    const [cron, setCron] = useState(editingWorkflow?.trigger_config?.cron || '0 9 * * *');
     // actions holds the unified step array from AutomationBuilder
-    const [actions, setActions] = useState([]);
+    const [actions, setActions] = useState(editingWorkflow?.actions || []);
 
     const handleBuilderSave = (data) => {
         setActions(data.actions || []);
@@ -80,19 +86,24 @@ export default function CreateWorkflowModal({ onClose, onSuccess }) {
                 trigger_type: triggerType,
                 trigger_config: triggerConfig,
                 actions,
-                is_active: false,
+                is_active: triggerType === 'schedule',
                 current_step: 0,
                 status: 'active',
                 ...(triggerType === 'schedule' && cron ? { next_run_at: calcNextRunAt(cron) } : {}),
             };
 
-            await api.entities.AIWorkflow.create(payload);
-            toast.success('Workflow created!');
+            if (isEditing) {
+                await api.entities.AIWorkflow.update(editingWorkflow.id, payload);
+                toast.success('Workflow updated successfully!');
+            } else {
+                await api.entities.AIWorkflow.create(payload);
+                toast.success('Workflow created successfully!');
+            }
             onSuccess();
             onClose();
         } catch (error) {
-            console.error('Failed to create workflow:', error);
-            toast.error('Failed to create workflow', { description: error.message });
+            console.error('Failed to save workflow:', error);
+            toast.error('Failed to save workflow', { description: error.message });
         } finally {
             setIsSubmitting(false);
         }
@@ -104,10 +115,10 @@ export default function CreateWorkflowModal({ onClose, onSuccess }) {
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <Zap className="w-5 h-5 text-emerald-600" />
-                        Create New Workflow
+                        {isEditing ? 'Edit Workflow' : 'Create New Workflow'}
                     </DialogTitle>
                     <DialogDescription>
-                        Build a multi-step automated workflow. Price changes, waits, emails — all in one chain.
+                        {isEditing ? 'Update your workflow settings.' : 'Build a multi-step automated workflow. Price changes, waits, emails — all in one chain.'}
                     </DialogDescription>
                 </DialogHeader>
 
@@ -176,7 +187,14 @@ export default function CreateWorkflowModal({ onClose, onSuccess }) {
                 <DialogFooter>
                     <Button variant="outline" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
                     <Button onClick={handleSubmit} disabled={isSubmitting}>
-                        {isSubmitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating…</> : 'Create Workflow'}
+                        {isSubmitting ? (
+                            <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                {isEditing ? 'Saving...' : 'Creating...'}
+                            </>
+                        ) : (
+                            isEditing ? 'Save Changes' : 'Create Workflow'
+                        )}
                     </Button>
                 </DialogFooter>
             </DialogContent>

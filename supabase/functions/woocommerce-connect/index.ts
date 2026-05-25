@@ -147,6 +147,33 @@ serve(async (req) => {
       console.log(`[WooCommerce] Created new platform connection ${data.id}`);
     }
 
+    // Register order webhook for inventory sync
+    try {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+      const webhookUrl = `${supabaseUrl}/functions/v1/woocommerce-order-webhook?platform_id=${platform.id}`;
+      const webhookSecret = crypto.randomUUID().replace(/-/g, '');
+
+      const wh1Res = await fetch(`${normalizedUrl}/wp-json/wc/v3/webhooks`, {
+        method: 'POST',
+        headers: { 'Authorization': `Basic ${authString}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Tandril order.created', status: 'active', topic: 'order.created', delivery_url: webhookUrl, secret: webhookSecret }),
+      });
+      const wh2Res = await fetch(`${normalizedUrl}/wp-json/wc/v3/webhooks`, {
+        method: 'POST',
+        headers: { 'Authorization': `Basic ${authString}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Tandril order.updated', status: 'active', topic: 'order.updated', delivery_url: webhookUrl, secret: webhookSecret }),
+      });
+
+      if (wh1Res.ok || wh2Res.ok) {
+        await supabaseClient.from('platforms').update({
+          metadata: { ...platformData.metadata, webhook_secret: webhookSecret, webhook_url: webhookUrl },
+        }).eq('id', platform.id);
+        console.log(`[WooCommerce] Registered order webhooks for ${normalizedUrl}`);
+      }
+    } catch (webhookErr: any) {
+      console.warn('[WooCommerce] Webhook registration failed (non-critical):', webhookErr.message);
+    }
+
     // Initial product sync
     try {
       const syncRes = await fetch(

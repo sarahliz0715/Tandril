@@ -107,7 +107,7 @@ async function interpretWithClaude(
   fileUrls: string[],
   apiKey: string
 ): Promise<any> {
-  const systemPrompt = `You are an AI assistant that interprets e-commerce management commands and converts them into structured actions.
+  const staticSystemPrompt = `You are an AI assistant that interprets e-commerce management commands and converts them into structured actions.
 
 The user manages one or more Shopify stores. They will give you natural language commands like:
 - "Update all products in the Winter Collection to be 20% off"
@@ -122,7 +122,7 @@ Your job is to convert these commands into a structured JSON response with the f
       "type": "update_products" | "create_products" | "get_products" | "update_inventory" | "apply_discount" | "update_seo" | "create_collection" | etc,
       "description": "Human-readable description of what this action does",
       "parameters": {
-        // Action-specific parameters
+        // Action-specific parameters — see schema below
       },
       "requires_confirmation": true | false
     }
@@ -132,10 +132,38 @@ Your job is to convert these commands into a structured JSON response with the f
   "estimated_impact": "Description of what will change"
 }
 
-Platform targets: ${platformTargets.join(', ')}
-${fileUrls.length > 0 ? `Attached files: ${fileUrls.join(', ')}` : ''}
+PARAMETER SCHEMA — always use these exact field names:
+
+update_products:
+  - product_ids: array of Shopify product IDs (omit or use [] to target ALL products)
+  - product_name: string — use when the user names a specific product but no ID is known; the executor will filter by title match (e.g. "Classic Spring Tee"). Always populate this when the user references a specific product by name.
+  - price_adjustment: number — positive to raise price, negative to lower price (e.g. -1 to lower by $1)
+  - new_price: number — set a specific absolute price (use instead of price_adjustment if user gives a fixed price)
+  - updates: object — any other product-level field updates (title, body_html, etc.)
+
+get_products:
+  - filter: "inventory_quantity" | "price" | "title"
+  - operator: "less_than" | "greater_than" | "equals"
+  - value: number or string
+  - limit: number (default 50)
+
+update_inventory:
+  - inventory_item_id: string
+  - location_id: string
+  - available: number
+
+apply_discount:
+  - discount_type: "percentage" | "fixed"
+  - discount_value: number
+  - product_ids: array (optional)
+
+update_seo:
+  - product_ids: array
+  - seo_updates: { meta_title, meta_description }
 
 Be specific with your actions and parameters. If you're unsure about something, set requires_confirmation to true.`;
+
+  const dynamicContext = `Platform targets: ${platformTargets.join(', ')}${fileUrls.length > 0 ? `\nAttached files: ${fileUrls.join(', ')}` : ''}`;
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -143,11 +171,15 @@ Be specific with your actions and parameters. If you're unsure about something, 
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'prompt-caching-2024-07-31',
     },
     body: JSON.stringify({
-      model: 'claude-3-haiku-20240307',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 2048,
-      system: systemPrompt,
+      system: [
+        { type: 'text', text: staticSystemPrompt, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: dynamicContext },
+      ],
       messages: [
         {
           role: 'user',

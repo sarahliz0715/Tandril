@@ -254,32 +254,72 @@ async function getProducts(platform: any, parameters: any): Promise<any> {
 }
 
 async function updateProducts(platform: any, parameters: any): Promise<any> {
-  const { product_ids, updates } = parameters;
+  const { product_ids, product_name, updates, price_adjustment, new_price } = parameters;
 
-  if (!product_ids || !Array.isArray(product_ids)) {
-    throw new Error('product_ids array is required');
+  // Fetch products — either specific IDs or all products
+  let products: any[] = [];
+  if (product_ids && Array.isArray(product_ids) && product_ids.length > 0) {
+    for (const id of product_ids) {
+      try {
+        const res = await shopifyRequest(platform, `products/${id}.json`);
+        if (res.product) products.push(res.product);
+      } catch { /* skip missing */ }
+    }
+  } else {
+    // Fetch all products (paginate up to 250)
+    const res = await shopifyRequest(platform, 'products.json?limit=250');
+    products = res.products || [];
+
+    // If a product name was specified, filter to matching products only
+    if (product_name && typeof product_name === 'string') {
+      const lowerName = product_name.toLowerCase().trim();
+      const filtered = products.filter(p =>
+        p.title?.toLowerCase().includes(lowerName)
+      );
+      // Only narrow down if we actually found a match — otherwise keep all (safer than updating nothing)
+      if (filtered.length > 0) {
+        products = filtered;
+        console.log(`[updateProducts] Filtered to ${filtered.length} product(s) matching "${product_name}"`);
+      } else {
+        console.warn(`[updateProducts] No products matched "${product_name}" — updating all ${products.length} (no filter applied)`);
+      }
+    }
+  }
+
+  if (products.length === 0) {
+    return { updated: 0, failed: 0, results: [] };
   }
 
   const results = [];
-  for (const productId of product_ids) {
-    try {
-      const response = await shopifyRequest(
-        platform,
-        `products/${productId}.json`,
-        'PUT',
-        { product: updates }
-      );
-      results.push({
-        product_id: productId,
-        success: true,
-        product: response.product,
-      });
-    } catch (error) {
-      results.push({
-        product_id: productId,
-        success: false,
-        error: error.message,
-      });
+
+  for (const product of products) {
+    for (const variant of product.variants || []) {
+      try {
+        let variantUpdate: any = {};
+
+        if (price_adjustment !== undefined) {
+          const currentPrice = parseFloat(variant.price || '0');
+          const adjusted = Math.max(0, currentPrice + price_adjustment);
+          variantUpdate.price = adjusted.toFixed(2);
+        } else if (new_price !== undefined) {
+          variantUpdate.price = parseFloat(new_price).toFixed(2);
+        } else if (updates) {
+          variantUpdate = { ...updates };
+        }
+
+        if (Object.keys(variantUpdate).length === 0) continue;
+
+        await shopifyRequest(
+          platform,
+          `variants/${variant.id}.json`,
+          'PUT',
+          { variant: { id: variant.id, ...variantUpdate } }
+        );
+
+        results.push({ product_id: product.id, variant_id: variant.id, success: true });
+      } catch (error) {
+        results.push({ product_id: product.id, variant_id: variant.id, success: false, error: error.message });
+      }
     }
   }
 

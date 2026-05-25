@@ -25,6 +25,8 @@ import DashboardAdvisor from '../components/dashboard/DashboardAdvisor';
 import QuickInsights from '../components/dashboard/QuickInsights';
 import PersonalizedTodos from '../components/dashboard/PersonalizedTodos';
 import QuickActionsHub from '../components/dashboard/QuickActionsHub';
+import SyncHealthCard from '../components/dashboard/SyncHealthCard';
+import OrionDigestCard from '../components/dashboard/OrionDigestCard';
 import DashboardWidget from '../components/dashboard/DashboardWidget';
 import AutomationStatus from '../components/dashboard/AutomationStatus';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -323,7 +325,7 @@ export default function Dashboard() {
 
   const getAvailableWidgets = useCallback(() => {
       const baseWidgets = [
-          { id: 'beta-banner', title: 'Beta Notice', component: BetaBanner, layout: 'top', showControls: false },
+          
           { id: 'mode-toggle', title: 'Operating Mode', component: ModeToggle, layout: 'top', showControls: false },
           { id: 'agents-hub', title: 'AI Agents', layout: 'top', showControls: false },
           { id: 'ai-hub', title: 'AI Performance Hub', component: AIHub, layout: 'top' },
@@ -335,15 +337,17 @@ export default function Dashboard() {
           { id: 'top-products', title: 'Top Performing Products', layout: 'main-col', showControls: true },
           { id: 'personalized-todos', title: 'Today\'s Focus', component: PersonalizedTodos, layout: 'side-col' },
           { id: 'low-stock-alerts', title: 'Low Stock Alerts', layout: 'side-col', showControls: true },
+          { id: 'orion-digest', title: 'Orion Daily Digest', component: OrionDigestCard, layout: 'side-col', showControls: true },
+          { id: 'sync-health', title: 'Cross-Platform Sync', component: SyncHealthCard, layout: 'side-col', showControls: true },
           { id: 'recommendations', title: 'AI Recommendations', layout: 'side-col', showControls: true },
           { id: 'platform-status', title: 'Platform Status', layout: 'side-col', showControls: true }
       ];
 
       if (hasBetaAccess) {
           return baseWidgets.filter(w =>
-              ['beta-banner', 'mode-toggle', 'agents-hub', 'quick-insights', 'quick-actions',
+              ['agents-hub', 'quick-insights', 'quick-actions',
                'dashboard-advisor', 'ai-activity', 'top-products', 'automation-status',
-               'personalized-todos', 'low-stock-alerts', 'platform-status'].includes(w.id)
+               'personalized-todos', 'low-stock-alerts', 'orion-digest', 'sync-health', 'platform-status'].includes(w.id)
           ).map(w => {
               if (w.id === 'platform-status') {
                   return { ...w, title: 'Shopify Connection' };
@@ -827,13 +831,22 @@ export default function Dashboard() {
     <div className="min-h-screen p-4 sm:p-6 space-y-6">
       <div className="max-w-7xl mx-auto">
         {hasBetaAccess && (
-            <Alert className="mb-6 border-blue-200 bg-blue-50">
+            <Alert className="mb-6 hidden">
                 <Sparkles className="h-4 w-4 text-blue-600" />
-                <AlertTitle className="text-blue-900">Welcome to Shopify Beta!</AlertTitle>
-                <AlertDescription className="text-blue-700">
-                    You're testing our Shopify-focused MVP. Connect your store, ask Orion questions, and try SEO optimization.
-                    We'd love your feedback!
-                </AlertDescription>
+                <div className="flex items-center justify-between gap-4">
+                    <div>
+                        <AlertTitle className="text-blue-900">Welcome to Shopify Beta!</AlertTitle>
+                        <AlertDescription className="text-blue-700">
+                            You're testing our Shopify-focused MVP. Connect your store, ask Orion questions, and try SEO optimization.
+                            We'd love your feedback!
+                        </AlertDescription>
+                    </div>
+                    <Link to={createPageUrl('Onboarding')} className="shrink-0">
+                        <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
+                            Getting Started
+                        </Button>
+                    </Link>
+                </div>
             </Alert>
         )}
 

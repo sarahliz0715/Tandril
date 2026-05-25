@@ -2,61 +2,85 @@ import React from 'react';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Eye, DollarSign, Target } from 'lucide-react';
+import { Eye, Target } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 
 export default function CompetitorInsightsCard({ data }) {
     const navigate = useNavigate();
-    const prices = data.competitor_data?.price_ranges;
+    const c = data.content || {};
+    const strategies = Array.isArray(c.differentiation_strategies) ? c.differentiation_strategies : [];
+    const gaps = Array.isArray(c.market_gaps) ? c.market_gaps : [];
+    const successFactors = Array.isArray(c.success_factors) ? c.success_factors : [];
 
     return (
         <Card className="flex flex-col h-full bg-white/80 backdrop-blur-sm border-slate-200/60 hover:shadow-xl transition-shadow">
             <CardHeader>
-                 <div className="flex justify-between items-start">
+                <div className="flex justify-between items-start">
                     <div>
                         <CardTitle className="flex items-center gap-2 text-lg">
                             <Eye className="w-5 h-5 text-blue-500" />
-                            Competitor Insights
+                            Seller Positioning
                         </CardTitle>
-                        <p className="text-sm text-slate-500 mt-1">for "{data.category}"</p>
+                        <p className="text-sm text-slate-500 mt-1">for "{data.niche}"</p>
                     </div>
-                    <Badge variant="outline">Confidence: {data.confidence_score || 'N/A'}</Badge>
                 </div>
             </CardHeader>
-            <CardContent className="flex-grow">
-                <p className="text-sm text-slate-600 mb-4">{data.insights?.summary}</p>
-                <div className="space-y-3">
+            <CardContent className="flex-grow space-y-4">
+                {c.seller_types && (
                     <div>
-                        <h4 className="text-xs font-semibold text-slate-500 uppercase mb-1">Top Competitors</h4>
+                        <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Who's Selling</p>
+                        <p className="text-sm text-slate-700">{c.seller_types}</p>
+                    </div>
+                )}
+                {c.typical_price_points && (
+                    <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Typical Price Points</p>
+                        <p className="text-sm text-slate-700">{c.typical_price_points}</p>
+                    </div>
+                )}
+                {gaps.length > 0 && (
+                    <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Market Gaps</p>
+                        <ul className="space-y-1">
+                            {gaps.slice(0, 3).map((gap, i) => (
+                                <li key={i} className="text-sm text-slate-700 flex items-start gap-1">
+                                    <span className="text-blue-500 mt-0.5">•</span> {gap}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+                {strategies.length > 0 && (
+                    <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase mb-1">How Top Sellers Differentiate</p>
                         <div className="flex flex-wrap gap-1">
-                            {data.competitor_data?.top_performers?.map(comp => (
-                                <Badge key={comp} variant="secondary">{comp}</Badge>
+                            {strategies.slice(0, 4).map((s, i) => (
+                                <Badge key={i} variant="secondary" className="text-xs">{s}</Badge>
                             ))}
                         </div>
                     </div>
-                     <div>
-                        <h4 className="text-xs font-semibold text-slate-500 uppercase mb-1">Market Price Range</h4>
-                        {prices && (
-                            <div className="flex justify-between items-center text-sm p-2 bg-slate-50 rounded-md">
-                                <span className="text-red-600 font-medium">${prices.low}</span>
-                                <span className="text-slate-700 font-bold">${prices.average}</span>
-                                <span className="text-green-600 font-medium">${prices.high}</span>
-                            </div>
-                        )}
-                    </div>
+                )}
+                {successFactors.length > 0 && (
                     <div>
-                        <h4 className="text-xs font-semibold text-slate-500 uppercase mb-1">Identified Gaps</h4>
-                        <ul className="list-disc list-inside text-sm text-slate-600 space-y-1">
-                            {data.competitor_data?.gaps_identified?.map((gap, i) => <li key={i}>{gap}</li>)}
+                        <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Success Factors</p>
+                        <ul className="space-y-1">
+                            {successFactors.slice(0, 3).map((f, i) => (
+                                <li key={i} className="text-sm text-emerald-700 flex items-start gap-1">
+                                    <span className="mt-0.5">✓</span> {f}
+                                </li>
+                            ))}
                         </ul>
                     </div>
-                </div>
+                )}
+                {!c.seller_types && gaps.length === 0 && (
+                    <p className="text-sm text-slate-400 italic">No market landscape data available.</p>
+                )}
             </CardContent>
             <CardFooter>
-                <Button 
+                <Button
                     className="w-full bg-emerald-600 hover:bg-emerald-700"
-                    onClick={() => navigate(createPageUrl('Commands?prompt=' + encodeURIComponent(`Exploit market gaps in ${data.category} based on competitor analysis`)))}
+                    onClick={() => navigate(createPageUrl('Commands?prompt=' + encodeURIComponent(`Exploit market gaps in ${data.niche} based on market landscape analysis`)))}
                 >
                     <Target className="w-4 h-4 mr-2" />
                     Exploit This Opportunity

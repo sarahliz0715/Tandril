@@ -184,6 +184,35 @@ export default function AIBusinessCoach() {
     setChatMessages([]);
   };
 
+  const handleClearChat = async () => {
+    const confirmed = window.confirm(
+      'Start a new chat?\n\nThis will permanently delete your entire conversation history with Orion and cannot be undone.'
+    );
+    if (!confirmed) return;
+
+    try { sessionStorage.removeItem('orion_chat'); } catch {}
+    setConversationId(null);
+    setChatMessages([]);
+    // Delete all stored conversations for this user from the DB
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: convs } = await supabase
+          .from('orion_conversations')
+          .select('id')
+          .eq('user_id', user.id);
+        if (convs && convs.length > 0) {
+          const ids = convs.map(c => c.id);
+          await supabase.from('orion_messages').delete().in('conversation_id', ids);
+          await supabase.from('orion_conversations').delete().eq('user_id', user.id);
+        }
+      }
+    } catch (e) {
+      console.error('[Orion] Failed to clear chat history:', e);
+    }
+    toast.success('Chat cleared — starting fresh');
+  };
+
   // Auto-load each tab's data the first time the user visits it
   useEffect(() => {
     if (activeTab === 'briefing' && !loadedTabsRef.current.has('briefing')) {
@@ -927,14 +956,26 @@ export default function AIBusinessCoach() {
   return (
     <div className="space-y-2">
       {/* Header */}
-      <div className="bg-gradient-to-r from-green-600 to-emerald-500 text-white rounded-lg px-4 py-3 flex items-center gap-2">
-        <Zap className="w-5 h-5 flex-shrink-0" />
-        <div>
-          <h2 className="text-base font-bold leading-tight">Orion - Your AI Business Wingman</h2>
-          <p className="text-green-100 text-xs font-normal leading-tight">
-            Your wingman for growth, strategy, and business success
-          </p>
+      <div className="bg-gradient-to-r from-green-600 to-emerald-500 text-white rounded-lg px-4 py-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Zap className="w-5 h-5 flex-shrink-0" />
+          <div>
+            <h2 className="text-base font-bold leading-tight">Orion - Your AI Business Wingman</h2>
+            <p className="text-green-100 text-xs font-normal leading-tight">
+              Your wingman for growth, strategy, and business success
+            </p>
+          </div>
         </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="text-white hover:bg-white/20 text-xs h-7 px-2 flex-shrink-0"
+          onClick={handleClearChat}
+          title="Start a new conversation"
+        >
+          <RefreshCw className="w-3 h-3 mr-1" />
+          New Chat
+        </Button>
       </div>
 
       {/* Tabs */}

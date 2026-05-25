@@ -28,6 +28,7 @@ import TrendingProductsCard from '../components/intelligence/TrendingProductsCar
 import NicheAnalysisCard from '../components/intelligence/NicheAnalysisCard';
 import CompetitorInsightsCard from '../components/intelligence/CompetitorInsightsCard';
 import KeywordOpportunitiesCard from '../components/intelligence/KeywordOpportunitiesCard';
+import PriceBenchmarkCard from '../components/intelligence/PriceBenchmarkCard';
 import { handleAuthError } from '@/utils/authHelpers';
 import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 import { NoDataEmptyState } from '../components/common/EmptyState';
@@ -162,8 +163,8 @@ export default function Intelligence() {
     }
 
     await confirm({
-      title: 'Generate Market Intelligence?',
-      description: `This will analyze current market trends, competitors, and opportunities for ${selectedNiches.length} ${selectedNiches.length === 1 ? 'niche' : 'niches'}: ${selectedNiches.join(', ')}. It may take a few moments.`,
+      title: 'Generate Market Insights?',
+      description: `This will analyze market trends and opportunities for ${selectedNiches.length} ${selectedNiches.length === 1 ? 'niche' : 'niches'}: ${selectedNiches.join(', ')}. It may take a few moments.`,
       confirmText: 'Generate',
       onConfirm: async () => {
         setIsGenerating(true);
@@ -178,7 +179,7 @@ export default function Intelligence() {
 
           const results = await Promise.allSettled(promises);
           
-          const successCount = results.filter(r => r.status === 'fulfilled' && r.value?.data?.success).length;
+          const successCount = results.filter(r => r.status === 'fulfilled' && (r.value?.success || r.value?.data?.success)).length;
           const failCount = results.length - successCount;
 
           if (successCount > 0) {
@@ -283,7 +284,7 @@ export default function Intelligence() {
             ) : (
               <>
                 <RefreshCw className="w-4 h-4 mr-2" />
-                Generate Intelligence
+                Generate Market Insights
               </>
             )}
           </Button>
@@ -418,35 +419,23 @@ export default function Intelligence() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-2 lg:grid-cols-4">
+        <TabsList className="grid w-full grid-cols-2 lg:grid-cols-5">
           <TabsTrigger value="trending">
             Trending Products
+          </TabsTrigger>
+          <TabsTrigger value="keywords">
+            Keywords
+          </TabsTrigger>
+          <TabsTrigger value="price-benchmark">
+            Price Benchmark
           </TabsTrigger>
           <TabsTrigger value="niches">
             Niche Analysis
           </TabsTrigger>
           <TabsTrigger value="competitors">
-            Competitors
-          </TabsTrigger>
-          <TabsTrigger value="keywords">
-            Keywords
+            Seller Positioning
           </TabsTrigger>
         </TabsList>
-
-        <TabsContent value="trending" className="mt-6">
-          {groupedIntelligence.trending_products.length > 0 ? (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {groupedIntelligence.trending_products.map((item) => (
-                <TrendingProductsCard key={item.id} data={item} />
-              ))}
-            </div>
-          ) : (
-            <NoDataEmptyState
-              entityName="Trending Products Intelligence"
-              onCreate={handleGenerateIntelligence}
-            />
-          )}
-        </TabsContent>
 
         <TabsContent value="niches" className="mt-6">
           {groupedIntelligence.niche_analysis.length > 0 ? (
@@ -472,7 +461,22 @@ export default function Intelligence() {
             </div>
           ) : (
             <NoDataEmptyState
-              entityName="Competitor Intelligence"
+              entityName="Seller Positioning"
+              onCreate={handleGenerateIntelligence}
+            />
+          )}
+        </TabsContent>
+
+        <TabsContent value="trending" className="mt-6">
+          {groupedIntelligence.trending_products.length > 0 ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {groupedIntelligence.trending_products.map((item) => (
+                <TrendingProductsCard key={item.id} data={item} />
+              ))}
+            </div>
+          ) : (
+            <NoDataEmptyState
+              entityName="Trending Products Intelligence"
               onCreate={handleGenerateIntelligence}
             />
           )}
@@ -491,6 +495,12 @@ export default function Intelligence() {
               onCreate={handleGenerateIntelligence}
             />
           )}
+        </TabsContent>
+
+        <TabsContent value="price-benchmark" className="mt-6">
+          <div className="max-w-2xl">
+            <PriceBenchmarkCard />
+          </div>
         </TabsContent>
       </Tabs>
 
