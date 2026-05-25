@@ -188,8 +188,10 @@ export default function History() {
       onConfirm: async () => {
         try {
           await AICommand.delete(command.id);
+          // Remove immediately from local state so it disappears right away
+          setCommands(prev => prev.filter(c => c.id !== command.id));
           toast.success("Command deleted");
-          loadData();
+          loadData(); // background refresh to stay in sync
         } catch (error) {
           console.error('Delete error:', error);
           

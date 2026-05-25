@@ -254,7 +254,7 @@ async function getProducts(platform: any, parameters: any): Promise<any> {
 }
 
 async function updateProducts(platform: any, parameters: any): Promise<any> {
-  const { product_ids, updates, price_adjustment, new_price } = parameters;
+  const { product_ids, product_name, updates, price_adjustment, new_price } = parameters;
 
   // Fetch products — either specific IDs or all products
   let products: any[] = [];
@@ -269,6 +269,21 @@ async function updateProducts(platform: any, parameters: any): Promise<any> {
     // Fetch all products (paginate up to 250)
     const res = await shopifyRequest(platform, 'products.json?limit=250');
     products = res.products || [];
+
+    // If a product name was specified, filter to matching products only
+    if (product_name && typeof product_name === 'string') {
+      const lowerName = product_name.toLowerCase().trim();
+      const filtered = products.filter(p =>
+        p.title?.toLowerCase().includes(lowerName)
+      );
+      // Only narrow down if we actually found a match — otherwise keep all (safer than updating nothing)
+      if (filtered.length > 0) {
+        products = filtered;
+        console.log(`[updateProducts] Filtered to ${filtered.length} product(s) matching "${product_name}"`);
+      } else {
+        console.warn(`[updateProducts] No products matched "${product_name}" — updating all ${products.length} (no filter applied)`);
+      }
+    }
   }
 
   if (products.length === 0) {

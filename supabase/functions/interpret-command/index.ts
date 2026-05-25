@@ -136,6 +136,7 @@ PARAMETER SCHEMA — always use these exact field names:
 
 update_products:
   - product_ids: array of Shopify product IDs (omit or use [] to target ALL products)
+  - product_name: string — use when the user names a specific product but no ID is known; the executor will filter by title match (e.g. "Classic Spring Tee"). Always populate this when the user references a specific product by name.
   - price_adjustment: number — positive to raise price, negative to lower price (e.g. -1 to lower by $1)
   - new_price: number — set a specific absolute price (use instead of price_adjustment if user gives a fixed price)
   - updates: object — any other product-level field updates (title, body_html, etc.)
