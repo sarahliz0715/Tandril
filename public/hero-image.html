@@ -49,23 +49,11 @@
       z-index: 10;
     }
 
-    /* Container background matches page so the image's white bg blends in */
-    .vine-t-halo {
-      position: relative;
-      width: 320px;
-      height: 320px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
-    }
-
-.vine-t-img {
-      position: relative;
-      z-index: 2;
-      width: 280px;
+    .vine-t-img {
+      width: 340px;
       height: auto;
-      object-fit: contain;
+      display: block;
+      margin: 0 auto 16px auto;
       filter: drop-shadow(0 6px 28px rgba(22,163,74,0.22));
     }
 
@@ -345,9 +333,7 @@
 
     <!-- Left: Vine T + brand name -->
     <div class="left">
-      <div class="vine-t-halo">
-        <img class="vine-t-img" src="vine-t.png" alt="Tandril">
-      </div>
+      <img class="vine-t-img" src="vine-t.png" alt="Tandril">
       <div class="brand-block">
         <div class="brand-name">Tandril</div>
         <div class="for-sellers">For sellers &nbsp;·&nbsp; By sellers</div>
