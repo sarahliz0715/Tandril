@@ -49,7 +49,7 @@
       z-index: 10;
     }
 
-    /* On white background the T image sits naturally — no halo needed */
+    /* Container background matches page so the image's white bg blends in */
     .vine-t-halo {
       position: relative;
       width: 320px;
@@ -57,6 +57,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
     }
 
 .vine-t-img {
@@ -65,7 +66,6 @@
       width: 280px;
       height: auto;
       object-fit: contain;
-      mix-blend-mode: multiply;
       filter: drop-shadow(0 6px 28px rgba(22,163,74,0.22));
     }
 
