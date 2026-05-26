@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Tandril Hero Image — 1280×720</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      width: 1280px;
+      height: 720px;
+      overflow: hidden;
+      background: #f0fdf4;
+    }
+
+    .hero {
+      width: 1280px;
+      height: 720px;
+      background: linear-gradient(145deg, #f0fdf4 0%, #ffffff 50%, #f0fdf4 100%);
+      position: relative;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      overflow: hidden;
+    }
+
+    /* Subtle dot grid texture */
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: radial-gradient(circle, rgba(22,163,74,0.07) 1px, transparent 1px);
+      background-size: 38px 38px;
+      pointer-events: none;
+    }
+
+    /* ── LEFT SECTION ─────────────────────────────── */
+
+    .left {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 400px;
+      height: 720px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+
+    .vine-t-img {
+      width: 340px;
+      height: auto;
+      display: block;
+      margin: 0 auto 16px auto;
+      filter: drop-shadow(0 6px 28px rgba(22,163,74,0.22));
+    }
+
+    .brand-block {
+      text-align: center;
+      margin-top: 16px;
+    }
+
+    .brand-name {
+      font-size: 52px;
+      font-weight: 900;
+      color: #0f172a;
+      letter-spacing: -2px;
+      line-height: 1;
+    }
+
+    .for-sellers {
+      font-size: 11px;
+      font-weight: 600;
+      color: #16a34a;
+      letter-spacing: 3.5px;
+      text-transform: uppercase;
+      margin-top: 8px;
+    }
+
+    /* ── SVG VINE CONNECTORS ───────────────────────── */
+
+    .vine-svg {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 20; /* above cards (z-index:10) so vines overlap card edges */
+    }
+
+    /* ── RIGHT SECTION ────────────────────────────── */
+
+    .right {
+      position: absolute;
+      left: 420px;
+      top: 0;
+      right: 0;
+      height: 720px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 0 50px 0 30px;
+      z-index: 10;
+    }
+
+    .tagline {
+      font-size: 36px;
+      font-weight: 800;
+      color: #0f172a;
+      line-height: 1.15;
+      letter-spacing: -1px;
+      margin-bottom: 8px;
+    }
+
+    .tagline span {
+      color: #16a34a;
+    }
+
+    .subtitle {
+      font-size: 15px;
+      color: #64748b;
+      margin-bottom: 30px;
+      line-height: 1.6;
+      max-width: 520px;
+    }
+
+    /* AI Command cards */
+    .commands {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 28px;
+    }
+
+    .cmd-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 14px 18px;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+
+    .cmd-icon {
+      width: 28px;
+      height: 28px;
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .cmd-icon svg {
+      width: 14px;
+      height: 14px;
+      color: #16a34a;
+    }
+
+    .cmd-body {
+      flex: 1;
+    }
+
+    .cmd-text {
+      font-size: 13px;
+      color: #334155;
+      font-style: italic;
+      line-height: 1.4;
+      margin-bottom: 5px;
+    }
+
+    .cmd-result {
+      font-size: 12px;
+      color: #16a34a;
+      font-weight: 600;
+    }
+
+    /* Platform pills row */
+    .platforms {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .pill {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 100px;
+      padding: 5px 14px;
+      color: #475569;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    /* ── DIVIDER LINE ─────────────────────────────── */
+    .divider {
+      position: absolute;
+      left: 408px;
+      top: 10%;
+      height: 80%;
+      width: 1px;
+      background: linear-gradient(to bottom, transparent, rgba(22,163,74,0.2) 30%, rgba(22,163,74,0.2) 70%, transparent);
+      z-index: 8;
+    }
+
+    /* ── BOTTOM BADGE ─────────────────────────────── */
+    .bottom-badge {
+      position: absolute;
+      bottom: 22px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 10px;
+      color: #94a3b8;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      white-space: nowrap;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+  <div class="hero">
+
+    <!-- Organic vine connectors — z-index:20 so they overlay card borders -->
+    <svg class="vine-svg" viewBox="0 0 1280 720" preserveAspectRatio="none">
+      <defs>
+        <!-- Reusable leaf bud shape: ~12px teardrop, origin at base -->
+        <!-- Positioned via <use> with transform="translate(x,y) rotate(deg)" -->
+        <path id="leaf" d="M 0,0 C 2.5,-4 3.5,-9 0,-13 C -3.5,-9 -2.5,-4 0,0 Z"/>
+      </defs>
+
+      <!-- ══════════════════════════════════════
+           VINE 1  →  Card 1  (center ~y 361)
+      ══════════════════════════════════════ -->
+      <g fill="none" stroke="#16a34a" stroke-linecap="round">
+        <!-- Main vine: emerges from T upper-right, arcs up then sweeps to card 1 left edge -->
+        <path d="M 338,278
+                 C 366,258 400,246 428,252
+                 C 450,256 460,282 462,354"
+              stroke-width="2.6"/>
+        <!-- Secondary tendril branching upward at the peak of the arc -->
+        <path d="M 428,252 C 432,242 436,237 433,231"
+              stroke-width="1.6"/>
+        <!-- Tiny curl at tendril tip -->
+        <path d="M 433,231 C 436,226 440,226 440,230 C 440,234 436,235 434,232"
+              stroke-width="1.2"/>
+      </g>
+      <!-- Node at main branching point -->
+      <circle cx="428" cy="252" r="3.2" fill="#16a34a"/>
+      <!-- Leaf bud 1: left of arc, angled upper-right -->
+      <use href="#leaf" fill="#16a34a" opacity="0.82"
+           transform="translate(364,261) rotate(-52)"/>
+      <!-- Leaf bud 2: right side of arc, angled upward -->
+      <use href="#leaf" fill="#16a34a" opacity="0.72"
+           transform="translate(416,249) rotate(-80)"/>
+      <!-- Landing node on card 1 border -->
+      <circle cx="462" cy="356" r="4.5" fill="#16a34a" opacity="0.55"/>
+      <!-- Tiny landing curl over card 1 edge -->
+      <path d="M 462,356 C 466,348 472,347 473,353 C 474,359 468,363 464,359"
+            fill="none" stroke="#16a34a" stroke-width="1.5" stroke-linecap="round" opacity="0.7"/>
+
+
+      <!-- ══════════════════════════════════════
+           VINE 2  →  Card 2  (center ~y 429)
+      ══════════════════════════════════════ -->
+      <g fill="none" stroke="#16a34a" stroke-linecap="round">
+        <!-- Main vine: gentle S-curve from T midpoint to card 2 left edge -->
+        <path d="M 342,360
+                 C 374,352 408,354 434,364
+                 C 452,371 460,394 462,422"
+              stroke-width="2.6"/>
+        <!-- Tendril branching downward mid-path -->
+        <path d="M 406,354 C 408,362 406,368 402,370"
+              stroke-width="1.6"/>
+        <!-- Tiny curl at tendril tip -->
+        <path d="M 402,370 C 399,375 395,374 396,369 C 397,365 401,365 402,369"
+              stroke-width="1.2"/>
+      </g>
+      <!-- Node at branching point -->
+      <circle cx="406" cy="354" r="3.2" fill="#16a34a"/>
+      <!-- Leaf bud: upper side, angled upward -->
+      <use href="#leaf" fill="#16a34a" opacity="0.82"
+           transform="translate(372,351) rotate(-92)"/>
+      <!-- Leaf bud: lower side near card, angled down-right -->
+      <use href="#leaf" fill="#16a34a" opacity="0.72"
+           transform="translate(430,365) rotate(75)"/>
+      <!-- Landing node on card 2 border -->
+      <circle cx="462" cy="424" r="4.5" fill="#16a34a" opacity="0.55"/>
+      <!-- Tiny landing curl -->
+      <path d="M 462,424 C 467,418 473,419 473,425 C 473,431 467,432 464,428"
+            fill="none" stroke="#16a34a" stroke-width="1.5" stroke-linecap="round" opacity="0.7"/>
+
+
+      <!-- ══════════════════════════════════════
+           VINE 3  →  Card 3  (center ~y 497)
+      ══════════════════════════════════════ -->
+      <g fill="none" stroke="#16a34a" stroke-linecap="round">
+        <!-- Main vine: sweeps down-right from T lower-right -->
+        <path d="M 338,442
+                 C 364,458 398,468 424,472
+                 C 446,475 458,482 462,490"
+              stroke-width="2.6"/>
+        <!-- Tendril branching upward mid-path -->
+        <path d="M 398,468 C 397,459 394,453 390,450"
+              stroke-width="1.6"/>
+        <!-- Tiny curl at tendril tip -->
+        <path d="M 390,450 C 388,445 391,441 394,444 C 397,447 396,451 392,452"
+              stroke-width="1.2"/>
+      </g>
+      <!-- Node at branching point -->
+      <circle cx="398" cy="468" r="3.2" fill="#16a34a"/>
+      <!-- Leaf bud: lower side, angled down-left -->
+      <use href="#leaf" fill="#16a34a" opacity="0.82"
+           transform="translate(366,459) rotate(42)"/>
+      <!-- Leaf bud: upper side near card, angled upward -->
+      <use href="#leaf" fill="#16a34a" opacity="0.72"
+           transform="translate(420,470) rotate(-68)"/>
+      <!-- Landing node on card 3 border -->
+      <circle cx="462" cy="491" r="4.5" fill="#16a34a" opacity="0.55"/>
+      <!-- Tiny landing curl -->
+      <path d="M 462,491 C 467,486 473,487 473,493 C 473,499 467,500 464,496"
+            fill="none" stroke="#16a34a" stroke-width="1.5" stroke-linecap="round" opacity="0.7"/>
+
+    </svg>
+
+    <!-- Left: Vine T + brand name -->
+    <div class="left">
+      <img class="vine-t-img" src="vine-t.png" alt="Tandril">
+      <div class="brand-block">
+        <div class="brand-name">Tandril</div>
+        <div class="for-sellers">For sellers &nbsp;·&nbsp; By sellers</div>
+      </div>
+    </div>
+
+    <!-- Vertical divider -->
+    <div class="divider"></div>
+
+    <!-- Right: tagline + commands + platforms -->
+    <div class="right">
+
+      <div class="tagline">
+        Your E-commerce,<br><span>Automated.</span>
+      </div>
+      <div class="subtitle">
+        One AI-powered dashboard for Shopify, Etsy, eBay, and more.<br>
+        Manage everything through natural conversation.
+      </div>
+
+      <div class="commands">
+
+        <div class="cmd-card">
+          <div class="cmd-icon">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M2 8h12M8 2l6 6-6 6"/>
+            </svg>
+          </div>
+          <div class="cmd-body">
+            <div class="cmd-text">"Lower all Spring Collection prices by $5"</div>
+            <div class="cmd-result">✓ Updated 24 product variants across 2 stores</div>
+          </div>
+        </div>
+
+        <div class="cmd-card">
+          <div class="cmd-icon">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/>
+            </svg>
+          </div>
+          <div class="cmd-body">
+            <div class="cmd-text">"Show me products with under 10 units in stock"</div>
+            <div class="cmd-result">✓ Found 8 low-stock items — details ready</div>
+          </div>
+        </div>
+
+        <div class="cmd-card">
+          <div class="cmd-icon">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M1 8c0-3.9 3.1-7 7-7s7 3.1 7 7-3.1 7-7 7"/><path d="M5 8h6M8 5v6"/>
+            </svg>
+          </div>
+          <div class="cmd-body">
+            <div class="cmd-text">"Update SEO titles for all Apparel products"</div>
+            <div class="cmd-result">✓ 31 listings optimized in seconds</div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="platforms">
+        <span class="pill">Shopify</span>
+        <span class="pill">Etsy</span>
+        <span class="pill">eBay</span>
+        <span class="pill">WooCommerce</span>
+        <span class="pill">Faire</span>
+        <span class="pill">Amazon</span>
+        <span class="pill">+ More</span>
+      </div>
+
+    </div>
+
+    <div class="bottom-badge">tandril.org</div>
+
+  </div>
+</body>
+</html>
