@@ -74,10 +74,10 @@
     .vine-t-img {
       position: relative;
       z-index: 2;
-      width: 260px;
-      height: 260px;
+      width: 280px;
+      height: auto;
       object-fit: contain;
-      filter: drop-shadow(0 6px 28px rgba(22,163,74,0.20));
+      filter: drop-shadow(0 6px 28px rgba(22,163,74,0.22));
     }
 
     .brand-block {
@@ -273,61 +273,7 @@
     <!-- Left: Vine T + brand name -->
     <div class="left">
       <div class="vine-t-halo">
-        <!-- Inline SVG vine T — no external file needed -->
-        <svg class="vine-t-img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 230">
-          <defs>
-            <linearGradient id="vg" x1="10%" y1="0%" x2="90%" y2="100%">
-              <stop offset="0%"   stop-color="#a3d977"/>
-              <stop offset="45%"  stop-color="#5aaa2e"/>
-              <stop offset="100%" stop-color="#2d7a14"/>
-            </linearGradient>
-            <filter id="vshadow" x="-20%" y="-20%" width="140%" height="140%">
-              <feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="rgba(60,160,40,0.28)"/>
-            </filter>
-          </defs>
-
-          <g filter="url(#vshadow)" fill="none" stroke="url(#vg)" stroke-linecap="round" stroke-linejoin="round">
-
-            <!-- Left curl: crossbar sweeps left and spirals down -->
-            <path d="M 46,74 C 36,70 22,70 16,79 C 10,88 15,100 25,98 C 34,96 36,86 30,82 C 25,78 30,73 38,76"
-                  stroke-width="7.5"/>
-
-            <!-- Main crossbar -->
-            <path d="M 46,74 C 62,67 78,65 91,67 C 104,69 120,67 134,65 C 141,64 147,63 150,62"
-                  stroke-width="9"/>
-
-            <!-- Right curl: crossbar sweeps right and spirals up -->
-            <path d="M 150,62 C 157,57 163,49 164,40 C 165,31 159,25 152,28 C 145,31 145,40 151,44 C 156,47 160,42 157,37"
-                  stroke-width="6.5"/>
-
-            <!-- Small upward tendril at stem/crossbar junction -->
-            <path d="M 86,69 C 80,62 75,56 78,49 C 80,43 87,46 85,53"
-                  stroke-width="4"/>
-
-            <!-- Vertical stem -->
-            <path d="M 91,68 C 91,98 90,138 90,170 C 89,184 88,196 87,206"
-                  stroke-width="9"/>
-
-            <!-- Bottom-left foot curl -->
-            <path d="M 87,206 C 83,213 75,220 68,216 C 62,212 64,203 72,202 C 78,201 82,208 78,214"
-                  stroke-width="6.5"/>
-
-            <!-- Bottom-right foot curl -->
-            <path d="M 93,206 C 97,214 105,221 112,217 C 119,213 117,204 110,203 C 104,202 100,210 104,215"
-                  stroke-width="6.5"/>
-
-          </g>
-
-          <!-- Leaves — filled -->
-          <g fill="url(#vg)">
-            <!-- Leaf at top of stem -->
-            <path d="M 95,72 C 103,66 111,70 107,78 C 104,84 95,81 95,75 Z" opacity="0.9"/>
-            <!-- Leaf mid-left -->
-            <path d="M 88,118 C 77,112 71,118 78,127 C 83,133 89,129 88,122 Z" opacity="0.85"/>
-            <!-- Leaf mid-right -->
-            <path d="M 93,158 C 104,151 111,157 104,166 C 100,172 93,168 93,161 Z" opacity="0.85"/>
-          </g>
-        </svg>
+        <img class="vine-t-img" src="vine-t.png" alt="Tandril">
       </div>
       <div class="brand-block">
         <div class="brand-name">Tandril</div>
