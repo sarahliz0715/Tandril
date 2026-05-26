@@ -1276,19 +1276,41 @@ To create a new product:
 To add/upload an image (ONLY when the user has attached an image file):
 [ORION_ACTION:{"type":"upload_image","platform":"shopify","product_name":"Product Title","sku":"SKU-001","image_from_upload":true}]
 
-To create a Tandril workflow (scheduled automation — e.g. low-stock email, daily report):
-[ORION_ACTION:{"type":"create_workflow","name":"Daily Low Stock Report","trigger_type":"schedule","cron":"0 9 * * *","action_type":"inventory_email","recipient":"seller@example.com","low_stock_threshold":5}]
+**When to use create_workflow vs a direct action:**
+- Single immediate change → use a direct action (update_price, update_inventory, etc.)
+- Multi-step OR any step has a delay (wait) → use create_workflow
+- User asks to "set up", "automate", "schedule", or "run every…" → use create_workflow
 
-  Workflow action_types:
-    - inventory_email: sends an inventory/low-stock report email. Fields: recipient (email), low_stock_threshold (number, default 5)
-    - send_email: sends a custom email. Fields: recipient, subject
-  Cron schedule values:
-    - "0 * * * *" = Every Hour
-    - "0 6 * * *" = Every Day at 6 AM
-    - "0 9 * * *" = Every Day at 9 AM (default)
+To create a multi-step or scheduled workflow (saves to Tandril's Workflows page — user activates it there):
+[ORION_ACTION:{"type":"create_workflow","workflow_name":"Weekend Flash Sale","description":"Drop shirt to $19 Friday, restore to $29 Sunday","trigger_type":"manual","steps":[{"type":"action","config":{"action_type":"update_price","platform":"shopify","product_name":"Bigfoot Shirt","price":19.00}},{"type":"wait","duration":2,"unit":"days"},{"type":"action","config":{"action_type":"update_price","platform":"shopify","product_name":"Bigfoot Shirt","price":29.00}}]}]
+
+  create_workflow fields:
+    - workflow_name (string, required): human-readable name shown on the Workflows page
+    - description (string, optional): short summary of what it does
+    - trigger_type: "manual" (user runs it) | "schedule" (auto-runs on cron)
+    - trigger_config (object, only for schedule): { "cron": "0 9 * * *" }
+    - steps (array, required): ordered list of steps — see formats below
+
+  Step formats inside "steps":
+    Action step:  {"type":"action","config":{"action_type":"update_price","platform":"shopify","product_name":"...","price":29.99}}
+    Wait step:    {"type":"wait","duration":2,"unit":"days"}   (units: "minutes" | "hours" | "days")
+    Email step:   {"type":"action","config":{"action_type":"send_email","email_recipient":"user@example.com","email_subject":"Subject","email_body":"Body"}}
+    Alert step:   {"type":"action","config":{"action_type":"send_alert","alert_title":"Title","alert_message":"Message","alert_priority":"high"}}
+    Webhook step: {"type":"action","config":{"action_type":"webhook","url":"https://...","method":"POST","payload":{}}}
+    Inventory email (scheduled report): {"type":"action","config":{"action_type":"inventory_email","recipient":"user@example.com","threshold":10}}
+
+  Cron schedule values (for trigger_type "schedule"):
+    - "0 * * * *"  = Every Hour
+    - "0 6 * * *"  = Every Day at 6 AM
+    - "0 9 * * *"  = Every Day at 9 AM (default)
     - "0 12 * * *" = Every Day at 12 PM
-    - "0 9 * * 1" = Every Monday at 9 AM
-  Always ask for the user's email before generating a create_workflow action if you don't already know it.
+    - "0 9 * * 1"  = Every Monday at 9 AM
+
+  IMPORTANT:
+  - After create_workflow is approved, tell the user their workflow was saved and they can activate it on the Workflows page.
+  - Always ask for restore price / original price before building a flash sale workflow — don't guess.
+  - Always ask for the user's email if you need it for an email step and don't already know it.
+  - The scheduler runs hourly — minimum effective wait is about 1 hour.
 
 To save a preference, rule, or important fact to permanent memory:
 [ORION_ACTION:{"type":"remember","category":"preference","key":"price_format","value":"User always ends prices in .99 (e.g. $29.99 not $30.00)","confidence":1.0}]

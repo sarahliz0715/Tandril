@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CheckCircle, XCircle, Clock, ServerCrash, RefreshCw, Trash2, Store, ShoppingCart, Package, Zap, Globe } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, ServerCrash, RefreshCw, Trash2, Store, ShoppingCart, Package, Zap, Globe, Instagram } from 'lucide-react';
 import { toast } from 'sonner';
 import ShopifyConnectButton from './ShopifyConnectButton';
 import EtsyConnectButton from './EtsyConnectButton';
@@ -23,10 +23,12 @@ import MagentoConnectButton from './MagentoConnectButton';
 import PrestaShopConnectButton from './PrestaShopConnectButton';
 import WishConnectButton from './WishConnectButton';
 import GenericOAuthConnectButton from './GenericOAuthConnectButton';
+import InstagramConnectButton from './InstagramConnectButton';
 import { Progress } from "@/components/ui/progress";
 
 // Platform-specific icons
 const platformIcons = {
+  instagram: Instagram,
   shopify: ShoppingCart,
   etsy: Store,
   printful: Package,
@@ -221,6 +223,13 @@ export default function PlatformCard({
       case 'meta_ads':
         return (
           <FacebookConnectButton
+            onConnectionSuccess={onConnectionSuccess}
+            disabled={isAtLimit}
+          />
+        );
+      case 'instagram':
+        return (
+          <InstagramConnectButton
             onConnectionSuccess={onConnectionSuccess}
             disabled={isAtLimit}
           />

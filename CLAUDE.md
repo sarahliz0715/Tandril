@@ -3,6 +3,11 @@
 
 ---
 
+## File References
+When referencing a file the user should open or copy, always provide the absolute local file path (e.g. `/home/user/Tandril/supabase/functions/smart-api/index.ts`) as a clickable reference. Never paste large code blocks inline when a file path will do — just point to the file.
+
+---
+
 ## What is Tandril?
 Tandril is an AI-powered multi-platform e-commerce automation SaaS. Sellers connect their stores (Shopify, Etsy, eBay, WooCommerce, and more) and manage everything from one dashboard using natural language commands. Key features: AI-powered bulk commands, inventory management, automated workflows, market intelligence, AI advisor ("Orion"), purchase orders.
 
@@ -58,6 +63,8 @@ They do NOT auto-deploy from GitHub.
 - **Commands/price updates:** Fixed in two places:
   - `execute-command`: Fetches all products when no product_ids given; updates prices at variant level via `PUT /variants/{id}.json`
   - `interpret-command`: Added explicit PARAMETER SCHEMA to system prompt so Claude uses correct field names (`price_adjustment`, `new_price`, `product_ids`)
+- **Orion multi-product scoping:** Fixed in `smart-api/index.ts` — `findProduct()` now requires ≥3 word matches, `update_price` updates all variants, system prompt guards against batch_update for single-product commands
+- **History title truncation:** Fixed in `History.jsx` — removed 80-char cap, shows full `command_text`
 - **Intelligence tabs:** Reordered so functional tabs (Trending, Keywords, Price Benchmark) come before Niche Analysis and Seller Positioning
 - **Price Benchmark markdown:** Added ReactMarkdown renderer in `PriceBenchmarkCard.jsx`
 - **Shopify redirect URLs:** Updated from old Vercel URL to `https://www.tandril.org/api/shopify-callback` in:
@@ -126,7 +133,6 @@ They do NOT auto-deploy from GitHub.
 
 ## Pending / In Progress
 
-- [ ] Merge branch `claude/debug-previous-error-FChTX` to main
 - [ ] Verify + deploy remaining edge functions with updated model ID (see table above)
 - [ ] Implement GDPR webhooks (3 endpoints) — unlocks Shopify App Store submission
 - [ ] Record Arcade screencast for Shopify app listing

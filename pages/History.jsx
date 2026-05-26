@@ -54,7 +54,7 @@ const formatCommandLogMessage = (command) => {
     case 'CTA Update':
       return `Added CTAs to ${successCount} products`;
     default:
-      
+      return command.command_text || 'Command executed';
   }
 };
 
@@ -559,9 +559,7 @@ export default function History() {
                       )}
                     </div>
                     <p className="text-sm font-medium text-slate-900 mb-1">
-                      {command.source === 'orion' || command.source === 'workflow'
-                        ? (command.command_text || 'Orion action')
-                        : formatCommandLogMessage(command)}
+                      {command.command_text || formatCommandLogMessage(command) || 'Command executed'}
                     </p>
                     {command.results && (
                       <p className="text-xs text-slate-500">

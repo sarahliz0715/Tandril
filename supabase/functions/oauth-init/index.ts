@@ -1,15 +1,15 @@
 // Unified OAuth Initiation Edge Function
 // Generates the OAuth authorization URL for all supported platforms.
 // Env vars required per platform:
-//   Etsy:         ETSY_CLIENT_ID, ETSY_CLIENT_SECRET
-//   TikTok Shop:  TIKTOK_CLIENT_KEY, TIKTOK_CLIENT_SECRET
-//   Meta/Facebook:META_APP_ID, META_APP_SECRET
-//   Amazon:       AMAZON_CLIENT_ID, AMAZON_CLIENT_SECRET
-//   Square:       SQUARE_APPLICATION_ID, SQUARE_APPLICATION_SECRET
-//   Wix:          WIX_CLIENT_ID, WIX_CLIENT_SECRET
-//   Squarespace:  SQUARESPACE_CLIENT_ID, SQUARESPACE_CLIENT_SECRET
-//   BigCommerce:  BIGCOMMERCE_CLIENT_ID, BIGCOMMERCE_CLIENT_SECRET
-//   Faire:        FAIRE_CLIENT_ID, FAIRE_CLIENT_SECRET
+//   Etsy:              ETSY_CLIENT_ID, ETSY_CLIENT_SECRET
+//   TikTok Shop:       TIKTOK_CLIENT_KEY, TIKTOK_CLIENT_SECRET
+//   Meta/Facebook/IG:  META_APP_ID, META_APP_SECRET  (shared by meta_ads + instagram)
+//   Amazon:            AMAZON_CLIENT_ID, AMAZON_CLIENT_SECRET
+//   Square:            SQUARE_APPLICATION_ID, SQUARE_APPLICATION_SECRET
+//   Wix:               WIX_CLIENT_ID, WIX_CLIENT_SECRET
+//   Squarespace:       SQUARESPACE_CLIENT_ID, SQUARESPACE_CLIENT_SECRET
+//   BigCommerce:       BIGCOMMERCE_CLIENT_ID, BIGCOMMERCE_CLIENT_SECRET
+//   Faire:             FAIRE_CLIENT_ID, FAIRE_CLIENT_SECRET
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -70,6 +70,14 @@ const PLATFORM_CONFIG: Record<string, PlatformConfig> = {
   meta_ads: {
     authUrl: 'https://www.facebook.com/v19.0/dialog/oauth',
     scopes: 'catalog_management pages_show_list business_management ads_management',
+    clientIdEnv: 'META_APP_ID',
+    scopeSeparator: ',',
+  },
+  instagram: {
+    // Instagram Shopping uses the same Meta OAuth dialog but with Instagram-specific scopes.
+    // Requires the same META_APP_ID / META_APP_SECRET credentials.
+    authUrl: 'https://www.facebook.com/v19.0/dialog/oauth',
+    scopes: 'instagram_basic,catalog_management,pages_show_list,pages_read_engagement,business_management,instagram_manage_insights',
     clientIdEnv: 'META_APP_ID',
     scopeSeparator: ',',
   },

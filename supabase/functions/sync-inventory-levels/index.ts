@@ -418,7 +418,7 @@ async function syncEbay(platform: any, link: any, qty: number, supabase: any, re
     headers,
     body: JSON.stringify(updated),
   });
-  if (!putRes.ok) throw new Error(`eBay inventory update failed: ${putRes.status}`);
+  if (!putRes.ok) throw new Error(`eBay inventory update failed: ${putRes.status} ${await putRes.text()}`);
   return { ...result, success: true };
 }
 
@@ -450,6 +450,6 @@ async function syncEtsy(platform: any, link: any, qty: number, result: any) {
     headers,
     body: JSON.stringify({ products: updatedProducts, price_on_property: inv.price_on_property, quantity_on_property: inv.quantity_on_property, sku_on_property: inv.sku_on_property }),
   });
-  if (!putRes.ok) throw new Error(`Etsy inventory update failed: ${putRes.status}`);
+  if (!putRes.ok) throw new Error(`Etsy inventory update failed: ${putRes.status} ${await putRes.text()}`);
   return { ...result, success: true };
 }

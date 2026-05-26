@@ -126,7 +126,8 @@ function summarizeOrionAction(action: any): string {
     case 'create_purchase_order': return `Created draft PO for ${(action.items || []).length} item(s) from ${action.supplier_name || 'supplier'}`;
     case 'get_purchase_orders': return `Retrieved purchase orders${action.status ? ` (${action.status})` : ''}`;
     case 'update_purchase_order_status': return `Updated PO ${action.po_number || ''} status → ${action.status}`;
-    case 'update_price':        return `Updated price for "${name}" → $${action.price}`;
+    case 'update_price':              return `Updated price for "${name}" → $${action.price}`;
+    case 'broadcast_price_change':    return `Broadcast price change for SKU "${action.sku}" → $${action.price} across all platforms`;
     case 'update_title':        return `Updated title of "${name}" → "${action.new_title}"`;
     case 'update_tags':
     case 'add_tags':            return `Updated tags for "${name}"`;
@@ -250,23 +251,114 @@ serve(async (req) => {
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) throw new Error('Missing authorization header');
 
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const isServiceRoleCall = serviceRoleKey && authHeader === `Bearer ${serviceRoleKey}`;
+
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
       { global: { headers: { Authorization: authHeader } } }
     );
 
-    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
-    if (userError || !user) throw new Error('Unauthorized');
+    // Service-role calls (from execute-scheduled-workflows) pass service_user_id in the body
+    // instead of a user JWT, so we skip auth.getUser() for those.
+    let userId: string;
+    const rawBody = await req.json();
+    if (isServiceRoleCall && rawBody.service_user_id) {
+      userId = rawBody.service_user_id;
+      // Use service role client for DB ops so RLS doesn't block us
+      const supabaseAdmin = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        serviceRoleKey
+      );
+      // Swap the client so the rest of the handler uses admin privileges
+      Object.assign(supabaseClient, supabaseAdmin);
+    } else {
+      const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+      if (userError || !user) throw new Error('Unauthorized');
+      userId = user.id;
+    }
 
-    const { message, conversation_id = null, uploaded_files = [], execute_action = null } = await req.json();
+    const { message = null, conversation_id = null, uploaded_files = [], execute_action = null } = rawBody;
 
     // ── Action Execution Mode ────────────────────────────────────────────────
     if (execute_action) {
+      // create_workflow is handled here before executeStoreAction
+      if (execute_action.type === 'create_workflow') {
+        try {
+          const wf = execute_action;
+          const triggerType = wf.trigger_type || 'manual';
+          const triggerConfig = wf.trigger_config || {};
+          const steps: any[] = wf.steps || wf.actions || [];
+
+          // Normalise Orion-produced steps: { type:'action', config:{ action_type, ... } }
+          // or flat objects: { action_type, ... }
+          const actions = steps.map((s: any) => {
+            if (s.type === 'wait') return { type: 'wait', duration: s.duration || 1, unit: s.unit || 'hours' };
+            if (s.type === 'action') return s;
+            const { action_type, ...rest } = s;
+            return { type: 'action', config: { action_type, ...rest } };
+          });
+
+          let nextRunAt: string | null = null;
+          if (triggerType === 'schedule' && triggerConfig.cron) {
+            const now = new Date();
+            const parts = triggerConfig.cron.trim().split(' ');
+            const minute = parseInt(parts[0]);
+            const hour = parseInt(parts[1]);
+            const next = new Date(now);
+            next.setSeconds(0, 0);
+            next.setHours(isNaN(hour) ? 9 : hour, isNaN(minute) ? 0 : minute, 0, 0);
+            if (next <= now) next.setDate(next.getDate() + 1);
+            nextRunAt = next.toISOString();
+          }
+
+          const { data: newWorkflow, error: wfError } = await supabaseClient
+            .from('ai_workflows')
+            .insert({
+              user_id: userId,
+              name: wf.workflow_name || wf.name || 'Orion Workflow',
+              description: wf.description || '',
+              trigger_type: triggerType,
+              trigger_config: triggerConfig,
+              actions,
+              is_active: true,
+              current_step: 0,
+              status: 'active',
+              ...(nextRunAt ? { next_run_at: nextRunAt } : {}),
+            })
+            .select('id, name')
+            .single();
+
+          if (wfError) throw new Error(`Failed to create workflow: ${wfError.message}`);
+
+          supabaseClient.from('ai_commands').insert({
+            user_id: userId,
+            command_text: `Created workflow "${newWorkflow.name}"`,
+            status: 'completed',
+            executed_at: new Date().toISOString(),
+            execution_results: { orion: true, action_type: 'create_workflow', workflow_id: newWorkflow.id },
+            source: 'orion',
+          }).then(({ error }) => {
+            if (error) console.warn('[Orion] Could not log create_workflow:', error.message);
+          });
+
+          return new Response(
+            JSON.stringify({ success: true, execution_result: { workflow_id: newWorkflow.id, name: newWorkflow.name, message: `Workflow "${newWorkflow.name}" created and saved. You can find it on the Workflows page.` } }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+          );
+        } catch (err: any) {
+          return new Response(
+            JSON.stringify({ success: false, error: err.message }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+          );
+        }
+      }
+
       let result: any;
       let execStatus = 'completed';
       try {
-        result = await executeStoreAction(supabaseClient, user.id, execute_action);
+        result = await executeStoreAction(supabaseClient, userId, execute_action);
       } catch (err: any) {
         result = { error: err.message };
         execStatus = 'failed';
@@ -276,7 +368,7 @@ serve(async (req) => {
       supabaseClient
         .from('ai_commands')
         .insert({
-          user_id: user.id,
+          user_id: userId,
           command_text: summarizeOrionAction(execute_action),
           status: execStatus,
           executed_at: new Date().toISOString(),
@@ -301,12 +393,12 @@ serve(async (req) => {
 
     if (!message) throw new Error('Message is required');
 
-    console.log(`[Orion] Processing message for user ${user.id}`);
+    console.log(`[Orion] Processing message for user ${userId}`);
 
     // Try to get/create conversation — if tables don't exist yet, fall back gracefully
     let conversationId: string | null = null;
     try {
-      conversationId = await getOrCreateConversation(supabaseClient, user.id, conversation_id);
+      conversationId = await getOrCreateConversation(supabaseClient, userId, conversation_id);
     } catch (e) {
       console.warn('[Orion] Conversation table unavailable, running without persistence:', e.message);
     }
@@ -314,13 +406,13 @@ serve(async (req) => {
     // Load store context (always) + history/memory (only if conversation table available)
     let recentHistory: any[] = [];
     let memoryNotes: any[] = [];
-    const storeContext = await getUserStoreContext(supabaseClient, user.id);
+    const storeContext = await getUserStoreContext(supabaseClient, userId);
 
     if (conversationId) {
       try {
         [recentHistory, memoryNotes] = await Promise.all([
-          loadConversationHistory(supabaseClient, user.id, conversationId),
-          loadMemoryNotes(supabaseClient, user.id),
+          loadConversationHistory(supabaseClient, userId, conversationId),
+          loadMemoryNotes(supabaseClient, userId),
         ]);
       } catch (e) {
         console.warn('[Orion] Could not load history/memory:', e.message);
@@ -330,7 +422,7 @@ serve(async (req) => {
       // If this fails the error propagates and the user sees an error response rather
       // than a response that silently doesn't appear on next page load.
       try {
-        await saveMessage(supabaseClient, user.id, conversationId, 'user', message);
+        await saveMessage(supabaseClient, userId, conversationId, 'user', message);
       } catch (e: any) {
         console.error('[Orion] Failed to save user message:', e.message);
         // Don't abort — still call Claude so the user gets an answer,
@@ -412,12 +504,12 @@ serve(async (req) => {
       // Await the assistant message save so it completes before the function returns.
       // Fire-and-forget saves are abandoned when Deno terminates the execution context.
       try {
-        await saveMessage(supabaseClient, user.id, conversationId, 'assistant', response);
+        await saveMessage(supabaseClient, userId, conversationId, 'assistant', response);
       } catch (e: any) {
         console.warn('[Orion] Could not save assistant message:', e.message);
       }
       // Memory extraction is non-essential — keep it best-effort
-      extractAndSaveMemory(supabaseClient, user.id, conversationId, message, response).catch(
+      extractAndSaveMemory(supabaseClient, userId, conversationId, message, response).catch(
         (e) => console.error('[Orion] Memory extraction failed:', e)
       );
     }
@@ -610,11 +702,16 @@ Only include genuinely useful facts. Return ONLY the JSON array, no other text.`
 
 /** Find a Shopify product by SKU or title, with fuzzy title fallback. */
 function findProduct(allProducts: any[], sku: string, productName: string): any | null {
-  // 1. Exact SKU match (most reliable)
+  // 1. Exact SKU match (most reliable).
+  // Also handles comma-separated SKU strings that the context produces for multi-variant
+  // products (e.g. "SKU-SM, SKU-MD, SKU-LG") by trying each individual SKU.
   if (sku) {
-    for (const p of allProducts) {
-      const match = (p.variants || []).find((v: any) => v.sku === sku);
-      if (match) return p;
+    const skuCandidates = sku.split(',').map((s: string) => s.trim()).filter(Boolean);
+    for (const candidate of skuCandidates) {
+      for (const p of allProducts) {
+        const match = (p.variants || []).find((v: any) => v.sku === candidate);
+        if (match) return p;
+      }
     }
   }
   if (!productName) return null;
@@ -628,19 +725,31 @@ function findProduct(allProducts: any[], sku: string, productName: string): any 
   for (const p of allProducts) {
     if (p.title.toLowerCase().includes(needle)) return p;
   }
-  // 4. Search name contains the Shopify title (model may have added extra words)
+  // 4. Search name contains the Shopify title (model may have added extra words).
+  // Guard: the matched title must cover at least 60% of the needle's words so that
+  // a short generic title (e.g. "Pocket Tee") can't steal a match meant for a longer,
+  // more specific product (e.g. "Casual Spring Pocket Tee – Soft Heather Gray Cotton").
   for (const p of allProducts) {
-    if (needle.includes(p.title.toLowerCase().trim())) return p;
+    const titleLower = p.title.toLowerCase().trim();
+    if (needle.includes(titleLower)) {
+      const titleWords = titleLower.split(/\s+/).filter((w: string) => w.length > 2);
+      const needleWords = needle.split(/\s+/).filter((w: string) => w.length > 2);
+      if (needleWords.length === 0 || titleWords.length / needleWords.length >= 0.6) {
+        return p;
+      }
+    }
   }
-  // 5. Significant word overlap (≥2 words matching, ignoring short words)
-  const needleWords = needle.split(/\s+/).filter(w => w.length > 3);
+  // 5. Significant word overlap (≥3 words matching, ignoring short words).
+  // Raised from 2 to 3 to prevent accidental cross-product matches when product names
+  // share common words like "Spring", "Cotton", "Tee".
+  const needleWords = needle.split(/\s+/).filter((w: string) => w.length > 3);
   if (needleWords.length > 0) {
     let bestMatch: any = null;
     let bestScore = 0;
     for (const p of allProducts) {
       const titleWords = p.title.toLowerCase().split(/\s+/);
-      const score = needleWords.filter(w => titleWords.some(tw => tw.includes(w) || w.includes(tw))).length;
-      if (score >= 2 && score > bestScore) { bestScore = score; bestMatch = p; }
+      const score = needleWords.filter((w: string) => titleWords.some((tw: string) => tw === w)).length;
+      if (score >= 3 && score > bestScore) { bestScore = score; bestMatch = p; }
     }
     if (bestMatch) return bestMatch;
   }
@@ -1166,7 +1275,10 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             const xml = await tradingRes.text();
             const ack = xml.match(/<Ack>([^<]+)<\/Ack>/)?.[1]?.trim();
             if (ack === 'Success' || ack === 'Warning') {
-              for (const m of xml.matchAll(/<Item>([\s\S]*?)<\/Item>/g)) {
+              // Scope to ActiveList only — ReturnAll causes eBay to include SoldList/UnsoldList
+              // in the same response, and a global <Item> match would pick up ended/sold items
+              const activeListXml = xml.match(/<ActiveList>([\s\S]*?)<\/ActiveList>/)?.[1] || '';
+              for (const m of activeListXml.matchAll(/<Item>([\s\S]*?)<\/Item>/g)) {
                 const x = m[1];
                 const itemId = x.match(/<ItemID>([^<]+)<\/ItemID>/)?.[1]?.trim();
                 const title = x.match(/<Title>([^<]+)<\/Title>/)?.[1]?.trim() || 'eBay Item';
@@ -1491,18 +1603,141 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
 
       const priceProduct = findProduct(allProducts, action.sku, action.product_name);
       if (!priceProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
-      const targetVariant = action.sku
-        ? (priceProduct.variants || []).find((v: any) => v.sku === action.sku) || priceProduct.variants?.[0]
-        : priceProduct.variants?.[0];
-      if (!targetVariant) throw new Error(`Product "${priceProduct.title}" has no variants.`);
 
-      const updateRes = await fetch(`${shopifyBase}/variants/${targetVariant.id}.json`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({ variant: { id: targetVariant.id, price: String(action.price) } }),
-      });
-      if (!updateRes.ok) throw new Error(`Shopify price update failed: ${await updateRes.text()}`);
-      return { message: `Updated price for "${action.sku || action.product_name}" to $${action.price}` };
+      const variants: any[] = priceProduct.variants || [];
+      if (variants.length === 0) throw new Error(`Product "${priceProduct.title}" has no variants.`);
+
+      // Determine which variants to update:
+      // • If the action carries a single, exact variant SKU → update only that variant.
+      // • If the SKU is a comma-separated list (the context collapses all variant SKUs
+      //   into one string), or if no SKU is provided → update ALL variants so that every
+      //   size/colour gets the same new price.  Updating only variants[0] would leave the
+      //   remaining variants at the old price, making it look like multiple products were
+      //   inconsistently changed.
+      const skuCandidates = (action.sku || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+      const exactMatch = skuCandidates.length === 1
+        ? variants.find((v: any) => v.sku === skuCandidates[0])
+        : null;
+      const variantsToUpdate = exactMatch ? [exactMatch] : variants;
+
+      const updateErrors: string[] = [];
+      for (const variant of variantsToUpdate) {
+        const updateRes = await fetch(`${shopifyBase}/variants/${variant.id}.json`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ variant: { id: variant.id, price: String(action.price) } }),
+        });
+        if (!updateRes.ok) {
+          updateErrors.push(`variant ${variant.sku || variant.id}: ${await updateRes.text()}`);
+        }
+      }
+      if (updateErrors.length > 0) throw new Error(`Shopify price update failed: ${updateErrors.join('; ')}`);
+      const label = exactMatch
+        ? `variant "${exactMatch.sku || exactMatch.id}" of`
+        : variantsToUpdate.length > 1 ? `all ${variantsToUpdate.length} variants of` : '';
+      return { message: `Updated price for ${label} "${priceProduct.title}" to $${action.price}` };
+    }
+
+    case 'broadcast_price_change': {
+      if (!action.sku) throw new Error('sku is required for broadcast_price_change.');
+      if (action.price == null) throw new Error('price is required for broadcast_price_change.');
+
+      // Find all linked platform entries for this SKU
+      const { data: links, error: linksErr } = await supabaseClient
+        .from('platform_product_links')
+        .select('*, platforms(*)')
+        .eq('user_id', userId)
+        .eq('sku', action.sku);
+      if (linksErr) throw new Error(`Failed to fetch product links: ${linksErr.message}`);
+
+      const results: Array<{ platform_type: string; platform_id: string; success: boolean; message?: string; error?: string }> = [];
+
+      for (const link of links ?? []) {
+        const platform = link.platforms;
+        if (!platform || !platform.is_active) continue;
+
+        const entry = { platform_type: link.platform_type as string, platform_id: link.platform_id as string, success: false, message: undefined as string | undefined, error: undefined as string | undefined };
+        try {
+          switch (link.platform_type) {
+            case 'shopify': {
+              let tok = platform.access_token ?? '';
+              if (tok && tok.length > 50 && !tok.startsWith('shpat_') && !tok.startsWith('shpca_')) {
+                try { const { decrypt: dec } = await import('../_shared/encryption.ts'); tok = await dec(tok); } catch { /* use as-is */ }
+              }
+              const varRes = await fetch(
+                `https://${platform.shop_domain}/admin/api/2024-01/variants/${link.platform_variant_id}.json`,
+                { headers: { 'X-Shopify-Access-Token': tok } }
+              );
+              if (!varRes.ok) throw new Error(`Shopify variant fetch failed: ${varRes.status}`);
+              const { variant } = await varRes.json();
+              const priceRes = await fetch(
+                `https://${platform.shop_domain}/admin/api/2024-01/variants/${variant.id}.json`,
+                { method: 'PUT', headers: { 'X-Shopify-Access-Token': tok, 'Content-Type': 'application/json' }, body: JSON.stringify({ variant: { id: variant.id, price: String(action.price) } }) }
+              );
+              if (!priceRes.ok) throw new Error(`Shopify price update failed: ${priceRes.status}`);
+              entry.success = true;
+              entry.message = `$${action.price}`;
+              break;
+            }
+            case 'woocommerce': {
+              const { consumer_key: ck, consumer_secret: cs } = platform.credentials ?? {};
+              if (!ck || !cs) throw new Error('WooCommerce credentials missing');
+              const wooBase = `${platform.store_url || platform.shop_domain}/wp-json/wc/v3`;
+              const wooHeaders = { 'Authorization': `Basic ${btoa(`${ck}:${cs}`)}`, 'Content-Type': 'application/json' };
+              const endpoint = link.platform_variant_id
+                ? `${wooBase}/products/${link.platform_product_id}/variations/${link.platform_variant_id}`
+                : `${wooBase}/products/${link.platform_product_id}`;
+              const wooRes = await fetch(endpoint, { method: 'PUT', headers: wooHeaders, body: JSON.stringify({ regular_price: String(Number(action.price).toFixed(2)) }) });
+              if (!wooRes.ok) throw new Error(`WooCommerce price update failed: ${wooRes.status}`);
+              entry.success = true;
+              entry.message = `$${action.price}`;
+              break;
+            }
+            case 'ebay': {
+              const { apiBase: ebayBase, headers: ebayH } = await getEbayClientForActions(supabaseClient, userId);
+              const offersRes = await fetch(`${ebayBase}/sell/inventory/v1/offer?sku=${encodeURIComponent(action.sku)}`, { headers: ebayH });
+              if (!offersRes.ok) throw new Error(`eBay offer fetch failed: ${offersRes.status}`);
+              const { offers } = await offersRes.json();
+              const offer = offers?.[0];
+              if (!offer) throw new Error('No eBay offer found for this SKU');
+              const { offerId, listing: _l, status: _s, ...offerBody } = offer;
+              offerBody.pricingSummary = { price: { currency: offer.pricingSummary?.price?.currency || 'USD', value: String(action.price) } };
+              const putRes = await fetch(`${ebayBase}/sell/inventory/v1/offer/${offerId}`, { method: 'PUT', headers: ebayH, body: JSON.stringify(offerBody) });
+              if (!putRes.ok) throw new Error(`eBay price update failed: ${putRes.status}`);
+              entry.success = true;
+              entry.message = `$${action.price}`;
+              break;
+            }
+            case 'etsy': {
+              const etsyClientId = Deno.env.get('ETSY_CLIENT_ID');
+              const etsyTok = platform.credentials?.access_token;
+              const etsyShopId = platform.metadata?.shop_id;
+              if (!etsyTok || !etsyShopId || !etsyClientId) throw new Error('Etsy credentials missing');
+              const etsyH = { 'x-api-key': etsyClientId, 'Authorization': `Bearer ${etsyTok}`, 'Content-Type': 'application/json' };
+              const listingId = link.platform_product_id;
+              const updRes = await fetch(
+                `https://openapi.etsy.com/v3/application/shops/${etsyShopId}/listings/${listingId}`,
+                { method: 'PATCH', headers: etsyH, body: JSON.stringify({ price: Number(action.price) }) }
+              );
+              if (!updRes.ok) throw new Error(`Etsy price update failed: ${updRes.status}`);
+              entry.success = true;
+              entry.message = `$${action.price}`;
+              break;
+            }
+            default:
+              entry.error = `${link.platform_type} price broadcast not yet implemented`;
+          }
+        } catch (e: any) {
+          entry.error = e.message;
+        }
+        results.push(entry);
+      }
+
+      const succeeded = results.filter(r => r.success).length;
+      return {
+        message: `Broadcast price $${action.price} to ${succeeded}/${results.length} platforms for SKU "${action.sku}"`,
+        results,
+      };
     }
 
     case 'update_title': {
@@ -7998,6 +8233,12 @@ Action grouping — choose the most efficient approach:
 3. MULTIPLE products, DIFFERENT changes per product → emit a separate [ORION_ACTION:...] block for each product (user can "Confirm All" at once)
 4. Maximum 10 [ORION_ACTION:...] blocks per response — if more than 10 products need changes, ask the user to narrow it down or use batch_update
 - Never do one block at a time when the user clearly asked for multiple — that forces unnecessary back-and-forth
+
+**CRITICAL — Single-product scoping rules (prevent accidental multi-product changes):**
+- When the user asks to update ONE specific product by name, ALWAYS use a single `update_price` / `update_inventory` / etc. block — NEVER `batch_update` with multiple entries.
+- `batch_update` is only for commands that explicitly mention multiple products (e.g. "raise all prices by $5", "lower the price on every tee").  A command like "lower the price $10 on the Casual Spring Pocket Tee" targets EXACTLY ONE product — no batch_update.
+- SKU formatting in the product list: multi-variant products show their SKUs combined (e.g. "SKU-SM, SKU-MD, SKU-LG"). When writing an action block, use the FIRST SKU listed (or the full comma-separated string) — the backend will automatically apply the price change to ALL variants. Do NOT generate one action block per variant.
+- If a product exists on multiple platforms (e.g. Shopify and eBay), only update the platform the user specified. If they didn't specify a platform, default to Shopify. Ask "Should I also update [other platform]?" — do NOT silently generate a second action block for the other platform unless the user explicitly asked for a cross-platform update.
 
 **Current Mode:** ${mode === 'demo/test' ? 'Demo/Test Mode - No real store connected yet' : 'Production Mode - Real store data loaded below'}
 
