@@ -123,7 +123,7 @@ serve(async (req) => {
 
     let shopName = shop;
     try {
-      const shopInfoResponse = await fetch(`https://${shop}/admin/api/2024-01/shop.json`, {
+      const shopInfoResponse = await fetch(`https://${shop}/admin/api/2025-10/shop.json`, {
         headers: { 'X-Shopify-Access-Token': access_token },
       });
       if (shopInfoResponse.ok) {
@@ -157,7 +157,7 @@ serve(async (req) => {
     // Register order webhook for real-time inventory sync
     try {
       const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/shopify-order-webhook`;
-      await fetch(`https://${shop}/admin/api/2024-01/webhooks.json`, {
+      await fetch(`https://${shop}/admin/api/2025-10/webhooks.json`, {
         method: 'POST',
         headers: { 'X-Shopify-Access-Token': access_token, 'Content-Type': 'application/json' },
         body: JSON.stringify({
