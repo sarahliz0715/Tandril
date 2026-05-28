@@ -1,25 +1,16 @@
 import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { 
-  CreditCard, 
-  CheckCircle, 
-  Loader2,
-  Shield,
-  AlertCircle
-} from "lucide-react";
-import { Subscription } from '@/lib/entities';
-import { User } from '@/lib/entities';
+import { CreditCard, CheckCircle, Loader2, Shield } from "lucide-react";
+import { api } from '@/lib/apiClient';
 
 export default function CheckoutModal({ isOpen, onClose, plan, isAnnual, onSuccess }) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
 
   const price = isAnnual ? plan.annualPrice : plan.monthlyPrice;
-  const billingCycle = isAnnual ? 'annual' : 'monthly';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -27,34 +18,21 @@ export default function CheckoutModal({ isOpen, onClose, plan, isAnnual, onSucce
     setError('');
 
     try {
-      const user = await User.me();
-      
-      await Subscription.create({
-        plan_id: plan.id,
-        status: 'trialing',
-        billing_cycle: billingCycle,
-        price: price,
-        current_period_start: new Date().toISOString(),
-        current_period_end: new Date(Date.now() + (isAnnual ? 365 : 30) * 24 * 60 * 60 * 1000).toISOString(),
-        trial_end: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
-        stripe_subscription_id: 'sub_demo_' + Date.now(),
-        features: {
-          max_platforms: plan.id === 'free' ? 1 : plan.id === 'professional' ? 5 : 999,
-          max_commands_per_month: plan.id === 'free' ? 10 : plan.id === 'professional' ? 500 : 9999,
-          ai_model_access: plan.id === 'enterprise' ? 'advanced' : 'standard',
-          priority_support: plan.id !== 'free',
-          custom_integrations: plan.id === 'enterprise'
-        }
+      const planId = plan.id; // starter, professional, or enterprise
+      const result = await api.functions.invoke('shopify-billing', {
+        action: 'create',
+        planId,
       });
 
-      await User.updateMyUserData({
-        subscription_tier: plan.id
-      });
-
-      onSuccess();
-    } catch (error) {
-      console.error('Subscription creation error:', error);
-      setError('Payment processing failed. Please try again or contact support.');
+      if (result?.confirmationUrl) {
+        // Redirect to Shopify billing confirmation page
+        window.location.href = result.confirmationUrl;
+      } else {
+        throw new Error('No confirmation URL received from Shopify');
+      }
+    } catch (err) {
+      console.error('Billing error:', err);
+      setError(err.message || 'Something went wrong. Please try again.');
     } finally {
       setIsProcessing(false);
     }
@@ -86,16 +64,6 @@ export default function CheckoutModal({ isOpen, onClose, plan, isAnnual, onSucce
             </CardContent>
           </Card>
 
-          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-            <div className="flex gap-2">
-              <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5" />
-              <div>
-                <p className="text-sm text-amber-800 font-medium">Demo Mode</p>
-                <p className="text-xs text-amber-700">This creates a demo subscription. Contact sarah@tandril.com for real billing.</p>
-              </div>
-            </div>
-          </div>
-
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
               <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
@@ -105,28 +73,28 @@ export default function CheckoutModal({ isOpen, onClose, plan, isAnnual, onSucce
 
             <div className="flex items-center gap-2 text-xs text-slate-500 p-2 bg-slate-50 rounded">
               <Shield className="w-4 h-4" />
-              <span>Demo subscription - no payment required</span>
+              <span>Billed securely through Shopify</span>
             </div>
 
             <div className="flex gap-3">
-              <Button 
-                type="button" 
-                variant="outline" 
+              <Button
+                type="button"
+                variant="outline"
                 onClick={onClose}
                 className="flex-1"
                 disabled={isProcessing}
               >
                 Cancel
               </Button>
-              <Button 
-                type="submit" 
+              <Button
+                type="submit"
                 className="flex-1 bg-emerald-600 hover:bg-emerald-700"
                 disabled={isProcessing}
               >
                 {isProcessing ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Processing...
+                    Redirecting...
                   </>
                 ) : (
                   <>
