@@ -131,7 +131,12 @@ export default function Layout({ children, currentPageName }) {
             const isTabSession = sessionStorage.getItem('tandril_session');
             const isOAuth = session.user?.app_metadata?.provider && session.user.app_metadata.provider !== 'email';
 
-            if (!isPersistent && !isTabSession && !isOAuth) {
+ const isShopifyCallback = currentPageName === 'ShopifyCallback' ||
+        window.location.pathname.includes('shopify-billing-callback') ||
+        window.location.pathname.includes('api/shopify-callback') ||
+        document.referrer.includes('shopify.com');
+
+      if (!isPersistent && !isTabSession && !isOAuth && !isShopifyCallback) {           
                 console.log('Stale session detected — signing out');
                 supabase.auth.signOut();
                 setUser(null);
