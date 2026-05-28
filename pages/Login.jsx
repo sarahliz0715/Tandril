@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Mail, Lock, Chrome, Github } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabaseAuthService } from '@/lib/supabaseAuth';
+import { supabase } from '@/lib/supabaseClient';
 import { createPageUrl } from '@/utils';
 import TandrilVineLogo from '@/components/logos/TandrilVineLogo';
 
@@ -24,6 +25,16 @@ export default function Login() {
   // Get redirect URL from query params
   const params = new URLSearchParams(location.search);
   const redirectUrl = params.get('redirect') || '/Dashboard';
+
+  // If already have a valid session (e.g. coming from Shopify), skip login
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        sessionStorage.setItem('tandril_session', 'shopify_embed');
+        navigate(redirectUrl);
+      }
+    });
+  }, []);
 
   const handleEmailLogin = async (e) => {
     e.preventDefault();
@@ -64,7 +75,6 @@ export default function Login() {
 
     try {
       await supabaseAuthService.signInWithProvider(provider);
-      // Redirect will happen automatically via OAuth
     } catch (err) {
       console.error('Social login error:', err);
       setError(err.message || `Failed to sign in with ${provider}`);
@@ -78,7 +88,6 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-blue-50 p-4">
       <div className="w-full max-w-md">
-        {/* Logo */}
         <div className="text-center mb-8">
           <Link to={createPageUrl('Home')} className="inline-block">
             <TandrilVineLogo className="h-12 w-auto mx-auto" />
@@ -157,11 +166,7 @@ export default function Login() {
                 </Label>
               </div>
 
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={isLoading}
-              >
+              <Button type="submit" className="w-full" disabled={isLoading}>
                 {isLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -173,7 +178,6 @@ export default function Login() {
               </Button>
             </form>
 
-            {/* Divider */}
             <div className="relative my-6">
               <div className="absolute inset-0 flex items-center">
                 <span className="w-full border-t" />
@@ -183,23 +187,12 @@ export default function Login() {
               </div>
             </div>
 
-            {/* Social Login */}
             <div className="grid grid-cols-2 gap-4">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => handleSocialLogin('google')}
-                disabled={isLoading}
-              >
+              <Button type="button" variant="outline" onClick={() => handleSocialLogin('google')} disabled={isLoading}>
                 <Chrome className="mr-2 h-4 w-4" />
                 Google
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => handleSocialLogin('github')}
-                disabled={isLoading}
-              >
+              <Button type="button" variant="outline" onClick={() => handleSocialLogin('github')} disabled={isLoading}>
                 <Github className="mr-2 h-4 w-4" />
                 GitHub
               </Button>
@@ -209,22 +202,15 @@ export default function Login() {
           <CardFooter className="flex justify-center">
             <p className="text-sm text-slate-600">
               Don't have an account?{' '}
-              <Link
-                to={createPageUrl('Signup')}
-                className="font-medium text-emerald-600 hover:text-emerald-700"
-              >
+              <Link to={createPageUrl('Signup')} className="font-medium text-emerald-600 hover:text-emerald-700">
                 Sign up for free
               </Link>
             </p>
           </CardFooter>
         </Card>
 
-        {/* Back to home */}
         <div className="mt-6 text-center">
-          <Link
-            to={createPageUrl('Home')}
-            className="text-sm text-slate-600 hover:text-slate-900"
-          >
+          <Link to={createPageUrl('Home')} className="text-sm text-slate-600 hover:text-slate-900">
             ← Back to home
           </Link>
         </div>
