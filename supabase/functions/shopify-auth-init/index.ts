@@ -94,6 +94,7 @@ serve(async (req) => {
     authUrl.searchParams.set('scope', shopifyScopes);
     authUrl.searchParams.set('redirect_uri', redirectUri);
     authUrl.searchParams.set('state', state);
+    authUrl.searchParams.set('grant_options[]', 'per-user');
 
     console.log(`[Shopify Auth Init] Generated auth URL for ${shopDomain}`);
 
