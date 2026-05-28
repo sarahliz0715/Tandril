@@ -12,7 +12,7 @@ export default function ShopifyCallback() {
     const [message, setMessage] = useState('Processing Shopify connection...');
     const [errorDetails, setErrorDetails] = useState(null);
     const navigate = useNavigate();
-
+    sessionStorage.setItem('tandril_session', 'shopify_embed');
     useEffect(() => {
         const handleCallback = async () => {
             console.log('🔵 [ShopifyCallback] Page loaded');
