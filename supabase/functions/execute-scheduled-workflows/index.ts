@@ -217,7 +217,12 @@ async function executeWorkflowSteps(
       if (actionType === 'inventory_email') {
         result = await sendInventoryEmail(workflow.user_id, cfg, supabase);
       } else if (actionType === 'send_email') {
-        result = await sendGenericEmail(cfg);
+        // Auto-fill body from the most recent AI command output if body is empty
+        const lastAiOutput = Object.values(stepOutputs).at(-1) as string | undefined;
+        const enrichedCfg = (!cfg.email_body && lastAiOutput)
+          ? { ...cfg, email_body: lastAiOutput }
+          : cfg;
+        result = await sendGenericEmail(enrichedCfg);
       } else if (actionType === 'webhook') {
         result = await callWebhook(cfg);
       } else if (actionType === 'send_alert') {
