@@ -180,6 +180,7 @@ export default function CreateWorkflowModal({ onClose, onSuccess, editingWorkflo
                         <AutomationBuilder
                             automation={{ actions }}
                             onSave={handleBuilderSave}
+                            onChange={updatedActions => setActions(updatedActions)}
                         />
                     </div>
                 </div>

@@ -54,7 +54,7 @@ serve(async (req) => {
 
     // Clean up store name (remove .myshopify.com if present)
     const cleanStoreName = store_name.replace('.myshopify.com', '').trim();
-    const shopDomain = `${cleanStoreName}.myshopify.com`;
+    const shopDomain = cleanStoreName + '.myshopify.com';
 
     // Shopify OAuth configuration
     const shopifyApiKey = Deno.env.get('SHOPIFY_API_KEY');
@@ -63,7 +63,7 @@ serve(async (req) => {
     const appUrl = Deno.env.get('APP_URL') || '';
     const redirectUri = Deno.env.get('SHOPIFY_REDIRECT_URI') ||
       clientRedirectUri ||
-      (appUrl ? `${appUrl}/api/shopify-callback` : `${Deno.env.get('SUPABASE_URL')}/functions/v1/shopify-auth-callback`);
+      (appUrl ? (appUrl + '/api/shopify-callback') : (Deno.env.get('SUPABASE_URL') + '/functions/v1/shopify-auth-callback'));
 
     if (!shopifyApiKey) {
       throw new Error('SHOPIFY_API_KEY environment variable not set');
@@ -89,14 +89,14 @@ serve(async (req) => {
     }
 
     // Construct Shopify authorization URL
-    const authUrl = new URL(`https://${shopDomain}/admin/oauth/authorize`);
+    const authUrl = new URL('https://' + shopDomain + '/admin/oauth/authorize');
     authUrl.searchParams.set('client_id', shopifyApiKey);
     authUrl.searchParams.set('scope', shopifyScopes);
     authUrl.searchParams.set('redirect_uri', redirectUri);
     authUrl.searchParams.set('state', state);
     authUrl.searchParams.set('grant_options[]', 'per-user');
 
-    console.log(`[Shopify Auth Init] Generated auth URL for ${shopDomain}`);
+    console.log('[Shopify Auth Init] Generated auth URL for ' + shopDomain);
 
     return new Response(
       JSON.stringify({

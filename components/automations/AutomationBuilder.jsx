@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -319,7 +319,7 @@ const ActionConfigForm = ({ actionType, config, onChange }) => {
     }
 };
 
-export default function AutomationBuilder({ automation, onSave }) {
+export default function AutomationBuilder({ automation, onSave, onChange }) {
     // Accept both 'actions' (DB column) and 'action_chain' (legacy field name)
     const [steps, setSteps] = useState(
         (automation?.actions || automation?.action_chain || []).map((s, i) => ({
@@ -333,6 +333,18 @@ export default function AutomationBuilder({ automation, onSave }) {
         }))
     );
     const [expanded, setExpanded] = useState(null);
+
+    useEffect(() => {
+        if (!onChange) return;
+        const actions = steps.map(({ _id, action_type, config }) => {
+            if (action_type === 'wait') {
+                return { type: 'wait', duration: config.duration || 1, unit: config.unit || 'hours' };
+            }
+            const { _payload_raw, _headers_raw, ...cleanConfig } = config || {};
+            return { type: 'action', config: { action_type, ...cleanConfig } };
+        });
+        onChange(actions);
+    }, [steps]);
 
     const addStep = () => {
         const newStep = { _id: `s${Date.now()}`, action_type: '', config: {} };
