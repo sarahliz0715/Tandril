@@ -2,10 +2,10 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Clock, Play, Pause, Settings, MoreVertical } from 'lucide-react';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Clock, Play, Pause, Settings, MoreVertical, Zap } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
-export default function WorkflowCard({ workflow, onEdit, onToggle, onDelete }) {
+export default function WorkflowCard({ workflow, onEdit, onToggle, onDelete, onRun }) {
     // Guard against undefined workflow
     if (!workflow) {
         return null;
@@ -51,6 +51,15 @@ export default function WorkflowCard({ workflow, onEdit, onToggle, onDelete }) {
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                            {workflow.trigger_type === 'manual' && (
+                                <>
+                                    <DropdownMenuItem onClick={() => onRun && onRun(workflow)}>
+                                        <Zap className="w-4 h-4 mr-2" />
+                                        Run Now
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                </>
+                            )}
                             <DropdownMenuItem onClick={() => onEdit && onEdit(workflow)}>
                                 <Settings className="w-4 h-4 mr-2" />
                                 Edit
