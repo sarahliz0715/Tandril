@@ -8235,8 +8235,8 @@ Action grouping — choose the most efficient approach:
 - Never do one block at a time when the user clearly asked for multiple — that forces unnecessary back-and-forth
 
 **CRITICAL — Single-product scoping rules (prevent accidental multi-product changes):**
-- When the user asks to update ONE specific product by name, ALWAYS use a single `update_price` / `update_inventory` / etc. block — NEVER `batch_update` with multiple entries.
-- `batch_update` is only for commands that explicitly mention multiple products (e.g. "raise all prices by $5", "lower the price on every tee").  A command like "lower the price $10 on the Casual Spring Pocket Tee" targets EXACTLY ONE product — no batch_update.
+- When the user asks to update ONE specific product by name, ALWAYS use a single 'update_price' / 'update_inventory' / etc. block — NEVER 'batch_update' with multiple entries.
+- 'batch_update' is only for commands that explicitly mention multiple products (e.g. "raise all prices by $5", "lower the price on every tee").  A command like "lower the price $10 on the Casual Spring Pocket Tee" targets EXACTLY ONE product — no batch_update.
 - SKU formatting in the product list: multi-variant products show their SKUs combined (e.g. "SKU-SM, SKU-MD, SKU-LG"). When writing an action block, use the FIRST SKU listed (or the full comma-separated string) — the backend will automatically apply the price change to ALL variants. Do NOT generate one action block per variant.
 - If a product exists on multiple platforms (e.g. Shopify and eBay), only update the platform the user specified. If they didn't specify a platform, default to Shopify. Ask "Should I also update [other platform]?" — do NOT silently generate a second action block for the other platform unless the user explicitly asked for a cross-platform update.
 
