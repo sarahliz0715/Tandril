@@ -175,6 +175,16 @@ async function executeWorkflowSteps(
   const steps: any[] = workflow.actions || [];
   const startStep = workflow.current_step || 0;
   const stepResults: any[] = [];
+  const stepOutputs: Record<string, string> = {};
+
+  // Substitute {{step_N_output}} placeholders in a config object
+  function interpolate(cfg: any): any {
+    const str = JSON.stringify(cfg);
+    const replaced = str.replace(/\{\{step_(\d+)_output\}\}/g, (_: string, n: string) => {
+      return stepOutputs[`step_${n}_output`] || '';
+    });
+    return JSON.parse(replaced);
+  }
 
   for (let i = startStep; i < steps.length; i++) {
     const step = steps[i];
@@ -198,7 +208,8 @@ async function executeWorkflowSteps(
     }
 
     // ── Action step ────────────────────────────────────────────────────────
-    const cfg = step.config || step;
+    const rawCfg = step.config || step;
+    const cfg = interpolate(rawCfg);
     const actionType = cfg.action_type || step.action_type;
     let result: any;
 
@@ -211,6 +222,12 @@ async function executeWorkflowSteps(
         result = await callWebhook(cfg);
       } else if (actionType === 'send_alert') {
         result = await saveAlert(workflow.user_id, cfg, supabase);
+      } else if (actionType === 'run_ai_command') {
+        result = await runAiCommand(workflow.user_id, cfg, serviceRoleKey);
+        // Store output so later steps can reference {{step_N_output}}
+        if (result?.response) {
+          stepOutputs[`step_${i + 1}_output`] = result.response;
+        }
       } else {
         // Everything else proxies to smart-api (update_price, update_inventory, etc.)
         result = await proxyToSmartApi(workflow.user_id, cfg, serviceRoleKey);
@@ -249,6 +266,28 @@ async function proxyToSmartApi(userId: string, cfg: any, serviceRoleKey: string)
     throw new Error(data.error);
   }
   return data;
+}
+
+// ── Run AI Command (chat mode) ────────────────────────────────────────────────
+async function runAiCommand(userId: string, cfg: any, serviceRoleKey: string): Promise<any> {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+  const smartApiUrl = `${supabaseUrl}/functions/v1/smart-api`;
+
+  const res = await fetch(smartApiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${serviceRoleKey}`,
+    },
+    body: JSON.stringify({
+      message: cfg.command_text,
+      service_user_id: userId,
+    }),
+  });
+
+  const data = await res.json();
+  if (!data.success && data.error) throw new Error(data.error);
+  return { action: 'run_ai_command', response: data.response || data.message || '' };
 }
 
 // ── Webhook ───────────────────────────────────────────────────────────────────

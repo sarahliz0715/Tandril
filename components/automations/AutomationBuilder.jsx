@@ -67,6 +67,7 @@ const ActionConfigForm = ({ actionType, config, onChange }) => {
                     <div>
                         <Label>Body</Label>
                         <Textarea placeholder="Email content…" value={config.email_body || ''} onChange={e => set('email_body', e.target.value)} rows={4} />
+                        <p className="text-xs text-slate-500 mt-1">Use &#123;&#123;step_1_output&#125;&#125;, &#123;&#123;step_2_output&#125;&#125;, etc. to include results from earlier AI Command steps.</p>
                     </div>
                 </div>
             );
