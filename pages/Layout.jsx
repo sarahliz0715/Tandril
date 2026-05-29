@@ -7,7 +7,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import {
   Menu, X, LogOut, Settings, LayoutDashboard, MessageSquare, Briefcase, Bot,
   TrendingUp, BarChart3, Package, Users, FileText, LifeBuoy, Building2,
-  DollarSign, Command, Repeat, ShoppingCart, History, GripVertical, CreditCard, Bell, AlertTriangle, Rocket
+  DollarSign, Command, Repeat, ShoppingCart, History, GripVertical, CreditCard, Bell, AlertTriangle, Rocket,
+  Eye, EyeOff, ChevronDown, ChevronUp
 } from 'lucide-react';
 import TandrilVineLogo from '@/components/logos/TandrilVineLogo';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -82,6 +83,8 @@ export default function Layout({ children, currentPageName }) {
     const [user, setUser] = useState(null);
     const [isCommandBarOpen, setIsCommandBarOpen] = useState(false);
     const [currentNavItems, setCurrentNavItems] = useState(defaultNavigationItems);
+    const [hiddenNavItems, setHiddenNavItems] = useState([]);
+    const [showHidden, setShowHidden] = useState(false);
     const [showSupportModal, setShowSupportModal] = useState(false);
     const [authCheckComplete, setAuthCheckComplete] = useState(false);
     const navigate = useNavigate();
@@ -187,14 +190,18 @@ export default function Layout({ children, currentPageName }) {
 
         const baseItems = hasBetaAccess ? betaNavigationItems : defaultNavigationItems;
         const userOrder = user.menu_order || [];
-        const sortedNav = [...baseItems].sort((a, b) => {
-            const aIndex = userOrder.indexOf(a.href);
-            const bIndex = userOrder.indexOf(b.href);
-            if (aIndex === -1 && bIndex === -1) return 0;
-            if (aIndex === -1) return 1;
-            if (bIndex === -1) return -1;
-            return aIndex - bIndex;
-        });
+        const userHidden = user.hidden_nav_items || [];
+        setHiddenNavItems(userHidden);
+        const sortedNav = [...baseItems]
+            .filter(item => !userHidden.includes(item.href))
+            .sort((a, b) => {
+                const aIndex = userOrder.indexOf(a.href);
+                const bIndex = userOrder.indexOf(b.href);
+                if (aIndex === -1 && bIndex === -1) return 0;
+                if (aIndex === -1) return 1;
+                if (bIndex === -1) return -1;
+                return aIndex - bIndex;
+            });
         setCurrentNavItems(sortedNav);
     }, [user, hasBetaAccess]);
 
@@ -213,6 +220,32 @@ export default function Layout({ children, currentPageName }) {
             toast.success("Menu order saved!");
         } catch (error) {
             toast.error("Could not save menu order.");
+        }
+    };
+
+    const handleToggleHideNavItem = async (href) => {
+        const baseItems = hasBetaAccess ? betaNavigationItems : defaultNavigationItems;
+        const isHidden = hiddenNavItems.includes(href);
+        const newHidden = isHidden
+            ? hiddenNavItems.filter(h => h !== href)
+            : [...hiddenNavItems, href];
+        setHiddenNavItems(newHidden);
+        const userOrder = user?.menu_order || [];
+        const newVisible = baseItems
+            .filter(item => !newHidden.includes(item.href))
+            .sort((a, b) => {
+                const aIndex = userOrder.indexOf(a.href);
+                const bIndex = userOrder.indexOf(b.href);
+                if (aIndex === -1 && bIndex === -1) return 0;
+                if (aIndex === -1) return 1;
+                if (bIndex === -1) return -1;
+                return aIndex - bIndex;
+            });
+        setCurrentNavItems(newVisible);
+        try {
+            await User.updateMyUserData({ hidden_nav_items: newHidden });
+        } catch {
+            toast.error('Could not save nav preferences.');
         }
     };
 
@@ -351,11 +384,18 @@ export default function Layout({ children, currentPageName }) {
                                                                                 `}
                                                                                 onClick={() => setSidebarOpen(false)}
                                                                             >
-                                                                                <div {...provided.dragHandleProps}>
+                                                                                <div {...provided.dragHandleProps} title="Drag to reorder">
                                                                                     <GripVertical className="w-4 h-4 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
                                                                                 </div>
                                                                                 <item.icon className={`w-5 h-5 flex-shrink-0 ${isActive ? 'text-emerald-600' : item.color || 'text-slate-600'}`} />
-                                                                                <span className="font-medium">{item.name}</span>
+                                                                                <span className="font-medium flex-1">{item.name}</span>
+                                                                                <button
+                                                                                    onClick={e => { e.preventDefault(); e.stopPropagation(); handleToggleHideNavItem(item.href); }}
+                                                                                    title="Hide from menu"
+                                                                                    className="opacity-0 group-hover:opacity-100 transition-opacity ml-auto text-slate-400 hover:text-slate-600"
+                                                                                >
+                                                                                    <EyeOff className="w-3.5 h-3.5" />
+                                                                                </button>
                                                                             </Link>
                                                                         </div>
                                                                     )}
@@ -367,6 +407,39 @@ export default function Layout({ children, currentPageName }) {
                                                 )}
                                             </Droppable>
                                         </DragDropContext>
+
+                                        {hiddenNavItems.length > 0 && (() => {
+                                            const baseItems = hasBetaAccess ? betaNavigationItems : defaultNavigationItems;
+                                            const hiddenItemDefs = baseItems.filter(item => hiddenNavItems.includes(item.href));
+                                            return (
+                                                <div className="mt-2">
+                                                    <button
+                                                        onClick={() => setShowHidden(v => !v)}
+                                                        className="flex items-center gap-1 px-3 py-1 text-xs text-slate-400 hover:text-slate-600 transition-colors w-full"
+                                                    >
+                                                        {showHidden ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                                        {hiddenItemDefs.length} hidden item{hiddenItemDefs.length !== 1 ? 's' : ''}
+                                                    </button>
+                                                    {showHidden && (
+                                                        <div className="space-y-0.5">
+                                                            {hiddenItemDefs.map(item => (
+                                                                <div key={item.href} className="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-400 group">
+                                                                    <item.icon className="w-5 h-5 flex-shrink-0" />
+                                                                    <span className="font-medium flex-1 text-sm">{item.name}</span>
+                                                                    <button
+                                                                        onClick={() => handleToggleHideNavItem(item.href)}
+                                                                        title="Show in menu"
+                                                                        className="text-slate-400 hover:text-emerald-600 transition-colors"
+                                                                    >
+                                                                        <Eye className="w-3.5 h-3.5" />
+                                                                    </button>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })()}
 
                                         <div className="mt-6 pt-6 border-t border-slate-200 space-y-1">
                                             {/* Getting Started — always visible, indicator dot if not completed */}
