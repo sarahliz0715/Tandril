@@ -71,12 +71,11 @@ serve(async (req) => {
       .lte('next_run_at', now.toISOString());
 
     if (body.workflow_id) {
-      // Manual run — fetch by ID regardless of next_run_at
+      // Manual run — fetch by ID regardless of is_active or next_run_at
       query = supabaseAdmin
         .from('ai_workflows')
         .select('*')
-        .eq('id', body.workflow_id)
-        .eq('is_active', true);
+        .eq('id', body.workflow_id);
     }
 
     const { data: workflows, error: wfError } = await query;
