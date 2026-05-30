@@ -1,5 +1,5 @@
 # Tandril — Project Context for Claude
-**Last updated:** May 2026 | **Repo:** private | **Owner:** Sarah Evenson
+**Last updated:** May 30, 2026 | **Repo:** private | **Owner:** Sarah Evenson
 
 ---
 
@@ -54,6 +54,21 @@ They do NOT auto-deploy from GitHub.
 - eBay App ID: in Supabase secrets as `EBAY_APP_ID` (add if missing)
 - Test Shopify reviewer account: credentials in Supabase secrets / shared separately
 - Sarah's account: sarahliz0715@gmail.com (Google OAuth)
+
+---
+
+## Email Setup (Resend)
+Outbound email is sent via Resend. The `RESEND_FROM_EMAIL` Supabase secret overrides the default sender. Forwarding rules live in the Resend dashboard — check there to see which addresses forward where.
+
+| From address | Used for |
+|---|---|
+| `noreply@tandril.org` | Workflow emails, general notifications (default fallback) |
+| `briefing@tandril.org` | Daily briefing emails from Orion |
+| `alerts@tandril.org` | Custom alert emails |
+| `noreply@send.tandril.com` | Beta invite emails |
+
+- Sarah's personal email: omamahills@gmail.com
+- Forwarding destination(s): verify in Resend dashboard — may forward to omamahills@gmail.com or evensonsarah (TBD/confirm)
 
 ---
 
