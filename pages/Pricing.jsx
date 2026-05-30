@@ -241,9 +241,23 @@ export default function Pricing() {
 
             console.log('Redirecting to Stripe checkout for:', plan.name);
 
-            // Non-Shopify merchants — Stripe checkout
+            // Non-Shopify merchants — create a Checkout Session with user metadata
+            // so the webhook can activate the correct tier after payment
+            try {
+                toast.info('Setting up ' + plan.name + ' checkout...');
+                const result = await api.functions.invoke('stripe-checkout', { planId: plan.priceId });
+                if (result?.error) throw new Error(result.error);
+                if (result?.data?.url) {
+                    window.location.href = result.data.url;
+                    return;
+                }
+            } catch (stripeErr) {
+                console.warn('[Pricing] stripe-checkout edge function unavailable, falling back to payment link:', stripeErr.message);
+            }
+
+            // Fallback: direct payment link (tier won't auto-activate; manual update needed)
             if (plan.checkoutUrl) {
-                toast.success(`Redirecting to checkout for ${plan.name}...`);
+                toast.success('Redirecting to checkout for ' + plan.name + '...');
                 window.location.href = plan.checkoutUrl;
             } else {
                 throw new Error("Checkout URL not configured for this plan.");

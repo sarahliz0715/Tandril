@@ -44,6 +44,7 @@ import EmailSignups from "./EmailSignups";
 
 import ShopifyCallback from "./ShopifyCallback";
 import ShopifyBillingCallback from "./ShopifyBillingCallback";
+import StripeSuccess from "./StripeSuccess";
 
 import SellbriteComparison from "./SellbriteComparison";
 
@@ -148,7 +149,9 @@ const PAGES = {
     EmailSignups: EmailSignups,
     
     ShopifyCallback: ShopifyCallback,
-    
+
+    StripeSuccess: StripeSuccess,
+
     SellbriteComparison: SellbriteComparison,
     
     PrintableComparison: PrintableComparison,
@@ -276,6 +279,7 @@ function PagesContent() {
                 
                 <Route path="/ShopifyCallback" element={<ShopifyCallback />} />
                 <Route path="/shopify-billing-callback" element={<ShopifyBillingCallback />} />
+                <Route path="/stripe-success" element={<StripeSuccess />} />
 
                 <Route path="/SellbriteComparison" element={<SellbriteComparison />} />
                 
