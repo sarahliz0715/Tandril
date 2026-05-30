@@ -1620,8 +1620,10 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         : null;
       const variantsToUpdate = exactMatch ? [exactMatch] : variants;
 
+      const previousPrices: Array<{ variant_id: number; previous_price: string; sku: string }> = [];
       const updateErrors: string[] = [];
       for (const variant of variantsToUpdate) {
+        previousPrices.push({ variant_id: variant.id, previous_price: variant.price, sku: variant.sku || '' });
         const updateRes = await fetch(`${shopifyBase}/variants/${variant.id}.json`, {
           method: 'PUT',
           headers,
@@ -1635,7 +1637,34 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const label = exactMatch
         ? `variant "${exactMatch.sku || exactMatch.id}" of`
         : variantsToUpdate.length > 1 ? `all ${variantsToUpdate.length} variants of` : '';
-      return { message: `Updated price for ${label} "${priceProduct.title}" to $${action.price}` };
+      return {
+        message: `Updated price for ${label} "${priceProduct.title}" to $${action.price}`,
+        previous_prices: previousPrices,
+        product_title: priceProduct.title,
+        new_price: action.price,
+        shop_domain: shopDomain,
+      };
+    }
+
+    case 'restore_variant_prices': {
+      // Used internally by History page undo for Orion price actions
+      const { variant_prices } = action;
+      if (!Array.isArray(variant_prices) || variant_prices.length === 0) {
+        throw new Error('variant_prices array is required for restore_variant_prices.');
+      }
+      const restoreErrors: string[] = [];
+      for (const vp of variant_prices) {
+        const restoreRes = await fetch(`${shopifyBase}/variants/${vp.variant_id}.json`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ variant: { id: vp.variant_id, price: String(vp.price) } }),
+        });
+        if (!restoreRes.ok) {
+          restoreErrors.push(`variant ${vp.variant_id}: ${await restoreRes.text()}`);
+        }
+      }
+      if (restoreErrors.length > 0) throw new Error(`Price restore failed: ${restoreErrors.join('; ')}`);
+      return { message: 'Prices restored successfully', restored_count: variant_prices.length };
     }
 
     case 'broadcast_price_change': {

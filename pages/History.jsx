@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { AICommand } from '@/lib/entities';
 import { User } from '@/lib/entities';
+import { api } from '@/lib/apiClient';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -67,7 +68,7 @@ export default function History() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [platformFilter, setPlatformFilter] = useState('all');
-  const [sourceFilter, setSourceFilter] = useState('command');
+  const [sourceFilter, setSourceFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
   const [undoingCommand, setUndoingCommand] = useState(null);
   const [trackingStartDates, setTrackingStartDates] = useState(() => {
@@ -209,6 +210,46 @@ export default function History() {
 
   // Handle undoing a completed price adjustment command
   const handleUndo = useCallback(async (command) => {
+    const isOrion = command.source === 'orion';
+
+    // Orion action undo — restore previous variant prices captured at execution time
+    if (isOrion) {
+      const previousPrices = command.execution_results?.result?.previous_prices;
+      if (!previousPrices?.length) {
+        toast.error("Cannot undo this action", {
+          description: "This action was executed before undo history was supported."
+        });
+        return;
+      }
+
+      const confirmed = await confirm({
+        title: 'Undo Orion Action?',
+        description: `This will restore the previous prices from "${command.command_text?.substring(0, 60)}". Continue?`,
+        confirmText: 'Undo',
+        variant: 'destructive',
+      });
+      if (!confirmed) return;
+
+      setUndoingCommand(command.id);
+      try {
+        await api.functions.invoke('smart-api', {
+          execute_action: {
+            type: 'restore_variant_prices',
+            variant_prices: previousPrices.map(p => ({ variant_id: p.variant_id, price: p.previous_price })),
+          }
+        });
+        await AICommand.update(command.id, { status: 'undone' });
+        toast.success("Action undone — prices restored");
+        loadData();
+      } catch (error) {
+        toast.error("Failed to undo action", { description: error.message });
+      } finally {
+        setUndoingCommand(null);
+      }
+      return;
+    }
+
+    // Regular command undo — invert price_adjustment
     const actions = command.actions_planned;
     const priceActions = (actions || []).filter(
       a => a.type === 'update_products' && a.parameters?.price_adjustment !== undefined
@@ -582,7 +623,10 @@ export default function History() {
                     >
                       <FileText className="w-4 h-4" />
                     </Button>
-                    {command.status === 'completed' && (command.source || 'command') === 'command' && (
+                    {command.status === 'completed' && (
+                      (command.source || 'command') === 'command' ||
+                      (command.source === 'orion' && command.execution_results?.result?.previous_prices?.length > 0)
+                    ) && (
                       <Button
                         variant="ghost"
                         size="sm"
