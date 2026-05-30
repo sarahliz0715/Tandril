@@ -431,7 +431,7 @@ serve(async (req) => {
     }
 
     // Get Orion's response
-    const rawResponse = await chatWithClaude(message, recentHistory, uploaded_files, storeContext, memoryNotes);
+    const rawResponse = await chatWithClaude(message, recentHistory, uploaded_files, storeContext, memoryNotes, isServiceRoleCall);
 
     // Parse ALL [ORION_ACTION:...] blocks from the response.
     // Strip them all from visible text, collect valid ones as an ordered queue.
@@ -7259,7 +7259,8 @@ async function chatWithClaude(
   conversationHistory: Array<{ role: string; content: string }>,
   uploadedFiles: Array<{ type: string; name: string; data?: string }>,
   storeContext: any,
-  memoryNotes: Array<{ category: string; key: string; value: string }>
+  memoryNotes: Array<{ category: string; key: string; value: string }>,
+  isWorkflowCall = false
 ) {
   const anthropicApiKey = Deno.env.get('ANTHROPIC_API_KEY');
   if (!anthropicApiKey) throw new Error('ANTHROPIC_API_KEY not configured');
@@ -7360,7 +7361,17 @@ ${recentLines ? `Recent sync events:\n${recentLines}` : 'No recent syncs on reco
 SYNC RULES: When a user asks "are my inventories in sync?", "when did my last sync happen?", "why did my stock change?", or anything about inventory sync health, answer directly using the data above. If sync.pending_retries > 0 proactively mention it. If sync.failed_links > 0, name the specific SKUs and platforms that are failing and suggest they check the Inventory → Sync Links tab.\n`;
   })() : '';
 
-  const systemPrompt = `You are Orion, an AI business wingman for e-commerce sellers. You're sharp, direct, and genuinely invested in their success. You remember past conversations and build on what you've learned over time.
+  const workflowPrefix = isWorkflowCall
+    ? `**AUTOMATED WORKFLOW MODE:** You are running as a step in an automated workflow, not in a live chat. The user is not present. Your response will be emailed to them automatically. Rules for this mode:
+- Answer the question directly and completely. No preamble, no asking follow-up questions.
+- Do NOT mention your limitations (e.g. do not say you can't send emails — the workflow handles that).
+- Do NOT offer alternatives or ask for clarification. Just deliver the answer.
+- Use plain, readable text. Bullet points and lists are fine. Avoid heavy markdown.
+
+`
+    : '';
+
+  const systemPrompt = workflowPrefix + `You are Orion, an AI business wingman for e-commerce sellers. You're sharp, direct, and genuinely invested in their success. You remember past conversations and build on what you've learned over time.
 
 **CRITICAL - What you can and cannot do:**
 - You CAN: Read and analyze store data (products, orders, inventory, revenue) from the data provided below
