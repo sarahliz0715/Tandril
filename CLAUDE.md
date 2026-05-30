@@ -45,6 +45,11 @@ They do NOT auto-deploy from GitHub.
 | `shopify-auth-callback` | Completes Shopify OAuth | N/A |
 | `execute-scheduled-workflows` | Runs workflow steps (AI commands, emails, etc.) | N/A |
 | `smart-api` | Orion chat + store action execution | ✅ Confirmed |
+| `stripe-checkout` | Creates Stripe Checkout Sessions with user_id metadata | N/A |
+| `stripe-billing-portal` | Creates Stripe billing portal sessions | N/A |
+| `customers-data-request` | GDPR: handles customer data export requests | N/A |
+| `customers-redact` | GDPR: anonymizes customer data on request | N/A |
+| `shop-redact` | GDPR: deletes all shop data 48h after uninstall | N/A |
 
 ---
 
@@ -67,8 +72,7 @@ Outbound email is sent via Resend (resend.com). The `RESEND_FROM_EMAIL` Supabase
 | `noreply@tandril.org` | Workflow emails, general notifications (default fallback) |
 | `briefing@tandril.org` | Daily briefing emails from Orion |
 | `alerts@tandril.org` | Custom alert emails |
-| `noreply@send.tandril.com` | Beta invite emails |
-| `hello@tandril.org` | General contact (being set up) |
+| `hello@tandril.org` | Beta invites + general contact |
 
 - Sarah's personal email: omamahills@gmail.com
 - Sarah's Tandril business email: evensonsarah (rarely checked — use omamahills for all forwarding)
@@ -76,6 +80,14 @@ Outbound email is sent via Resend (resend.com). The `RESEND_FROM_EMAIL` Supabase
 - `hello@tandril.org` is a GoDaddy email alias pointing to `security@tandril.org` (Sarah's GoDaddy mailbox)
 - `security@tandril.org` forwards to omamahills@gmail.com (set up in GoDaddy Email Forwarding → edit rule)
 - GoDaddy email plan is Microsoft 365-style (paid), used to satisfy Etsy developer account requirement
+
+## Stripe Setup
+- Stripe account: live mode, business name "Tandril"
+- Webhook endpoint: `https://www.tandril.org/api/stripe-webhook`
+- Events subscribed: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`
+- Products: Tandril Starter ($39.99/mo), Tandril Professional ($129.99/mo), Tandril Enterprise ($299.99/mo)
+- Price IDs stored in Supabase secrets as `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PROFESSIONAL`, `STRIPE_PRICE_ENTERPRISE`
+- `STRIPE_SECRET_KEY` in Supabase secrets; `STRIPE_WEBHOOK_SECRET` + `SUPABASE_SERVICE_ROLE_KEY` + `SUPABASE_URL` in Vercel env vars
 
 ## Domain & Hosting
 - **Domain registrar / DNS host:** GoDaddy (tandril.org)
@@ -106,6 +118,16 @@ Outbound email is sent via Resend (resend.com). The `RESEND_FROM_EMAIL` Supabase
 - **Workflow Run Now:** Added to manual workflow card dropdown menu
 - **Workflow step chaining:** `run_ai_command` steps capture Orion's response; `send_email` steps auto-use it as body if left blank
 - **Workflow Run Now inactive fix:** Manual runs no longer require `is_active=true` — any workflow can be triggered by ID
+- **Stripe integration:** Full upgrade flow built (May 30, 2026):
+  - `api/stripe-webhook.js` (Vercel) — verifies signatures, activates/downgrades tiers on payment events
+  - `stripe-checkout` edge function — creates Checkout Sessions with user_id + plan_id in metadata
+  - `stripe-billing-portal` edge function — creates billing portal sessions for managing subscriptions
+  - `pages/StripeSuccess.jsx` — post-checkout landing page
+  - Stripe Price IDs stored in Supabase secrets; webhook secret + service role key in Vercel env vars
+  - Webhook URL registered in Stripe: `https://www.tandril.org/api/stripe-webhook`
+- **GDPR webhooks deployed:** `customers-data-request`, `customers-redact`, `shop-redact` — clears Shopify App Store blocker (May 30, 2026)
+- **hello@tandril.org email:** GoDaddy alias → security@tandril.org → forwards to omamahills@gmail.com; beta invites now send from this address (May 30, 2026)
+- **Orion action cards logged in History:** smart-api now captures previous variant prices on update_price; History page shows Orion actions by default with undo support; `restore_variant_prices` action type added for price restoration (May 30, 2026)
 
 ---
 
@@ -136,11 +158,11 @@ Outbound email is sent via Resend (resend.com). The `RESEND_FROM_EMAIL` Supabase
 ### Shopify App Store
 - App "Tandril Beta" — currently Draft status
 - **Blockers before submission:**
-  - [ ] GDPR compliance webhooks (3 required endpoints) — not yet implemented
+  - [x] GDPR compliance webhooks — deployed (customers-data-request, customers-redact, shop-redact)
   - [ ] Arcade screencast demo for app listing
 - Test account for Shopify reviewers: see Supabase secrets
 - Testing guide: `docs/shopify-reviewer-testing-guide.md`
-- Once GDPR webhooks done: ~3 days to ready, then 5–10 business day review
+- Once screencast is done: ready to submit, then 5–10 business day review
 
 ### Etsy
 - **Status: BLOCKED — do not resubmit yet**
@@ -168,8 +190,9 @@ Outbound email is sent via Resend (resend.com). The `RESEND_FROM_EMAIL` Supabase
 ## Pending / In Progress
 
 - [ ] Verify + deploy remaining edge functions with updated model ID (see table above)
-- [ ] Implement GDPR webhooks (3 endpoints) — unlocks Shopify App Store submission
-- [ ] Record Arcade screencast for Shopify app listing
+- [x] GDPR webhooks deployed — Shopify App Store blocker cleared
+- [ ] Record Arcade screencast for Shopify app listing — last blocker before submission
+- [ ] Test Stripe upgrade flow end-to-end with a test card
 - [ ] Add `EBAY_APP_ID` secret to Supabase if not already present
 - [ ] Wait for Shivangi (Etsy) approval before any resubmission
 - [ ] Fix mock data in QuickInsights, InventoryOverview, ProfitLossAnalysis (deferred — intentional until user connects store)
