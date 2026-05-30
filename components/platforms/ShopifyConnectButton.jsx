@@ -8,7 +8,7 @@ import { api } from '@/lib/apiClient';
 import { toast } from 'sonner';
 import { Loader2, ShoppingCart, AlertCircle, ExternalLink } from 'lucide-react';
 
-export default function ShopifyConnectButton({ onConnectionSuccess }) {
+export default function ShopifyConnectButton({ onConnectionSuccess, label }) {
     const [isOpen, setIsOpen] = useState(false);
     const [storeName, setStoreName] = useState('');
     const [isConnecting, setIsConnecting] = useState(false);
@@ -102,7 +102,7 @@ export default function ShopifyConnectButton({ onConnectionSuccess }) {
             <DialogTrigger asChild>
                 <Button className="w-full bg-green-600 hover:bg-green-700">
                     <ShoppingCart className="w-4 h-4 mr-2" />
-                    Connect Shopify
+                    {label || 'Connect Shopify'}
                 </Button>
             </DialogTrigger>
             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">

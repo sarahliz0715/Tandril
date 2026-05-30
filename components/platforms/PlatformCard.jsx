@@ -87,10 +87,17 @@ export default function PlatformCard({
   const { icon: StatusIcon, color, text, animate } = statusConfig[currentStatus];
   
   const statusBadge = (
-      <Badge variant="outline" className={`flex items-center gap-1.5 ${color} border-current/30 bg-current/10`}>
-          <StatusIcon className={`w-3.5 h-3.5 ${animate ? 'animate-spin' : ''}`} />
-          <span>{text}</span>
-      </Badge>
+      <div className="flex flex-col items-end gap-1">
+          {isConnected && (connectedPlatform?.shop_name || connectedPlatform?.shop_domain) && (
+              <span className="text-xs font-medium text-slate-600 truncate max-w-[160px]">
+                  {connectedPlatform.shop_name || connectedPlatform.shop_domain}
+              </span>
+          )}
+          <Badge variant="outline" className={`flex items-center gap-1.5 ${color} border-current/30 bg-current/10`}>
+              <StatusIcon className={`w-3.5 h-3.5 ${animate ? 'animate-spin' : ''}`} />
+              <span>{text}</span>
+          </Badge>
+      </div>
   );
 
   const renderConnectButton = () => {
@@ -286,7 +293,12 @@ export default function PlatformCard({
       </CardContent>
       <CardFooter className="flex flex-col sm:flex-row gap-2 pt-4 border-t bg-slate-50/50 p-4">
         {isConnected ? (
-          <Button variant="destructive" className="w-full" onClick={() => onDisconnect(connectedPlatform)}>Disconnect</Button>
+          <div className="flex flex-col w-full gap-2">
+            {platformType?.type_id === 'shopify' && (
+              <ShopifyConnectButton onConnectionSuccess={onConnectionSuccess} label="Connect Another Store" />
+            )}
+            <Button variant="destructive" className="w-full" onClick={() => onDisconnect(connectedPlatform)}>Disconnect</Button>
+          </div>
         ) : isError ? (
             <div className="flex w-full gap-2">
                 <Button variant="destructive" className="flex-1" onClick={() => onForceCleanup(platformType)}>
