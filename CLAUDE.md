@@ -73,7 +73,9 @@ Outbound email is sent via Resend (resend.com). The `RESEND_FROM_EMAIL` Supabase
 - Sarah's personal email: omamahills@gmail.com
 - Sarah's Tandril business email: evensonsarah (rarely checked — use omamahills for all forwarding)
 - All `@tandril.org` forwarding is configured via **GoDaddy** (domain registrar/DNS host for tandril.org)
-- `hello@tandril.org` forwards to omamahills@gmail.com (set up in GoDaddy email forwarding)
+- `hello@tandril.org` is a GoDaddy email alias pointing to `security@tandril.org` (Sarah's GoDaddy mailbox)
+- `security@tandril.org` forwards to omamahills@gmail.com via GoDaddy Email Forwarding
+- GoDaddy email plan is Microsoft 365-style (paid), used to satisfy Etsy developer account requirement
 
 ## Domain & Hosting
 - **Domain registrar / DNS host:** GoDaddy (tandril.org)
