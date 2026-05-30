@@ -47,7 +47,7 @@ serve(async (req) => {
       throw new Error('RESEND_API_KEY is not configured');
     }
 
-    const fromEmail = Deno.env.get('RESEND_FROM_EMAIL') ?? 'Tandril <noreply@send.tandril.com>';
+    const fromEmail = Deno.env.get('RESEND_FROM_EMAIL') ?? 'Tandril <hello@tandril.org>';
     const appUrl = Deno.env.get('APP_URL') ?? 'https://tandril.vercel.app';
     const inviteUrl = `${appUrl}?invited=true`;
 
