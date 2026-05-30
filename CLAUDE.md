@@ -43,6 +43,8 @@ They do NOT auto-deploy from GitHub.
 | `risk-alert-analyzer` | AI risk analysis | ⚠️ Needs verification |
 | `shopify-auth-init` | Starts Shopify OAuth flow | N/A |
 | `shopify-auth-callback` | Completes Shopify OAuth | N/A |
+| `execute-scheduled-workflows` | Runs workflow steps (AI commands, emails, etc.) | N/A |
+| `smart-api` | Orion chat + store action execution | ✅ Confirmed |
 
 ---
 
@@ -87,6 +89,13 @@ Outbound email is sent via Resend. The `RESEND_FROM_EMAIL` Supabase secret overr
   - `shopify.app.toml` (deployed as tandril-beta-7)
 - **Etsy compliance:** Removed all "competitor" language, added Etsy trademark notice, renamed features
 - **Repo visibility:** Changed to private May 2026
+- **smart-api template literal parse error:** Backtick-wrapped words in CRITICAL scoping rules replaced with single quotes (May 30, 2026)
+- **shopify-auth-init CORS/parse error:** Template literals replaced with string concatenation so Supabase editor doesn't mangle them (May 30, 2026)
+- **Sidebar nav hide/drag:** Eye icon to hide nav items + drag tooltip added to Layout.jsx (May 30, 2026)
+- **Workflow Create button:** Fixed — steps now sync to modal state live without requiring internal Save click first
+- **Workflow Run Now:** Added to manual workflow card dropdown menu
+- **Workflow step chaining:** `run_ai_command` steps capture Orion's response; `send_email` steps auto-use it as body if left blank
+- **Workflow Run Now inactive fix:** Manual runs no longer require `is_active=true` — any workflow can be triggered by ID
 
 ---
 
@@ -169,7 +178,8 @@ Outbound email is sent via Resend. The `RESEND_FROM_EMAIL` Supabase secret overr
 - Windows machine: `C:\Users\Yoga\OneDrive\Desktop\Tandril`
 - No Git installed on Windows machine
 - No proper git repo on Windows — code lives in GitHub and on Linux server
-- Supabase edge functions: edit directly in Supabase dashboard (do not rely on GitHub version)
+- Supabase edge functions: always copy from **main branch** on GitHub — feature branches are deleted after merge
+- When deploying edge functions, paste into Supabase dashboard → Edge Functions → [name] → Code → Deploy
 
 ---
 
