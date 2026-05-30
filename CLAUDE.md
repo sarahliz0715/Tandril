@@ -60,7 +60,7 @@ They do NOT auto-deploy from GitHub.
 ---
 
 ## Email Setup (Resend)
-Outbound email is sent via Resend. The `RESEND_FROM_EMAIL` Supabase secret overrides the default sender. Forwarding rules live in the Resend dashboard — check there to see which addresses forward where.
+Outbound email is sent via Resend (resend.com). The `RESEND_FROM_EMAIL` Supabase secret overrides the default sender. The `tandril.org` domain is verified in Resend (us-east-1).
 
 | From address | Used for |
 |---|---|
@@ -68,9 +68,17 @@ Outbound email is sent via Resend. The `RESEND_FROM_EMAIL` Supabase secret overr
 | `briefing@tandril.org` | Daily briefing emails from Orion |
 | `alerts@tandril.org` | Custom alert emails |
 | `noreply@send.tandril.com` | Beta invite emails |
+| `hello@tandril.org` | General contact (being set up) |
 
 - Sarah's personal email: omamahills@gmail.com
-- Forwarding destination(s): verify in Resend dashboard — may forward to omamahills@gmail.com or evensonsarah (TBD/confirm)
+- Sarah's Tandril business email: evensonsarah (rarely checked — use omamahills for all forwarding)
+- All `@tandril.org` forwarding is configured via **GoDaddy** (domain registrar/DNS host for tandril.org)
+- `hello@tandril.org` forwards to omamahills@gmail.com (set up in GoDaddy email forwarding)
+
+## Domain & Hosting
+- **Domain registrar / DNS host:** GoDaddy (tandril.org)
+- **Frontend hosting:** Vercel (auto-deploys from GitHub main branch)
+- **Backend:** Supabase (Tandril_workingmvp project)
 
 ---
 
