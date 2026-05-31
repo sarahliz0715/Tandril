@@ -365,19 +365,23 @@ serve(async (req) => {
       }
 
       // Log to ai_commands so it appears in the dashboard Activity Log
-      supabaseClient
-        .from('ai_commands')
-        .insert({
-          user_id: userId,
-          command_text: summarizeOrionAction(execute_action),
-          status: execStatus,
-          executed_at: new Date().toISOString(),
-          execution_results: { orion: true, action_type: execute_action.type, result },
-          source: 'orion',
-        })
-        .then(({ error }) => {
-          if (error) console.warn('[Orion] Could not log action to ai_commands:', error.message);
-        });
+      // Skip read-only actions that don't change store data
+      const READ_ONLY_ACTIONS = new Set(['get_inventory', 'get_products', 'get_orders', 'get_analytics']);
+      if (!READ_ONLY_ACTIONS.has(execute_action.type)) {
+        supabaseClient
+          .from('ai_commands')
+          .insert({
+            user_id: userId,
+            command_text: summarizeOrionAction(execute_action),
+            status: execStatus,
+            executed_at: new Date().toISOString(),
+            execution_results: { orion: true, action_type: execute_action.type, result },
+            source: 'orion',
+          })
+          .then(({ error }) => {
+            if (error) console.warn('[Orion] Could not log action to ai_commands:', error.message);
+          });
+      }
 
       if (execStatus === 'failed') {
         return new Response(
