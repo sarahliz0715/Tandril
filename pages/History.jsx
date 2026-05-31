@@ -331,6 +331,26 @@ export default function History() {
     }
   }, [filteredCommands]);
 
+  // Clear all history and reset time saved
+  const handleClearAll = useCallback(async () => {
+    const confirmed = await confirm({
+      title: 'Clear All History?',
+      description: 'This will permanently delete all command history and reset your time saved counter. This cannot be undone.',
+      confirmText: 'Clear All',
+      variant: 'destructive',
+    });
+    if (!confirmed) return;
+
+    try {
+      await Promise.all(commands.map(c => AICommand.delete(c.id)));
+      localStorage.removeItem('timeSaved_trackingStartDates');
+      setCommands([]);
+      toast.success("History cleared");
+    } catch (error) {
+      toast.error("Failed to clear history", { description: error.message });
+    }
+  }, [commands, confirm]);
+
   // Derive unique platforms from command history
   const availablePlatforms = useMemo(() => {
     const platforms = new Set();
@@ -506,15 +526,27 @@ export default function History() {
               <HistoryIcon className="w-6 h-6 text-emerald-600" />
               Activity History
             </CardTitle>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExport}
-              disabled={filteredCommands.length === 0}
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Export CSV
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExport}
+                disabled={filteredCommands.length === 0}
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Export CSV
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                onClick={handleClearAll}
+                disabled={commands.length === 0}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Clear All
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
