@@ -335,7 +335,7 @@ export default function History() {
   const handleClearAll = useCallback(async () => {
     const confirmed = await confirm({
       title: 'Clear All History?',
-      description: 'This will permanently delete all command history and reset your time saved counter. This cannot be undone.',
+      description: 'This will permanently delete all command history. Your time saved counter will not be affected — reset that separately if needed.',
       confirmText: 'Clear All',
       variant: 'destructive',
     });
@@ -343,7 +343,6 @@ export default function History() {
 
     try {
       await Promise.all(commands.map(c => AICommand.delete(c.id)));
-      localStorage.removeItem('timeSaved_trackingStartDates');
       setCommands([]);
       toast.success("History cleared");
     } catch (error) {
