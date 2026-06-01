@@ -971,10 +971,10 @@ export default function AIBusinessCoach() {
           variant="ghost"
           className="text-white hover:bg-white/20 text-xs h-7 px-2 flex-shrink-0"
           onClick={handleClearChat}
-          title="Start a new conversation"
+          title="Clear all chat history"
         >
           <RefreshCw className="w-3 h-3 mr-1" />
-          New Chat
+          Clear Chats
         </Button>
       </div>
 
