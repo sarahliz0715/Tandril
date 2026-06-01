@@ -509,7 +509,7 @@ export default function History() {
                         <Badge variant="outline" className="text-xs">Demo</Badge>
                       )}
                     </div>
-                    <p className="text-sm font-medium text-slate-900 mb-1">
+                    <p className="text-sm font-medium text-slate-900 mb-1 break-words">
                       {command.source === 'orion' || command.source === 'workflow'
                         ? (command.command_text || 'Orion action')
                         : formatCommandLogMessage(command)}
