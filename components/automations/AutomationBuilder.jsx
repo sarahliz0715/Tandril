@@ -319,7 +319,7 @@ const ActionConfigForm = ({ actionType, config, onChange }) => {
     }
 };
 
-export default function AutomationBuilder({ automation, onSave, onChange }) {
+export default function AutomationBuilder({ automation, onSave, onChange, hideFooter = false }) {
     // Accept both 'actions' (DB column) and 'action_chain' (legacy field name)
     const [steps, setSteps] = useState(
         (automation?.actions || automation?.action_chain || []).map((s, i) => ({
@@ -459,10 +459,12 @@ export default function AutomationBuilder({ automation, onSave, onChange }) {
                 </div>
             )}
 
-            <div className="flex justify-end gap-2 pt-2">
-                <Button variant="outline" onClick={() => window.history.back()}>Cancel</Button>
-                <Button onClick={handleSave} className="bg-emerald-600 hover:bg-emerald-700">Save Workflow</Button>
-            </div>
+            {!hideFooter && (
+                <div className="flex justify-end gap-2 pt-2">
+                    <Button variant="outline" onClick={() => window.history.back()}>Cancel</Button>
+                    <Button onClick={handleSave} className="bg-emerald-600 hover:bg-emerald-700">Save Workflow</Button>
+                </div>
+            )}
         </div>
     );
 }

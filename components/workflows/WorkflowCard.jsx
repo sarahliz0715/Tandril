@@ -2,7 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Clock, Play, Pause, Settings, MoreVertical, Zap } from 'lucide-react';
+import { Clock, Play, Pause, Settings, MoreVertical, Zap, Save } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 export default function WorkflowCard({ workflow, onEdit, onToggle, onDelete, onRun }) {
@@ -63,6 +63,10 @@ export default function WorkflowCard({ workflow, onEdit, onToggle, onDelete, onR
                             <DropdownMenuItem onClick={() => onEdit && onEdit(workflow)}>
                                 <Settings className="w-4 h-4 mr-2" />
                                 Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => onEdit && onEdit(workflow)}>
+                                <Save className="w-4 h-4 mr-2" />
+                                Save
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => onToggle && onToggle(workflow)}>
                                 {workflow.is_active ? (

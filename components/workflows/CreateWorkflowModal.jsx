@@ -181,6 +181,7 @@ export default function CreateWorkflowModal({ onClose, onSuccess, editingWorkflo
                             automation={{ actions }}
                             onSave={handleBuilderSave}
                             onChange={updatedActions => setActions(updatedActions)}
+                            hideFooter={true}
                         />
                     </div>
                 </div>
