@@ -160,8 +160,38 @@ Outbound email is sent via Resend (resend.com). The `RESEND_FROM_EMAIL` Supabase
 - **Blockers before submission:**
   - [x] GDPR compliance webhooks — deployed (customers-data-request, customers-redact, shop-redact)
   - [ ] Arcade screencast demo for app listing
-- Test account for Shopify reviewers: see Supabase secrets
+- Test account for Shopify reviewers:
+  - Shopify store: `omhbridge-dev.myshopify.com`
+  - Tandril login: `shopify-test@tandril.org`
+  - Password: `TandrilTest2026!`
 - Testing guide: `docs/shopify-reviewer-testing-guide.md`
+- Reviewer instructions (paste into Shopify app submission):
+
+---
+**Tandril — Reviewer Testing Instructions**
+
+Thank you for reviewing Tandril. Please follow the steps below to test the app's core functionality.
+
+**Test credentials:**
+- Shopify store: `omhbridge-dev.myshopify.com`
+- Tandril login: `shopify-test@tandril.org`
+- Password: `TandrilTest2026!`
+
+**Step 1 — Connect your store**
+Open the app and navigate to **Platforms** in the left sidebar. Click **Connect Shopify**, enter `omhbridge-dev` as the store domain, and click **Continue to Shopify**. Approve the permissions on the Shopify OAuth screen. You will be returned to Tandril with the store showing as connected.
+
+**Step 2 — View live product and inventory data**
+Click **Products** in the sidebar. You will see real product titles, prices, and inventory quantities pulled live from the connected store. Copy the title of the first product listed — you will use it in Step 4. Then click **Inventory** to confirm stock levels are visible.
+
+**Step 3 — AI Advisor**
+Click **AI Advisor** in the sidebar. In the chat box, type `Show me my low stock products` and send. Orion will return a list pulled from live store data. Then type `What's my best opportunity to grow sales this week?` and send. Review the response.
+
+**Step 4 — AI command with undo**
+Click **Commands** in the sidebar. In the command box, type `Lower the price of [paste the product title you copied in Step 2] by $10` and click **Interpret**. Review the action card that appears, then click **Execute**. Navigate to **History** in the sidebar and confirm the command appears as a completed entry. Click the undo button on that entry and confirm the price is restored to its original value.
+
+**Step 5 — Workflows**
+Click **Workflows** in the sidebar. Open any existing workflow and review its trigger type and steps. Check the run history to confirm past executions are recorded.
+---
 - Once screencast is done: ready to submit, then 5–10 business day review
 
 ### Etsy
