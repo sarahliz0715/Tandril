@@ -1149,8 +1149,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     .or('is_active.eq.true,status.eq.connected')
     .limit(1);
 
-  // flash_sale and smart_restock operate across all platforms — Shopify not required
-  const shopifyRequired = action.type !== 'flash_sale' && action.type !== 'smart_restock';
+  // flash_sale, smart_restock, and get_inventory operate across all platforms — Shopify not required
+  const shopifyRequired = action.type !== 'flash_sale' && action.type !== 'smart_restock' && action.type !== 'get_inventory';
   if (shopifyRequired && (!platforms || platforms.length === 0)) {
     throw new Error('No connected Shopify store found. Connect one in the Platforms tab first.');
   }
@@ -1159,7 +1159,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
   const shopDomain = platform?.shop_domain || platform?.domain || platform?.store_domain;
   if (shopifyRequired && !shopDomain) throw new Error('Could not determine Shopify store domain.');
 
-  let accessToken = platform.access_token;
+  let accessToken = platform?.access_token;
   try {
     if (accessToken && accessToken.length > 50 && !accessToken.startsWith('shpat_') && !accessToken.startsWith('shpca_')) {
       const { decrypt } = await import('../_shared/encryption.ts');
@@ -1181,11 +1181,16 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const LOW_STOCK_THRESHOLD = 10;
       const inventory: any[] = [];
 
-      // Fetch Shopify products
-      const res = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      if (!res.ok) throw new Error(`Shopify products fetch failed: ${await res.text()}`);
-      const { products: shopifyProducts } = await res.json();
-      for (const p of (shopifyProducts || [])) {
+      // Fetch Shopify products (only if Shopify is connected)
+      let shopifyProducts: any[] = [];
+      if (platforms && platforms.length > 0 && shopDomain) {
+        const res = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
+        if (res.ok) {
+          const data = await res.json();
+          shopifyProducts = data.products || [];
+        }
+      }
+      for (const p of shopifyProducts) {
         const variants = p.variants || [];
         const totalStock = variants.reduce((sum: number, v: any) => sum + (v.inventory_quantity || 0), 0);
         const skus = variants.map((v: any) => v.sku).filter(Boolean).join(', ');
