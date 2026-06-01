@@ -1430,7 +1430,7 @@ export default function AIBusinessCoach() {
                                 ),
                               }}
                             >
-                              {msg.content}
+                              {msg.content.replace(/\[ORION_ACTION:[\s\S]*$/, '').trim()}
                             </ReactMarkdown>
                           )}
                         </div>
