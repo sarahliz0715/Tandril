@@ -10,7 +10,28 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const SHOPIFY_API_VERSION = '2024-01';
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function toShopifyGid(type: string, id: string | number): string {
+  return `gid://shopify/${type}/${id}`;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -221,34 +242,40 @@ async function executeEnhancedAction(
   }
 }
 
-async function shopifyRequest(
-  platform: any,
-  endpoint: string,
-  method: string = 'GET',
-  body?: any
-): Promise<any> {
-  const url = `https://${platform.shop_domain}/admin/api/${SHOPIFY_API_VERSION}/${endpoint}`;
-
-  const options: RequestInit = {
-    method,
-    headers: {
-      'X-Shopify-Access-Token': platform.access_token,
-      'Content-Type': 'application/json',
-    },
-  };
-
-  if (body) {
-    options.body = JSON.stringify(body);
-  }
-
-  const response = await fetch(url, options);
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Shopify API error (${response.status}): ${errorText}`);
-  }
-
-  return await response.json();
+async function fetchAllProductsGraphQL(platform: any): Promise<any[]> {
+  const data = await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+    query {
+      products(first: 250) {
+        edges {
+          node {
+            id title handle status vendor productType tags
+            images(first: 1) { edges { node { url } } }
+            variants(first: 100) {
+              edges {
+                node {
+                  id price sku inventoryQuantity inventoryManagement
+                  inventoryItem { id }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `);
+  return data.products.edges.map((e: any) => ({
+    ...e.node,
+    id: fromShopifyGid(e.node.id),
+    product_type: e.node.productType,
+    images: e.node.images.edges.map((i: any) => ({ src: i.node.url })),
+    variants: e.node.variants.edges.map((v: any) => ({
+      ...v.node,
+      id: fromShopifyGid(v.node.id),
+      inventory_quantity: v.node.inventoryQuantity,
+      inventory_management: v.node.inventoryManagement?.toLowerCase() || null,
+      inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null,
+    })),
+  }));
 }
 
 // Enhanced product filtering with complex conditions
@@ -320,11 +347,10 @@ async function getProductsEnhanced(
   parameters: any,
   previewMode: boolean
 ): Promise<any> {
-  const { filters, limit = 250 } = parameters;
+  const { filters } = parameters;
 
-  // Fetch all products
-  const productsResponse = await shopifyRequest(platform, `products.json?limit=${limit}`);
-  let products = productsResponse.products || [];
+  // Fetch all products via GraphQL
+  let products = await fetchAllProductsGraphQL(platform);
 
   // Apply complex filters
   if (filters && filters.length > 0) {
@@ -347,23 +373,16 @@ async function updateProductsEnhanced(
 ): Promise<any> {
   const { product_ids, updates, filters } = parameters;
 
-  let targetProducts = [];
+  let targetProducts: any[] = [];
 
   // Get products by IDs or filters
   if (product_ids && product_ids.length > 0) {
-    // Fetch specific products
-    for (const id of product_ids.slice(0, 50)) {
-      try {
-        const response = await shopifyRequest(platform, `products/${id}.json`);
-        targetProducts.push(response.product);
-      } catch (error) {
-        console.error(`Failed to fetch product ${id}:`, error);
-      }
-    }
+    const allProducts = await fetchAllProductsGraphQL(platform);
+    const idSet = new Set(product_ids.map(String));
+    targetProducts = allProducts.filter((p) => idSet.has(String(p.id)));
   } else if (filters) {
-    // Fetch and filter products
-    const allProducts = await shopifyRequest(platform, 'products.json?limit=250');
-    targetProducts = applyComplexFilters(allProducts.products || [], filters);
+    const allProducts = await fetchAllProductsGraphQL(platform);
+    targetProducts = applyComplexFilters(allProducts, filters);
   }
 
   const beforeStates = [];
@@ -394,29 +413,49 @@ async function updateProductsEnhanced(
         simulated: true,
       });
     } else {
-      // Actually update
+      // Actually update via GraphQL productUpdate mutation
       try {
-        const response = await shopifyRequest(
-          platform,
-          `products/${product.id}.json`,
-          'PUT',
-          { product: updates }
-        );
-
-        afterStates.push({
-          id: response.product.id,
-          title: response.product.title,
-          variants: response.product.variants?.map((v: any) => ({
-            id: v.id,
-            price: v.price,
-            inventory_quantity: v.inventory_quantity,
-          })),
+        const updatedData = await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+          mutation($input: ProductInput!) {
+            productUpdate(input: $input) {
+              product {
+                id title
+                variants(first: 100) {
+                  edges {
+                    node { id price inventoryQuantity }
+                  }
+                }
+              }
+              userErrors { field message }
+            }
+          }
+        `, {
+          input: {
+            id: toShopifyGid('Product', product.id),
+            ...updates,
+          },
         });
+
+        const updatedProduct = updatedData.productUpdate.product;
+        const userErrors = updatedData.productUpdate.userErrors;
+        if (userErrors?.length) throw new Error(userErrors.map((e: any) => e.message).join(', '));
+
+        const normalizedProduct = {
+          id: fromShopifyGid(updatedProduct.id),
+          title: updatedProduct.title,
+          variants: updatedProduct.variants.edges.map((v: any) => ({
+            id: fromShopifyGid(v.node.id),
+            price: v.node.price,
+            inventory_quantity: v.node.inventoryQuantity,
+          })),
+        };
+
+        afterStates.push(normalizedProduct);
 
         results.push({
           product_id: product.id,
           success: true,
-          product: response.product,
+          product: normalizedProduct,
         });
       } catch (error) {
         results.push({
@@ -451,8 +490,8 @@ async function applyDiscountEnhanced(
     let estimatedProducts = product_ids?.length || 0;
 
     if (!estimatedProducts && filters) {
-      const productsResponse = await shopifyRequest(platform, 'products.json?limit=250');
-      const filtered = applyComplexFilters(productsResponse.products || [], filters);
+      const allProducts = await fetchAllProductsGraphQL(platform);
+      const filtered = applyComplexFilters(allProducts, filters);
       estimatedProducts = filtered.length;
     }
 
@@ -466,7 +505,7 @@ async function applyDiscountEnhanced(
     };
   }
 
-  // Actually create the price rule
+  // Actually create the price rule (no GraphQL equivalent — using REST)
   const priceRule = {
     price_rule: {
       title: `Discount ${discount_value}${discount_type === 'percentage' ? '%' : ' off'}`,
@@ -480,7 +519,16 @@ async function applyDiscountEnhanced(
     },
   };
 
-  const response = await shopifyRequest(platform, 'price_rules.json', 'POST', priceRule);
+  const res = await fetch(`https://${platform.shop_domain}/admin/api/2025-01/price_rules.json`, {
+    method: 'POST',
+    headers: {
+      'X-Shopify-Access-Token': platform.access_token,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(priceRule),
+  });
+  if (!res.ok) throw new Error(`Shopify API error (${res.status}): ${await res.text()}`);
+  const response = await res.json();
 
   return {
     price_rule_id: response.price_rule?.id,
@@ -518,14 +566,25 @@ async function updateInventoryEnhanced(
       };
     }
 
-    const response = await shopifyRequest(platform, 'inventory_levels/set.json', 'POST', {
-      inventory_item_id,
-      location_id,
-      available: targetQty,
+    await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+      mutation($input: InventorySetQuantitiesInput!) {
+        inventorySetQuantities(input: $input) {
+          userErrors { field message }
+        }
+      }
+    `, {
+      input: {
+        reason: 'correction',
+        name: 'available',
+        quantities: [{
+          inventoryItemId: toShopifyGid('InventoryItem', inventory_item_id),
+          locationId: toShopifyGid('Location', location_id),
+          quantity: targetQty,
+        }],
+      },
     });
 
     return {
-      inventory_level: response.inventory_level,
       message: `Updated inventory to ${targetQty}`,
       preview_mode: false,
       changes_made: true,
@@ -534,8 +593,7 @@ async function updateInventoryEnhanced(
   }
 
   // Lookup path: find products by title or filters
-  const productsResponse = await shopifyRequest(platform, 'products.json?limit=250');
-  let products = productsResponse.products || [];
+  let products = await fetchAllProductsGraphQL(platform);
 
   if (product_title) {
     const lowerTitle = product_title.toLowerCase();
@@ -551,8 +609,12 @@ async function updateInventoryEnhanced(
   // Get the store's first active location if not provided
   let resolvedLocationId = location_id;
   if (!resolvedLocationId) {
-    const locationsResponse = await shopifyRequest(platform, 'locations.json');
-    const locations = (locationsResponse.locations || []).filter((l: any) => l.active);
+    const locData = await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+      query { locations(first: 10) { edges { node { id name isActive } } } }
+    `);
+    const locations = locData.locations.edges
+      .filter((e: any) => e.node.isActive)
+      .map((e: any) => ({ id: fromShopifyGid(e.node.id), name: e.node.name }));
     if (locations.length === 0) {
       throw new Error('No active locations found for this store');
     }
@@ -591,14 +653,26 @@ async function updateInventoryEnhanced(
     };
   }
 
-  // Update each variant
+  // Update each variant via inventorySetQuantities
   const results: any[] = [];
   for (const variant of variantsToUpdate) {
     try {
-      const response = await shopifyRequest(platform, 'inventory_levels/set.json', 'POST', {
-        inventory_item_id: variant.inventory_item_id,
-        location_id: resolvedLocationId,
-        available: targetQty,
+      await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+        mutation($input: InventorySetQuantitiesInput!) {
+          inventorySetQuantities(input: $input) {
+            userErrors { field message }
+          }
+        }
+      `, {
+        input: {
+          reason: 'correction',
+          name: 'available',
+          quantities: [{
+            inventoryItemId: toShopifyGid('InventoryItem', variant.inventory_item_id),
+            locationId: toShopifyGid('Location', resolvedLocationId),
+            quantity: targetQty,
+          }],
+        },
       });
       results.push({
         product_title: variant.product_title,
@@ -606,7 +680,6 @@ async function updateInventoryEnhanced(
         success: true,
         previous_quantity: variant.current_quantity,
         new_quantity: targetQty,
-        inventory_level: response.inventory_level,
       });
     } catch (error) {
       results.push({
@@ -647,20 +720,15 @@ async function updateSEOEnhanced(
 ): Promise<any> {
   const { product_ids, seo_updates, filters } = parameters;
 
-  let targetProducts = [];
+  let targetProducts: any[] = [];
 
   if (product_ids && product_ids.length > 0) {
-    for (const id of product_ids.slice(0, 50)) {
-      try {
-        const response = await shopifyRequest(platform, `products/${id}.json`);
-        targetProducts.push(response.product);
-      } catch (error) {
-        console.error(`Failed to fetch product ${id}:`, error);
-      }
-    }
+    const allProducts = await fetchAllProductsGraphQL(platform);
+    const idSet = new Set(product_ids.slice(0, 50).map(String));
+    targetProducts = allProducts.filter((p) => idSet.has(String(p.id)));
   } else if (filters) {
-    const productsResponse = await shopifyRequest(platform, 'products.json?limit=250');
-    targetProducts = applyComplexFilters(productsResponse.products || [], filters);
+    const allProducts = await fetchAllProductsGraphQL(platform);
+    targetProducts = applyComplexFilters(allProducts, filters);
   }
 
   if (previewMode) {
@@ -703,7 +771,15 @@ async function updateSEOEnhanced(
       }
 
       for (const metafield of metafields) {
-        await shopifyRequest(platform, `products/${product.id}/metafields.json`, 'POST', { metafield });
+        const mfRes = await fetch(`https://${platform.shop_domain}/admin/api/2025-01/products/${product.id}/metafields.json`, {
+          method: 'POST',
+          headers: {
+            'X-Shopify-Access-Token': platform.access_token,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ metafield }),
+        });
+        if (!mfRes.ok) throw new Error(`Shopify API error (${mfRes.status}): ${await mfRes.text()}`);
       }
 
       results.push({
@@ -737,9 +813,8 @@ async function conditionalUpdateEnhanced(
 ): Promise<any> {
   const { condition_filters, then_action, else_action } = parameters;
 
-  // Fetch products
-  const productsResponse = await shopifyRequest(platform, 'products.json?limit=250');
-  const allProducts = productsResponse.products || [];
+  // Fetch products via GraphQL
+  const allProducts = await fetchAllProductsGraphQL(platform);
 
   // Apply condition filters
   const matchingProducts = applyComplexFilters(allProducts, condition_filters);

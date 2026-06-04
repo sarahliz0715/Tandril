@@ -10,7 +10,28 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const SHOPIFY_API_VERSION = '2024-01';
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function toShopifyGid(type: string, id: string | number): string {
+  return `gid://shopify/${type}/${id}`;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
 
 serve(async (req) => {
   // Handle CORS preflight requests
@@ -172,50 +193,49 @@ async function executeAction(action: any, platform: any): Promise<any> {
   }
 }
 
-async function shopifyRequest(
-  platform: any,
-  endpoint: string,
-  method: string = 'GET',
-  body?: any
-): Promise<any> {
-  const url = `https://${platform.shop_domain}/admin/api/${SHOPIFY_API_VERSION}/${endpoint}`;
 
-  const options: RequestInit = {
-    method,
-    headers: {
-      'X-Shopify-Access-Token': platform.access_token,
-      'Content-Type': 'application/json',
-    },
-  };
-
-  if (body) {
-    options.body = JSON.stringify(body);
-  }
-
-  const response = await fetch(url, options);
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Shopify API error (${response.status}): ${errorText}`);
-  }
-
-  return await response.json();
+async function fetchAllProductsGraphQL(platform: any): Promise<any[]> {
+  const data = await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+    query {
+      products(first: 250) {
+        edges {
+          node {
+            id title handle status vendor productType tags
+            images(first: 1) { edges { node { url } } }
+            variants(first: 100) {
+              edges {
+                node {
+                  id price sku inventoryQuantity
+                  inventoryItem { id }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `);
+  return data.products.edges.map((e: any) => ({
+    ...e.node,
+    id: fromShopifyGid(e.node.id),
+    product_type: e.node.productType,
+    images: e.node.images.edges.map((i: any) => ({ src: i.node.url })),
+    variants: e.node.variants.edges.map((v: any) => ({
+      ...v.node,
+      id: fromShopifyGid(v.node.id),
+      inventory_quantity: v.node.inventoryQuantity,
+      inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null,
+    })),
+  }));
 }
 
 async function getProducts(platform: any, parameters: any): Promise<any> {
-  const { filter, operator, value, limit = 50 } = parameters;
+  const { filter, operator, value } = parameters;
 
-  // Build query parameters
-  const queryParams = new URLSearchParams({
-    limit: limit.toString(),
-  });
+  const products = await fetchAllProductsGraphQL(platform);
 
-  // For inventory filtering, we need to use the inventory_item endpoint
+  // For inventory filtering
   if (filter === 'inventory_quantity') {
-    const productsResponse = await shopifyRequest(platform, `products.json?${queryParams}`);
-    const products = productsResponse.products || [];
-
-    // Filter products based on inventory
     const filteredProducts = [];
     for (const product of products) {
       for (const variant of product.variants || []) {
@@ -245,11 +265,9 @@ async function getProducts(platform: any, parameters: any): Promise<any> {
     };
   }
 
-  // Default: just fetch products
-  const response = await shopifyRequest(platform, `products.json?${queryParams}`);
   return {
-    count: response.products?.length || 0,
-    products: response.products || [],
+    count: products.length,
+    products,
   };
 }
 
@@ -257,32 +275,19 @@ async function updateProducts(platform: any, parameters: any): Promise<any> {
   const { product_ids, product_name, updates, price_adjustment, new_price } = parameters;
 
   // Fetch products — either specific IDs or all products
-  let products: any[] = [];
-  if (product_ids && Array.isArray(product_ids) && product_ids.length > 0) {
-    for (const id of product_ids) {
-      try {
-        const res = await shopifyRequest(platform, `products/${id}.json`);
-        if (res.product) products.push(res.product);
-      } catch { /* skip missing */ }
-    }
-  } else {
-    // Fetch all products (paginate up to 250)
-    const res = await shopifyRequest(platform, 'products.json?limit=250');
-    products = res.products || [];
+  let products: any[] = await fetchAllProductsGraphQL(platform);
 
-    // If a product name was specified, filter to matching products only
-    if (product_name && typeof product_name === 'string') {
-      const lowerName = product_name.toLowerCase().trim();
-      const filtered = products.filter(p =>
-        p.title?.toLowerCase().includes(lowerName)
-      );
-      // Only narrow down if we actually found a match — otherwise keep all (safer than updating nothing)
-      if (filtered.length > 0) {
-        products = filtered;
-        console.log(`[updateProducts] Filtered to ${filtered.length} product(s) matching "${product_name}"`);
-      } else {
-        console.warn(`[updateProducts] No products matched "${product_name}" — updating all ${products.length} (no filter applied)`);
-      }
+  if (product_ids && Array.isArray(product_ids) && product_ids.length > 0) {
+    const idSet = new Set(product_ids.map(String));
+    products = products.filter(p => idSet.has(String(p.id)));
+  } else if (product_name && typeof product_name === 'string') {
+    const lowerName = product_name.toLowerCase().trim();
+    const filtered = products.filter(p => p.title?.toLowerCase().includes(lowerName));
+    if (filtered.length > 0) {
+      products = filtered;
+      console.log(`[updateProducts] Filtered to ${filtered.length} product(s) matching "${product_name}"`);
+    } else {
+      console.warn(`[updateProducts] No products matched "${product_name}" — updating all ${products.length} (no filter applied)`);
     }
   }
 
@@ -295,26 +300,34 @@ async function updateProducts(platform: any, parameters: any): Promise<any> {
   for (const product of products) {
     for (const variant of product.variants || []) {
       try {
-        let variantUpdate: any = {};
+        let newVariantPrice: string | null = null;
 
         if (price_adjustment !== undefined) {
           const currentPrice = parseFloat(variant.price || '0');
-          const adjusted = Math.max(0, currentPrice + price_adjustment);
-          variantUpdate.price = adjusted.toFixed(2);
+          newVariantPrice = Math.max(0, currentPrice + price_adjustment).toFixed(2);
         } else if (new_price !== undefined) {
-          variantUpdate.price = parseFloat(new_price).toFixed(2);
-        } else if (updates) {
-          variantUpdate = { ...updates };
+          newVariantPrice = parseFloat(new_price).toFixed(2);
+        } else if (updates?.price !== undefined) {
+          newVariantPrice = parseFloat(updates.price).toFixed(2);
         }
 
-        if (Object.keys(variantUpdate).length === 0) continue;
+        if (newVariantPrice === null) continue;
 
-        await shopifyRequest(
-          platform,
-          `variants/${variant.id}.json`,
-          'PUT',
-          { variant: { id: variant.id, ...variantUpdate } }
-        );
+        // Get the product GID for this variant
+        const varData = await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+          query($id: ID!) { productVariant(id: $id) { product { id } } }
+        `, { id: toShopifyGid('ProductVariant', variant.id) });
+
+        await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+          mutation($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+            productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+              userErrors { field message }
+            }
+          }
+        `, {
+          productId: varData.productVariant.product.id,
+          variants: [{ id: toShopifyGid('ProductVariant', variant.id), price: newVariantPrice }],
+        });
 
         results.push({ product_id: product.id, variant_id: variant.id, success: true });
       } catch (error) {
@@ -333,7 +346,7 @@ async function updateProducts(platform: any, parameters: any): Promise<any> {
 async function applyDiscount(platform: any, parameters: any): Promise<any> {
   const { discount_type, discount_value, product_ids, collection_id } = parameters;
 
-  // Shopify price rules API
+  // Shopify price rules API (no GraphQL equivalent — using REST)
   const priceRule = {
     price_rule: {
       title: `Discount ${discount_value}${discount_type === 'percentage' ? '%' : ' off'}`,
@@ -347,7 +360,16 @@ async function applyDiscount(platform: any, parameters: any): Promise<any> {
     },
   };
 
-  const response = await shopifyRequest(platform, 'price_rules.json', 'POST', priceRule);
+  const res = await fetch(`https://${platform.shop_domain}/admin/api/2025-01/price_rules.json`, {
+    method: 'POST',
+    headers: {
+      'X-Shopify-Access-Token': platform.access_token,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(priceRule),
+  });
+  if (!res.ok) throw new Error(`Shopify API error (${res.status}): ${await res.text()}`);
+  const response = await res.json();
 
   return {
     price_rule_id: response.price_rule?.id,
@@ -358,19 +380,25 @@ async function applyDiscount(platform: any, parameters: any): Promise<any> {
 async function updateInventory(platform: any, parameters: any): Promise<any> {
   const { inventory_item_id, location_id, available } = parameters;
 
-  const response = await shopifyRequest(
-    platform,
-    'inventory_levels/set.json',
-    'POST',
-    {
-      inventory_item_id,
-      location_id,
-      available,
+  await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+    mutation($input: InventorySetQuantitiesInput!) {
+      inventorySetQuantities(input: $input) {
+        userErrors { field message }
+      }
     }
-  );
+  `, {
+    input: {
+      reason: 'correction',
+      name: 'available',
+      quantities: [{
+        inventoryItemId: toShopifyGid('InventoryItem', inventory_item_id),
+        locationId: toShopifyGid('Location', location_id),
+        quantity: available,
+      }],
+    },
+  });
 
   return {
-    inventory_level: response.inventory_level,
     message: `Updated inventory to ${available}`,
   };
 }
@@ -402,12 +430,15 @@ async function updateSEO(platform: any, parameters: any): Promise<any> {
       }
 
       for (const metafield of metafields) {
-        await shopifyRequest(
-          platform,
-          `products/${productId}/metafields.json`,
-          'POST',
-          { metafield }
-        );
+        const mfRes = await fetch(`https://${platform.shop_domain}/admin/api/2025-01/products/${productId}/metafields.json`, {
+          method: 'POST',
+          headers: {
+            'X-Shopify-Access-Token': platform.access_token,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ metafield }),
+        });
+        if (!mfRes.ok) throw new Error(`Shopify API error (${mfRes.status}): ${await mfRes.text()}`);
       }
 
       results.push({
