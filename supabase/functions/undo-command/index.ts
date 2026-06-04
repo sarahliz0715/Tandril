@@ -10,7 +10,28 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const SHOPIFY_API_VERSION = '2024-01';
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function toShopifyGid(type: string, id: string | number): string {
+  return `gid://shopify/${type}/${id}`;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -205,55 +226,34 @@ async function revertChange(snapshot: any, platform: any): Promise<any> {
   }
 }
 
-async function shopifyRequest(
-  platform: any,
-  endpoint: string,
-  method: string = 'GET',
-  body?: any
-): Promise<any> {
-  const url = `https://${platform.shop_domain}/admin/api/${SHOPIFY_API_VERSION}/${endpoint}`;
-
-  const options: RequestInit = {
-    method,
-    headers: {
-      'X-Shopify-Access-Token': platform.access_token,
-      'Content-Type': 'application/json',
-    },
-  };
-
-  if (body) {
-    options.body = JSON.stringify(body);
-  }
-
-  const response = await fetch(url, options);
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Shopify API error (${response.status}): ${errorText}`);
-  }
-
-  return await response.json();
-}
-
 async function revertProductUpdates(beforeStates: any[], platform: any): Promise<any> {
   const results = [];
 
   for (const beforeState of beforeStates || []) {
     try {
-      // Restore the product to its before state
-      const response = await shopifyRequest(
-        platform,
-        `products/${beforeState.id}.json`,
-        'PUT',
-        {
-          product: {
-            id: beforeState.id,
-            title: beforeState.title,
-            // Restore variants if they were changed
-            variants: beforeState.variants,
-          },
-        }
-      );
+      // Restore each variant price to its before state via GraphQL
+      if (beforeState.variants && beforeState.variants.length > 0) {
+        // Get the product GID to use productVariantsBulkUpdate
+        const varData = await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+          query($id: ID!) { productVariant(id: $id) { product { id } } }
+        `, { id: toShopifyGid('ProductVariant', beforeState.variants[0].id) });
+
+        const variantInputs = beforeState.variants.map((v: any) => ({
+          id: toShopifyGid('ProductVariant', v.id),
+          price: String(v.price),
+        }));
+
+        await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+          mutation($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+            productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+              userErrors { field message }
+            }
+          }
+        `, {
+          productId: varData.productVariant.product.id,
+          variants: variantInputs,
+        });
+      }
 
       results.push({
         product_id: beforeState.id,
@@ -282,8 +282,17 @@ async function revertDiscounts(affectedResources: any[], platform: any): Promise
   for (const resource of affectedResources || []) {
     if (resource.type === 'price_rule') {
       try {
-        // Delete the price rule that was created
-        await shopifyRequest(platform, `price_rules/${resource.id}.json`, 'DELETE');
+        // Delete the price rule that was created (no GraphQL equivalent — using REST)
+        const res = await fetch(`https://${platform.shop_domain}/admin/api/2025-01/price_rules/${resource.id}.json`, {
+          method: 'DELETE',
+          headers: {
+            'X-Shopify-Access-Token': platform.access_token,
+            'Content-Type': 'application/json',
+          },
+        });
+        if (!res.ok && res.status !== 404) {
+          throw new Error(`Shopify API error (${res.status}): ${await res.text()}`);
+        }
 
         results.push({
           resource_id: resource.id,

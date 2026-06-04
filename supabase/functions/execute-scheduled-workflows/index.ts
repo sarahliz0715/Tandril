@@ -8,7 +8,28 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const SHOPIFY_API_VERSION = '2024-01';
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function toShopifyGid(type: string, id: string | number): string {
+  return `gid://shopify/${type}/${id}`;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
 
 // ── Duration helper ──────────────────────────────────────────────────────────
 function durationToMs(duration: number, unit: string): number {
@@ -355,15 +376,42 @@ async function sendInventoryEmail(userId: string, cfg: any, supabase: any): Prom
     if (!token) continue;
 
     const shopDomain = platform.store_url || platform.shop_domain;
-    const url = `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/products.json?limit=250&status=active`;
 
-    const res = await fetch(url, {
-      headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
-    });
-    if (!res.ok) continue;
+    let gqlData: any;
+    try {
+      gqlData = await shopifyGraphQL(shopDomain, token, `
+        query {
+          products(first: 250, query: "status:active") {
+            edges {
+              node {
+                id title
+                variants(first: 100) {
+                  edges {
+                    node {
+                      id sku inventoryQuantity
+                      title
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      `);
+    } catch { continue; }
 
-    const { products } = await res.json();
-    for (const product of products ?? []) {
+    const products = gqlData.products.edges.map((e: any) => ({
+      id: fromShopifyGid(e.node.id),
+      title: e.node.title,
+      variants: e.node.variants.edges.map((v: any) => ({
+        id: fromShopifyGid(v.node.id),
+        sku: v.node.sku,
+        title: v.node.title,
+        inventory_quantity: v.node.inventoryQuantity,
+      })),
+    }));
+
+    for (const product of products) {
       for (const variant of product.variants ?? []) {
         const qty = variant.inventory_quantity ?? 0;
         const item = {
