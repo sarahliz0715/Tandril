@@ -1,5 +1,5 @@
 # Tandril — Project Context for Claude
-**Last updated:** May 30, 2026 | **Repo:** private | **Owner:** Sarah Evenson
+**Last updated:** June 4, 2026 | **Repo:** private | **Owner:** Sarah Evenson
 
 ---
 
@@ -234,6 +234,34 @@ Click **Workflows** in the sidebar. Open any existing workflow and review its tr
 - `CompetitorInsightsCard` component name — internal only, not user-facing
 - JWT verification on edge functions — leave ON
 - Mock data behavior before store connection — intentional UX
+
+---
+
+## GraphQL Migration — Checkpoint (June 4, 2026, ~2:00 PM)
+
+On June 4, 2026 we began migrating all Shopify REST API calls to GraphQL Admin API to meet Shopify App Store requirement 2.2.4. Everything below describes the state of the codebase BEFORE this migration began. If anything breaks after the migration, roll back to the last commit before this point.
+
+**Last known-good commit before migration:** run `git log --oneline` and look for the commit just before any "GraphQL migration" commits.
+
+**What was working before migration:**
+- smart-api deployed and functional (Orion, Commands, Products page)
+- execute-command deployed
+- execute-scheduled-workflows deployed
+- sync-inventory-levels built, not yet deployed
+- All GDPR webhooks deployed
+- Stripe + Shopify Billing both implemented
+- Orion fixes deployed (no unsolicited action blocks, 3-at-a-time batching, no artifact tags)
+- History clear + undo working (pending RLS DELETE policy fix in Supabase SQL)
+
+**Functions being migrated (31 total, 6 agent groups):**
+- Group A: `smart-api`
+- Group B: `execute-command`, `enhanced-execute-command`, `undo-command`, `execute-scheduled-workflows`
+- Group C: `sync-inventory-levels`, `sync-po-inventory`, `cancel-flash-sale`, `process-price-restores`, `process-scheduled-sales`
+- Group D: `ai-insights`, `daily-business-briefing`, `daily-briefing-cron`, `growth-opportunity-detector`, `risk-alert-analyzer`, `calculate-pnl`
+- Group E: `onboarding-store-analyzer`, `fetch-platform-products`, `fetch-product-variants`, `link-products`, `check-alerts`, `smart-trigger-evaluator`
+- Group F: `seo-fixer`, `ai-content-generator`, `ai-coach-chat`, `inventory-protection`, `price-guardrail`, `dead-product-cleanup`, `order-monitor`, `shopify-order-webhook`
+
+**Exempt from migration:** `shopify-billing` (already GraphQL), `shopify-auth-callback`, `shopify-auth-exchange` (auth endpoints)
 
 ---
 
