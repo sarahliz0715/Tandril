@@ -7,7 +7,30 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const SHOPIFY_API_VERSION = '2024-01';
+// ─── GraphQL helpers ──────────────────────────────────────────────────────────
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function toShopifyGid(type: string, id: string | number): string {
+  return `gid://shopify/${type}/${id}`;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 // --- Inlined encryption helpers ---
 const ALGORITHM = 'AES-GCM';
@@ -100,16 +123,23 @@ async function fetchShopifyVariants(platform: any, productId: string): Promise<{
   if (token && isEncrypted(token)) token = await decrypt(token);
   if (!token) throw new Error('Shopify access token missing');
 
-  const res = await fetch(
-    `https://${platform.shop_domain}/admin/api/${SHOPIFY_API_VERSION}/products/${productId}.json?fields=id,variants`,
-    { headers: { 'X-Shopify-Access-Token': token } }
-  );
-  if (!res.ok) throw new Error(`Shopify product fetch failed: ${res.status}`);
-  const { product } = await res.json();
+  const data = await shopifyGraphQL(platform.shop_domain, token, `
+    query($id: ID!) {
+      product(id: $id) {
+        variants(first: 100) {
+          edges {
+            node {
+              id title sku
+            }
+          }
+        }
+      }
+    }
+  `, { id: toShopifyGid('Product', productId) });
 
-  return (product?.variants ?? []).map((v: any) => ({
-    id: String(v.id),
-    label: v.title === 'Default Title' ? 'Default (no variants)' : `${v.title}${v.sku ? ` — SKU: ${v.sku}` : ''}`,
+  return (data.product?.variants?.edges ?? []).map((e: any) => ({
+    id: fromShopifyGid(e.node.id),
+    label: e.node.title === 'Default Title' ? 'Default (no variants)' : `${e.node.title}${e.node.sku ? ` — SKU: ${e.node.sku}` : ''}`,
   }));
 }
 

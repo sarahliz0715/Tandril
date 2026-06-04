@@ -10,7 +10,26 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { decrypt, isEncrypted } from '../_shared/encryption.ts';
 
-const SHOPIFY_API_VERSION = '2024-01';
+// ─── GraphQL helpers ──────────────────────────────────────────────────────────
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -177,42 +196,62 @@ async function fetchStoreData(platforms: any[]): Promise<any> {
       const domain = platform.shop_domain || platform.credentials?.shop_domain;
       if (!token || !domain) continue;
 
-      const [prodRes, orderRes] = await Promise.all([
-        fetch(`https://${domain}/admin/api/${SHOPIFY_API_VERSION}/products.json?limit=250`, {
-          headers: { 'X-Shopify-Access-Token': token },
-        }),
-        fetch(`https://${domain}/admin/api/${SHOPIFY_API_VERSION}/orders.json?limit=50&status=any`, {
-          headers: { 'X-Shopify-Access-Token': token },
-        }),
+      const [productsData, ordersData] = await Promise.all([
+        shopifyGraphQL(domain, token, `
+          query {
+            products(first: 250) {
+              edges {
+                node {
+                  id title
+                  variants(first: 100) {
+                    edges {
+                      node {
+                        id title sku inventoryQuantity
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        `),
+        shopifyGraphQL(domain, token, `
+          query {
+            orders(first: 50, query: "status:any") {
+              edges {
+                node {
+                  id createdAt
+                  totalPriceSet { shopMoney { amount } }
+                }
+              }
+            }
+          }
+        `),
       ]);
 
-      if (prodRes.ok) {
-        const { products } = await prodRes.json();
-        for (const p of (products || [])) {
-          for (const v of (p.variants || [])) {
-            data.inventory.push({
-              product_id: p.id,
-              product_title: p.title,
-              variant_id: v.id,
-              variant_title: v.title,
-              sku: v.sku,
-              quantity: v.inventory_quantity ?? 0,
-              platform: 'shopify',
-              domain,
-            });
-          }
+      for (const pe of (productsData.products?.edges || [])) {
+        const p = pe.node;
+        for (const ve of (p.variants?.edges || [])) {
+          const v = ve.node;
+          data.inventory.push({
+            product_id: fromShopifyGid(p.id),
+            product_title: p.title,
+            variant_id: fromShopifyGid(v.id),
+            variant_title: v.title,
+            sku: v.sku,
+            quantity: v.inventoryQuantity ?? 0,
+            platform: 'shopify',
+            domain,
+          });
         }
       }
 
-      if (orderRes.ok) {
-        const { orders } = await orderRes.json();
-        data.orders = (orders || []).map((o: any) => ({
-          id: o.id,
-          total: parseFloat(o.total_price || '0'),
-          created_at: o.created_at,
-          platform: 'shopify',
-        }));
-      }
+      data.orders = (ordersData.orders?.edges || []).map((e: any) => ({
+        id: fromShopifyGid(e.node.id),
+        total: parseFloat(e.node.totalPriceSet?.shopMoney?.amount || '0'),
+        created_at: e.node.createdAt,
+        platform: 'shopify',
+      }));
     } catch (e: any) {
       console.warn(`[check-alerts] Failed to fetch data for platform ${platform.id}:`, e.message);
     }

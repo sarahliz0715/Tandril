@@ -10,7 +10,26 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const SHOPIFY_API_VERSION = '2024-01';
+// ─── GraphQL helpers ──────────────────────────────────────────────────────────
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -219,13 +238,53 @@ Respond in JSON format:
 
 async function fetchStoreDataForAnalysis(platform: any): Promise<any> {
   try {
-    // Fetch recent orders
-    const ordersResponse = await shopifyRequest(platform, 'orders.json?limit=50&status=any');
-    const orders = ordersResponse.orders || [];
+    const domain = platform.shop_domain;
+    const token = platform.access_token;
 
-    // Fetch products with low inventory
-    const productsResponse = await shopifyRequest(platform, 'products.json?limit=250');
-    const products = productsResponse.products || [];
+    // Fetch recent orders and products via GraphQL
+    const [ordersData, productsData] = await Promise.all([
+      shopifyGraphQL(domain, token, `
+        query {
+          orders(first: 50, query: "status:any") {
+            edges {
+              node {
+                id createdAt
+                totalPriceSet { shopMoney { amount } }
+              }
+            }
+          }
+        }
+      `),
+      shopifyGraphQL(domain, token, `
+        query {
+          products(first: 250) {
+            edges {
+              node {
+                id
+                variants(first: 100) {
+                  edges {
+                    node { inventoryQuantity }
+                  }
+                }
+              }
+            }
+          }
+        }
+      `),
+    ]);
+
+    const orders = (ordersData.orders?.edges || []).map((e: any) => ({
+      id: fromShopifyGid(e.node.id),
+      created_at: e.node.createdAt,
+      total_price: e.node.totalPriceSet?.shopMoney?.amount || '0',
+    }));
+
+    const products = (productsData.products?.edges || []).map((e: any) => ({
+      id: fromShopifyGid(e.node.id),
+      variants: (e.node.variants?.edges || []).map((ve: any) => ({
+        inventory_quantity: ve.node.inventoryQuantity ?? 0,
+      })),
+    }));
 
     // Calculate metrics
     const now = new Date();
@@ -280,23 +339,6 @@ async function fetchStoreDataForAnalysis(platform: any): Promise<any> {
       timestamp: new Date().toISOString(),
     };
   }
-}
-
-async function shopifyRequest(platform: any, endpoint: string): Promise<any> {
-  const url = `https://${platform.shop_domain}/admin/api/${SHOPIFY_API_VERSION}/${endpoint}`;
-
-  const response = await fetch(url, {
-    headers: {
-      'X-Shopify-Access-Token': platform.access_token,
-      'Content-Type': 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Shopify API error: ${response.status}`);
-  }
-
-  return await response.json();
 }
 
 function basicTriggerLogic(platforms: any[], triggerType: string): any {

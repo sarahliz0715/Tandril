@@ -10,7 +10,29 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const SHOPIFY_API_VERSION = '2024-01';
+// ─── GraphQL helpers ──────────────────────────────────────────────────────────
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function toShopifyGid(type: string, id: string | number): string {
+  return `gid://shopify/${type}/${id}`;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -120,13 +142,80 @@ serve(async (req) => {
 
 async function analyzeStoreForOnboarding(platform: any): Promise<any> {
   try {
-    // Fetch products
-    const productsResponse = await shopifyRequest(platform, 'products.json?limit=250');
-    const products = productsResponse.products || [];
+    const domain = platform.shop_domain;
+    const token = platform.access_token;
 
-    // Fetch orders
-    const ordersResponse = await shopifyRequest(platform, 'orders.json?limit=100&status=any');
-    const orders = ordersResponse.orders || [];
+    // Fetch products via GraphQL
+    const productsData = await shopifyGraphQL(domain, token, `
+      query {
+        products(first: 250) {
+          edges {
+            node {
+              id title handle status vendor productType
+              body: descriptionHtml
+              images(first: 1) { edges { node { url } } }
+              variants(first: 100) {
+                edges {
+                  node {
+                    id price sku inventoryQuantity
+                    inventoryItem { id }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `);
+    const products = (productsData.products.edges || []).map((e: any) => ({
+      ...e.node,
+      id: fromShopifyGid(e.node.id),
+      product_type: e.node.productType,
+      body_html: e.node.body,
+      images: e.node.images.edges.map((i: any) => ({ src: i.node.url })),
+      variants: e.node.variants.edges.map((v: any) => ({
+        ...v.node,
+        id: fromShopifyGid(v.node.id),
+        inventory_quantity: v.node.inventoryQuantity,
+        inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null,
+      })),
+    }));
+
+    // Fetch orders via GraphQL
+    const ordersData = await shopifyGraphQL(domain, token, `
+      query {
+        orders(first: 50, query: "status:any") {
+          edges {
+            node {
+              id name createdAt fulfillmentStatus
+              totalPriceSet { shopMoney { amount currencyCode } }
+              lineItems(first: 50) {
+                edges {
+                  node {
+                    title quantity
+                    product { id }
+                    variant { id sku price }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `);
+    const orders = (ordersData.orders.edges || []).map((e: any) => ({
+      ...e.node,
+      id: fromShopifyGid(e.node.id),
+      created_at: e.node.createdAt,
+      fulfillment_status: e.node.fulfillmentStatus ? e.node.fulfillmentStatus.toLowerCase() : null,
+      total_price: e.node.totalPriceSet?.shopMoney?.amount,
+      line_items: e.node.lineItems.edges.map((li: any) => ({
+        ...li.node,
+        product_id: li.node.product ? fromShopifyGid(li.node.product.id) : null,
+        variant_id: li.node.variant ? fromShopifyGid(li.node.variant.id) : null,
+        price: li.node.variant?.price,
+      })),
+    }));
 
     // Calculate metrics
     const now = new Date();
@@ -418,21 +507,4 @@ function generateBasicRecommendations(analysis: any): any {
     recommended_automations: automations.slice(0, 2),
     next_steps: "Let's start with some quick wins to improve your store right away!",
   };
-}
-
-async function shopifyRequest(platform: any, endpoint: string): Promise<any> {
-  const url = `https://${platform.shop_domain}/admin/api/${SHOPIFY_API_VERSION}/${endpoint}`;
-
-  const response = await fetch(url, {
-    headers: {
-      'X-Shopify-Access-Token': platform.access_token,
-      'Content-Type': 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Shopify API error: ${response.status}`);
-  }
-
-  return await response.json();
 }
