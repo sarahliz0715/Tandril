@@ -8,7 +8,32 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { decrypt, isEncrypted } from '../_shared/encryption.ts';
+// --- Inlined from _shared/encryption.ts ---
+const _ENC_ALGORITHM = 'AES-GCM';
+const _ENC_IV_LENGTH = 12;
+async function _getEncryptionKey(): Promise<CryptoKey> {
+  const secret = Deno.env.get('ENCRYPTION_SECRET');
+  if (!secret) throw new Error('ENCRYPTION_SECRET environment variable not set');
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(secret), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: encoder.encode('tandril-encryption-salt-v1'), iterations: 100000, hash: 'SHA-256' },
+    keyMaterial, { name: _ENC_ALGORITHM, length: 256 }, false, ['encrypt', 'decrypt']
+  );
+}
+async function decrypt(encrypted: string): Promise<string> {
+  try {
+    const key = await _getEncryptionKey();
+    const combined = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0));
+    const iv = combined.slice(0, _ENC_IV_LENGTH);
+    const ciphertext = combined.slice(_ENC_IV_LENGTH);
+    const decrypted = await crypto.subtle.decrypt({ name: _ENC_ALGORITHM, iv }, key, ciphertext);
+    return new TextDecoder().decode(decrypted);
+  } catch { throw new Error('Failed to decrypt data'); }
+}
+function isEncrypted(value: string): boolean {
+  try { return atob(value).length > _ENC_IV_LENGTH; } catch { return false; }
+}
 
 // SHOPIFY_API_VERSION removed — now using GraphQL 2025-01
 

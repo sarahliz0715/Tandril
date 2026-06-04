@@ -3,7 +3,68 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { getPlatformsByTypeWithDecryptedTokens } from '../_shared/platformHelpers.ts';
+// --- Inlined from _shared/encryption.ts ---
+const _ENC_ALGORITHM = 'AES-GCM';
+const _ENC_IV_LENGTH = 12;
+async function _getEncryptionKey(): Promise<CryptoKey> {
+  const secret = Deno.env.get('ENCRYPTION_SECRET');
+  if (!secret) throw new Error('ENCRYPTION_SECRET environment variable not set');
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(secret), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: encoder.encode('tandril-encryption-salt-v1'), iterations: 100000, hash: 'SHA-256' },
+    keyMaterial, { name: _ENC_ALGORITHM, length: 256 }, false, ['encrypt', 'decrypt']
+  );
+}
+async function decrypt(encrypted: string): Promise<string> {
+  try {
+    const key = await _getEncryptionKey();
+    const combined = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0));
+    const iv = combined.slice(0, _ENC_IV_LENGTH);
+    const ciphertext = combined.slice(_ENC_IV_LENGTH);
+    const decrypted = await crypto.subtle.decrypt({ name: _ENC_ALGORITHM, iv }, key, ciphertext);
+    return new TextDecoder().decode(decrypted);
+  } catch { throw new Error('Failed to decrypt data'); }
+}
+function isEncrypted(value: string): boolean {
+  try { return atob(value).length > _ENC_IV_LENGTH; } catch { return false; }
+}
+
+// --- Inlined from _shared/platformHelpers.ts ---
+interface Platform {
+  id: string;
+  user_id: string;
+  platform_type: string;
+  shop_domain: string;
+  shop_name?: string;
+  access_token: string;
+  access_scopes?: string[];
+  is_active?: boolean;
+  last_synced_at?: string;
+  metadata?: any;
+  created_at?: string;
+  updated_at?: string;
+}
+async function getPlatformsByTypeWithDecryptedTokens(
+  supabase: any,
+  userId: string,
+  platformType: string
+): Promise<Platform[]> {
+  const { data: platforms, error } = await supabase
+    .from('platforms')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('platform_type', platformType)
+    .eq('is_active', true);
+  if (error || !platforms) return [];
+  for (const platform of platforms) {
+    if (platform.access_token && isEncrypted(platform.access_token)) {
+      try { platform.access_token = await decrypt(platform.access_token); }
+      catch (e) { console.error('[Platform] Failed to decrypt token for ' + platform.shop_domain + ':', e); }
+    }
+  }
+  return platforms as Platform[];
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
