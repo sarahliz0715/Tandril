@@ -10,7 +10,26 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const SHOPIFY_API_VERSION = '2024-01';
+// ─── GraphQL helpers ──────────────────────────────────────────────────────────
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 const ALGORITHM = 'AES-GCM';
 const KEY_LENGTH = 256;
@@ -90,30 +109,44 @@ async function fetchShopifyProducts(platform: any, search: string, page: number)
   if (token && isEncrypted(token)) token = await decrypt(token);
   if (!token) throw new Error('Shopify token missing');
 
-  const limit = 20;
-  const params = new URLSearchParams({ limit: String(limit), fields: 'id,title,variants,image' });
-  if (search) params.set('title', search);
-  // Shopify pagination uses page_info, so approximate with since_id for simplicity
-  const res = await fetch(
-    `https://${platform.shop_domain}/admin/api/${SHOPIFY_API_VERSION}/products.json?${params}`,
-    { headers: { 'X-Shopify-Access-Token': token } }
-  );
-  if (!res.ok) throw new Error(`Shopify products fetch failed: ${res.status}`);
-  const { products } = await res.json();
+  const queryFilter = search ? `title:*${search}*` : '';
+  const data = await shopifyGraphQL(platform.shop_domain, token, `
+    query($query: String) {
+      products(first: 20, query: $query) {
+        edges {
+          node {
+            id title
+            images(first: 1) { edges { node { url } } }
+            variants(first: 100) {
+              edges {
+                node {
+                  id title sku inventoryQuantity
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `, { query: queryFilter || null });
 
-  return (products ?? []).map((p: any) => ({
-    id: String(p.id),
-    title: p.title,
-    sku: p.variants?.[0]?.sku || '',
-    quantity: p.variants?.[0]?.inventory_quantity ?? 0,
-    image_url: p.image?.src ?? null,
-    variants: (p.variants ?? []).map((v: any) => ({
-      id: String(v.id),
-      label: v.title === 'Default Title' ? 'Default' : `${v.title}${v.sku ? ` — ${v.sku}` : ''}`,
-      sku: v.sku || '',
-      quantity: v.inventory_quantity ?? 0,
-    })),
-  }));
+  return (data.products.edges ?? []).map((e: any) => {
+    const p = e.node;
+    const variants = (p.variants.edges ?? []).map((ve: any) => ({
+      id: fromShopifyGid(ve.node.id),
+      label: ve.node.title === 'Default Title' ? 'Default' : `${ve.node.title}${ve.node.sku ? ` — ${ve.node.sku}` : ''}`,
+      sku: ve.node.sku || '',
+      quantity: ve.node.inventoryQuantity ?? 0,
+    }));
+    return {
+      id: fromShopifyGid(p.id),
+      title: p.title,
+      sku: variants[0]?.sku || '',
+      quantity: variants[0]?.quantity ?? 0,
+      image_url: p.images.edges[0]?.node?.url ?? null,
+      variants,
+    };
+  });
 }
 
 async function fetchWooProducts(platform: any, search: string, page: number) {

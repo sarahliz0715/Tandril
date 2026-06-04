@@ -43,31 +43,58 @@ function isEncrypted(value: string): boolean {
   try { return atob(value).length > IV_LENGTH; } catch { return false; }
 }
 
+// ─── GraphQL helpers ──────────────────────────────────────────────────────────
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // ─── Platform product fetchers ────────────────────────────────────────────────
 // Each returns Map<sku, { productId, variantId }>
 
-const SHOPIFY_API_VERSION = '2024-01';
-
 async function fetchShopify(platform: any, token: string): Promise<Map<string, { productId: string; variantId: string }>> {
   const map = new Map<string, { productId: string; variantId: string }>();
-  let url: string | null = `https://${platform.shop_domain}/admin/api/${SHOPIFY_API_VERSION}/products.json?limit=250&fields=id,variants`;
 
-  while (url) {
-    const res = await fetch(url, { headers: { 'X-Shopify-Access-Token': token } });
-    if (!res.ok) { console.warn(`[link-products] Shopify products fetch failed: ${res.status}`); break; }
-    const { products } = await res.json();
-
-    for (const product of products ?? []) {
-      for (const variant of product.variants ?? []) {
-        const sku = variant.sku?.trim();
-        if (sku) map.set(sku, { productId: String(product.id), variantId: String(variant.id) });
+  const data = await shopifyGraphQL(platform.shop_domain, token, `
+    query {
+      products(first: 250) {
+        edges {
+          node {
+            id
+            variants(first: 100) {
+              edges {
+                node {
+                  id sku
+                }
+              }
+            }
+          }
+        }
       }
     }
+  `);
 
-    // Cursor-based pagination via Link header
-    const link = res.headers.get('Link') ?? '';
-    const next = link.match(/<([^>]+)>;\s*rel="next"/);
-    url = next ? next[1] : null;
+  for (const pe of (data.products?.edges ?? [])) {
+    const productId = fromShopifyGid(pe.node.id);
+    for (const ve of (pe.node.variants?.edges ?? [])) {
+      const sku = ve.node.sku?.trim();
+      if (sku) map.set(sku, { productId, variantId: fromShopifyGid(ve.node.id) });
+    }
   }
 
   return map;
