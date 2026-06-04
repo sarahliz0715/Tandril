@@ -10,8 +10,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const SHOPIFY_API_VERSION = '2024-01';
-
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -160,18 +158,74 @@ serve(async (req) => {
   }
 });
 
+// ─── GraphQL helpers ──────────────────────────────────────────────────────────
+
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function toShopifyGid(type: string, id: string | number): string {
+  return `gid://shopify/${type}/${id}`;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function protectInventory(platform: any, threshold: number, action: string): Promise<any> {
-  // Fetch all products
-  const productsResponse = await shopifyRequest(platform, 'products.json?limit=250');
-  const products = productsResponse.products || [];
+  // Fetch all products via GraphQL
+  const data = await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+    query {
+      products(first: 250) {
+        edges {
+          node {
+            id title status
+            variants(first: 100) {
+              edges {
+                node {
+                  id inventoryQuantity inventoryPolicy
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `);
+
+  const products = (data.products.edges || []).map((e: any) => ({
+    ...e.node,
+    id: fromShopifyGid(e.node.id),
+    _gid: e.node.id,
+    variants: e.node.variants.edges.map((v: any) => ({
+      ...v.node,
+      id: fromShopifyGid(v.node.id),
+      _gid: v.node.id,
+      inventory_quantity: v.node.inventoryQuantity,
+      inventory_policy: v.node.inventoryPolicy,
+    })),
+  }));
 
   console.log(`[Inventory Protection] Found ${products.length} products on ${platform.shop_domain}`);
 
   const protectedProducts = [];
 
   for (const product of products) {
-    // Check if product is published (status: 'active')
-    if (product.status !== 'active') {
+    // Check if product is published (status: 'ACTIVE')
+    if (product.status !== 'ACTIVE') {
       continue; // Skip already unpublished products
     }
 
@@ -187,17 +241,15 @@ async function protectInventory(platform: any, threshold: number, action: string
     if (hasLowInventory) {
       try {
         if (action === 'unpublish') {
-          // Unpublish the product
-          await shopifyRequest(
-            platform,
-            `products/${product.id}.json`,
-            'PUT',
-            {
-              product: {
-                status: 'draft',
-              },
+          // Unpublish the product via productUpdate mutation
+          await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+            mutation($input: ProductInput!) {
+              productUpdate(input: $input) {
+                product { id status }
+                userErrors { field message }
+              }
             }
-          );
+          `, { input: { id: product._gid, status: 'DRAFT' } });
 
           protectedProducts.push({
             product_id: product.id,
@@ -208,20 +260,20 @@ async function protectInventory(platform: any, threshold: number, action: string
 
           console.log(`[Inventory Protection] Unpublished: ${product.title} (${product.id})`);
         } else if (action === 'preorder') {
-          // Convert to preorder (set inventory policy to continue)
-          const updates = {
+          // Convert to preorder via productVariantsBulkUpdate
+          await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+            mutation($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+              productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+                userErrors { field message }
+              }
+            }
+          `, {
+            productId: product._gid,
             variants: product.variants.map((v: any) => ({
-              id: v.id,
-              inventory_policy: 'continue', // Allow purchases when out of stock
+              id: v._gid,
+              inventoryPolicy: 'CONTINUE',
             })),
-          };
-
-          await shopifyRequest(
-            platform,
-            `products/${product.id}.json`,
-            'PUT',
-            { product: updates }
-          );
+          });
 
           protectedProducts.push({
             product_id: product.id,
@@ -250,34 +302,4 @@ async function protectInventory(platform: any, threshold: number, action: string
     failed_count: protectedProducts.filter(p => p.action === 'failed').length,
     protected_products: protectedProducts,
   };
-}
-
-async function shopifyRequest(
-  platform: any,
-  endpoint: string,
-  method: string = 'GET',
-  body?: any
-): Promise<any> {
-  const url = `https://${platform.shop_domain}/admin/api/${SHOPIFY_API_VERSION}/${endpoint}`;
-
-  const options: RequestInit = {
-    method,
-    headers: {
-      'X-Shopify-Access-Token': platform.access_token,
-      'Content-Type': 'application/json',
-    },
-  };
-
-  if (body) {
-    options.body = JSON.stringify(body);
-  }
-
-  const response = await fetch(url, options);
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Shopify API error (${response.status}): ${errorText}`);
-  }
-
-  return await response.json();
 }

@@ -10,8 +10,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const SHOPIFY_API_VERSION = '2024-01';
-
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -193,6 +191,29 @@ serve(async (req) => {
   }
 });
 
+// ─── GraphQL helpers ──────────────────────────────────────────────────────────
+
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function monitorOrders(
   platform: any,
   stuckDays: number,
@@ -204,14 +225,47 @@ async function monitorOrders(
   const lookbackDate = new Date(now.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
   const stuckThreshold = new Date(now.getTime() - stuckDays * 24 * 60 * 60 * 1000);
 
-  console.log(`[Order Monitor] Fetching orders since ${lookbackDate.toISOString()}`);
+  const lookbackISO = lookbackDate.toISOString();
+  console.log(`[Order Monitor] Fetching orders since ${lookbackISO}`);
 
-  // Fetch orders from last X days
-  const ordersResponse = await shopifyRequest(
-    platform,
-    `orders.json?status=any&created_at_min=${lookbackDate.toISOString()}&limit=250`
-  );
-  const orders = ordersResponse.orders || [];
+  // Fetch orders via GraphQL
+  const data = await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+    query($query: String!) {
+      orders(first: 250, query: $query) {
+        edges {
+          node {
+            id name createdAt
+            displayFulfillmentStatus
+            displayFinancialStatus
+            totalPriceSet { shopMoney { amount } }
+            customer { firstName lastName email }
+            lineItems(first: 50) {
+              edges { node { title quantity } }
+            }
+            refunds {
+              transactions(first: 10) {
+                kind
+                amountSet { shopMoney { amount } }
+              }
+            }
+          }
+        }
+      }
+    }
+  `, { query: `created_at:>=${lookbackISO} status:any` });
+
+  const orders = (data.orders.edges || []).map((e: any) => ({
+    ...e.node,
+    id: fromShopifyGid(e.node.id),
+    created_at: e.node.createdAt,
+    order_number: e.node.name,
+    total_price: parseFloat(e.node.totalPriceSet?.shopMoney?.amount || '0'),
+    fulfillment_status: (e.node.displayFulfillmentStatus || '').toLowerCase().replace('_', ' '),
+    financial_status: (e.node.displayFinancialStatus || '').toLowerCase(),
+    customer: e.node.customer,
+    line_items: e.node.lineItems.edges.map((li: any) => li.node),
+    refunds: e.node.refunds || [],
+  }));
 
   console.log(`[Order Monitor] Found ${orders.length} orders`);
 
@@ -232,20 +286,20 @@ async function monitorOrders(
 
   for (const order of orders) {
     const createdAt = new Date(order.created_at);
+    // GraphQL displayFulfillmentStatus: FULFILLED, PARTIALLY_FULFILLED, UNFULFILLED, IN_PROGRESS, etc.
     const fulfillmentStatus = order.fulfillment_status;
 
     // Track fulfillment status
     if (fulfillmentStatus === 'fulfilled') {
       fulfillmentSummary.fulfilled++;
-    } else if (fulfillmentStatus === 'partial') {
+    } else if (fulfillmentStatus === 'partially fulfilled') {
       fulfillmentSummary.partially_fulfilled++;
     } else {
       fulfillmentSummary.unfulfilled++;
     }
 
     // Detect stuck orders (unfulfilled and older than threshold)
-    if ((fulfillmentStatus === null || fulfillmentStatus === 'unfulfilled' || fulfillmentStatus === 'partial') &&
-        createdAt < stuckThreshold) {
+    if (fulfillmentStatus !== 'fulfilled' && createdAt < stuckThreshold) {
       fulfillmentSummary.stuck++;
 
       const daysStuck = Math.floor((now.getTime() - createdAt.getTime()) / (24 * 60 * 60 * 1000));
@@ -254,9 +308,9 @@ async function monitorOrders(
         order_id: order.id,
         order_number: order.order_number,
         order_name: order.name,
-        customer_name: `${order.customer?.first_name || ''} ${order.customer?.last_name || ''}`.trim() || 'Unknown',
+        customer_name: `${order.customer?.firstName || ''} ${order.customer?.lastName || ''}`.trim() || 'Unknown',
         customer_email: order.customer?.email,
-        total_price: parseFloat(order.total_price || '0'),
+        total_price: order.total_price,
         fulfillment_status: fulfillmentStatus || 'unfulfilled',
         financial_status: order.financial_status,
         created_at: order.created_at,
@@ -273,8 +327,8 @@ async function monitorOrders(
 
       for (const refund of order.refunds) {
         for (const transaction of refund.transactions || []) {
-          if (transaction.kind === 'refund') {
-            refundAmount += parseFloat(transaction.amount || '0');
+          if (transaction.kind === 'REFUND') {
+            refundAmount += parseFloat(transaction.amountSet?.shopMoney?.amount || '0');
           }
         }
       }
@@ -301,34 +355,4 @@ async function monitorOrders(
     fulfillment_summary: fulfillmentSummary,
     returns_summary: returnsSummary,
   };
-}
-
-async function shopifyRequest(
-  platform: any,
-  endpoint: string,
-  method: string = 'GET',
-  body?: any
-): Promise<any> {
-  const url = `https://${platform.shop_domain}/admin/api/${SHOPIFY_API_VERSION}/${endpoint}`;
-
-  const options: RequestInit = {
-    method,
-    headers: {
-      'X-Shopify-Access-Token': platform.access_token,
-      'Content-Type': 'application/json',
-    },
-  };
-
-  if (body) {
-    options.body = JSON.stringify(body);
-  }
-
-  const response = await fetch(url, options);
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Shopify API error (${response.status}): ${errorText}`);
-  }
-
-  return await response.json();
 }

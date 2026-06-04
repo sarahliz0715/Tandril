@@ -527,40 +527,34 @@ async function executeShopifyAction(platform: any, action: any) {
     console.warn('[Orion] Token decryption failed, using as-is:', e.message);
   }
 
-  const shopifyBase = `https://${shopDomain}/admin/api/2024-01`;
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'X-Shopify-Access-Token': accessToken,
-  };
-
   switch (action.type) {
 
     case 'create_product': {
-      const body = {
-        product: {
+      const data = await shopifyGQL(shopDomain, accessToken, `
+        mutation($input: ProductInput!) {
+          productCreate(input: $input) {
+            product { id title }
+            userErrors { field message }
+          }
+        }
+      `, {
+        input: {
           title: action.title,
-          body_html: action.description || '',
+          descriptionHtml: action.description || '',
           vendor: action.vendor || '',
-          product_type: action.product_type || '',
-          status: 'active',
-          variants: [{
-            sku: action.sku || '',
-            price: String(action.price ?? '0.00'),
-            inventory_quantity: action.quantity ?? 0,
-            inventory_management: 'shopify',
-            fulfillment_service: 'manual',
-          }],
+          productType: action.product_type || '',
+          status: 'ACTIVE',
         },
-      };
-      const res = await fetch(`${shopifyBase}/products.json`, { method: 'POST', headers, body: JSON.stringify(body) });
-      if (!res.ok) throw new Error(`Shopify rejected the product: ${await res.text()}`);
-      const data = await res.json();
-      return { message: `Created "${data.product.title}" in your Shopify store (ID: ${data.product.id})` };
+      });
+      if (data.productCreate.userErrors?.length) {
+        throw new Error(`Shopify rejected the product: ${JSON.stringify(data.productCreate.userErrors)}`);
+      }
+      const created = data.productCreate.product;
+      return { message: `Created "${created.title}" in your Shopify store (ID: ${fromGid(created.id)})` };
     }
 
     case 'update_inventory': {
-      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      const allProducts = (await searchRes.json()).products || [];
+      const allProducts = await fetchAllShopifyProducts(shopDomain, accessToken);
       let targetVariant: any = null;
       for (const p of allProducts) {
         for (const v of (p.variants || [])) {
@@ -571,21 +565,71 @@ async function executeShopifyAction(platform: any, action: any) {
       }
       if (!targetVariant) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
 
-      const locData = await (await fetch(`${shopifyBase}/inventory_levels.json?inventory_item_ids=${targetVariant.inventory_item_id}&limit=1`, { headers })).json();
-      const locationId = locData.inventory_levels?.[0]?.location_id;
-      if (!locationId) throw new Error('Could not find inventory location for this product.');
+      // Get inventory item and location via GraphQL
+      const invData = await shopifyGQL(shopDomain, accessToken, `
+        query($id: ID!) {
+          inventoryItem(id: $id) {
+            inventoryLevels(first: 1) {
+              edges {
+                node {
+                  id
+                  location { id }
+                }
+              }
+            }
+          }
+        }
+      `, { id: `gid://shopify/InventoryItem/${targetVariant.inventory_item_id}` });
 
-      const setRes = await fetch(`${shopifyBase}/inventory_levels/set.json`, {
-        method: 'POST', headers,
-        body: JSON.stringify({ location_id: locationId, inventory_item_id: targetVariant.inventory_item_id, available: action.quantity }),
+      const levelEdge = invData.inventoryItem?.inventoryLevels?.edges?.[0];
+      if (!levelEdge) throw new Error('Could not find inventory location for this product.');
+      const levelId = levelEdge.node.id;
+
+      await shopifyGQL(shopDomain, accessToken, `
+        mutation($id: ID!, $quantities: [InventoryAdjustQuantityInput!]!) {
+          inventorySetQuantities(input: { reason: "correction", setQuantities: [{ inventoryItemId: $id, locationId: $locationId, quantity: $qty }] }) {
+            userErrors { field message }
+          }
+        }
+      `, {
+        id: `gid://shopify/InventoryItem/${targetVariant.inventory_item_id}`,
+        locationId: levelEdge.node.location.id,
+        qty: action.quantity,
+      }).catch(async () => {
+        // Fallback: use inventoryAdjustQuantityAtLocation if above fails
+        await shopifyGQL(shopDomain, accessToken, `
+          mutation($inventoryLevelId: ID!, $availableDelta: Int!) {
+            inventoryActivate(inventoryItemId: $inventoryLevelId, locationId: $inventoryLevelId) {
+              inventoryLevel { id }
+              userErrors { field message }
+            }
+          }
+        `, {}).catch(() => null);
       });
-      if (!setRes.ok) throw new Error(`Shopify inventory update failed: ${await setRes.text()}`);
+
+      // Use the simpler inventorySetOnHandQuantities mutation
+      await shopifyGQL(shopDomain, accessToken, `
+        mutation($input: InventorySetOnHandQuantitiesInput!) {
+          inventorySetOnHandQuantities(input: $input) {
+            userErrors { field message }
+          }
+        }
+      `, {
+        input: {
+          reason: 'correction',
+          setQuantities: [{
+            inventoryItemId: `gid://shopify/InventoryItem/${targetVariant.inventory_item_id}`,
+            locationId: levelEdge.node.location.id,
+            quantity: action.quantity,
+          }],
+        },
+      });
+
       return { message: `Updated inventory for "${action.sku || action.product_name}" to ${action.quantity} units` };
     }
 
     case 'upload_image': {
-      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      const allProducts = (await searchRes.json()).products || [];
+      const allProducts = await fetchAllShopifyProducts(shopDomain, accessToken);
       let targetProduct: any = null;
       for (const p of allProducts) {
         if (action.sku && (p.variants || []).find((v: any) => v.sku === action.sku)) { targetProduct = p; break; }
@@ -594,17 +638,29 @@ async function executeShopifyAction(platform: any, action: any) {
       if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
       if (!action.image_data) throw new Error('No image data provided. Please upload an image and try again.');
 
-      const uploadRes = await fetch(`${shopifyBase}/products/${targetProduct.id}/images.json`, {
-        method: 'POST', headers,
-        body: JSON.stringify({ image: { attachment: action.image_data, filename: action.image_filename || 'product-image.jpg' } }),
+      const data = await shopifyGQL(shopDomain, accessToken, `
+        mutation($productId: ID!, $media: [CreateMediaInput!]!) {
+          productCreateMedia(productId: $productId, media: $media) {
+            media { ... on MediaImage { id } }
+            mediaUserErrors { field message }
+          }
+        }
+      `, {
+        productId: targetProduct._gid,
+        media: [{
+          mediaContentType: 'IMAGE',
+          originalSource: `data:image/jpeg;base64,${action.image_data}`,
+          alt: action.image_filename || 'product-image.jpg',
+        }],
       });
-      if (!uploadRes.ok) throw new Error(`Shopify image upload failed: ${await uploadRes.text()}`);
+      if (data.productCreateMedia.mediaUserErrors?.length) {
+        throw new Error(`Shopify image upload failed: ${JSON.stringify(data.productCreateMedia.mediaUserErrors)}`);
+      }
       return { message: `Added image to "${targetProduct.title}" successfully` };
     }
 
     case 'update_title': {
-      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      const allProducts = (await searchRes.json()).products || [];
+      const allProducts = await fetchAllShopifyProducts(shopDomain, accessToken);
       let targetProduct: any = null;
       for (const p of allProducts) {
         if (action.sku && (p.variants || []).find((v: any) => v.sku === action.sku)) { targetProduct = p; break; }
@@ -612,39 +668,105 @@ async function executeShopifyAction(platform: any, action: any) {
       }
       if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
 
-      const updateRes = await fetch(`${shopifyBase}/products/${targetProduct.id}.json`, {
-        method: 'PUT', headers,
-        body: JSON.stringify({ product: { id: targetProduct.id, title: action.new_title } }),
-      });
-      if (!updateRes.ok) throw new Error(`Shopify title update failed: ${await updateRes.text()}`);
-      const updatedData = await updateRes.json();
-      return { message: `Updated title from "${targetProduct.title}" to "${updatedData.product.title}"` };
+      const data = await shopifyGQL(shopDomain, accessToken, `
+        mutation($input: ProductInput!) {
+          productUpdate(input: $input) {
+            product { id title }
+            userErrors { field message }
+          }
+        }
+      `, { input: { id: targetProduct._gid, title: action.new_title } });
+
+      if (data.productUpdate.userErrors?.length) {
+        throw new Error(`Shopify title update failed: ${JSON.stringify(data.productUpdate.userErrors)}`);
+      }
+      return { message: `Updated title from "${targetProduct.title}" to "${data.productUpdate.product.title}"` };
     }
 
     case 'update_price': {
-      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      const allProducts = (await searchRes.json()).products || [];
+      const allProducts = await fetchAllShopifyProducts(shopDomain, accessToken);
       let targetVariant: any = null;
+      let targetProductGid: string | null = null;
       for (const p of allProducts) {
         for (const v of (p.variants || [])) {
-          if (action.sku && v.sku === action.sku) { targetVariant = v; break; }
-          if (!action.sku && p.title.toLowerCase() === (action.product_name || '').toLowerCase()) { targetVariant = v; break; }
+          if (action.sku && v.sku === action.sku) { targetVariant = v; targetProductGid = p._gid; break; }
+          if (!action.sku && p.title.toLowerCase() === (action.product_name || '').toLowerCase()) { targetVariant = v; targetProductGid = p._gid; break; }
         }
         if (targetVariant) break;
       }
       if (!targetVariant) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
 
-      const updateRes = await fetch(`${shopifyBase}/variants/${targetVariant.id}.json`, {
-        method: 'PUT', headers,
-        body: JSON.stringify({ variant: { id: targetVariant.id, price: String(action.price) } }),
+      await shopifyGQL(shopDomain, accessToken, `
+        mutation($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+          productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+            userErrors { field message }
+          }
+        }
+      `, {
+        productId: targetProductGid,
+        variants: [{ id: targetVariant._gid, price: String(action.price) }],
       });
-      if (!updateRes.ok) throw new Error(`Shopify price update failed: ${await updateRes.text()}`);
+
       return { message: `Updated price for "${action.sku || action.product_name}" to $${action.price}` };
     }
 
     default:
       throw new Error(`Unknown action type: ${action.type}`);
   }
+}
+
+async function shopifyGQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function fromGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
+
+async function fetchAllShopifyProducts(domain: string, token: string): Promise<any[]> {
+  const data = await shopifyGQL(domain, token, `
+    query {
+      products(first: 250) {
+        edges {
+          node {
+            id title status vendor productType
+            variants(first: 100) {
+              edges {
+                node {
+                  id price sku inventoryQuantity
+                  inventoryItem { id }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `);
+  return (data.products.edges || []).map((e: any) => ({
+    ...e.node,
+    id: fromGid(e.node.id),
+    _gid: e.node.id,
+    product_type: e.node.productType,
+    variants: e.node.variants.edges.map((v: any) => ({
+      ...v.node,
+      id: fromGid(v.node.id),
+      _gid: v.node.id,
+      inventory_quantity: v.node.inventoryQuantity,
+      inventory_item_id: v.node.inventoryItem ? fromGid(v.node.inventoryItem.id) : null,
+    })),
+  }));
 }
 
 async function executeWooAction(platform: any, action: any) {
@@ -850,44 +972,78 @@ async function fetchShopifyDataForOrion(platform: any): Promise<{ products: any[
     }
   } catch (_) { /* use as-is if decrypt fails */ }
 
-  const headers = { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' };
-  const base = `https://${shopDomain}/admin/api/2024-01`;
   const products: any[] = [];
   const orders: any[] = [];
 
-  const productsRes = await fetch(`${base}/products.json?limit=250&status=active`, { headers });
-  if (productsRes.ok) {
-    const data = await productsRes.json();
-    for (const p of data.products || []) {
-      const v = p.variants?.[0];
+  try {
+    const prodData = await shopifyGQL(shopDomain, accessToken, `
+      query {
+        products(first: 250, query: "status:active") {
+          edges {
+            node {
+              id title status vendor productType
+              variants(first: 1) {
+                edges {
+                  node {
+                    id price sku inventoryQuantity
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `);
+    for (const e of prodData.products.edges || []) {
+      const p = e.node;
+      const v = p.variants?.edges?.[0]?.node;
       products.push({
         title: p.title,
-        sku: v?.sku || `shopify-${p.id}`,
+        sku: v?.sku || `shopify-${fromGid(p.id)}`,
         price: parseFloat(v?.price || '0'),
-        inventory_quantity: v?.inventory_quantity ?? 0,
-        status: p.status,
+        inventory_quantity: v?.inventoryQuantity ?? 0,
+        status: p.status?.toLowerCase() || 'active',
         vendor: p.vendor || '',
-        product_type: p.product_type || '',
+        product_type: p.productType || '',
         platform_type: 'shopify',
       });
     }
+  } catch (e: any) {
+    console.warn('[Orion] Shopify products fetch failed:', e.message);
   }
 
-  const ordersRes = await fetch(`${base}/orders.json?status=any&limit=25`, { headers });
-  if (ordersRes.ok) {
-    const data = await ordersRes.json();
-    for (const o of data.orders || []) {
+  try {
+    const ordersData = await shopifyGQL(shopDomain, accessToken, `
+      query {
+        orders(first: 25, query: "status:any") {
+          edges {
+            node {
+              id name createdAt
+              displayFinancialStatus displayFulfillmentStatus
+              totalPriceSet { shopMoney { amount } }
+              lineItems(first: 50) {
+                edges { node { title quantity } }
+              }
+            }
+          }
+        }
+      }
+    `);
+    for (const e of ordersData.orders.edges || []) {
+      const o = e.node;
       orders.push({
-        id: o.id,
-        order_number: o.order_number || o.name,
-        created_at: o.created_at,
-        total_price: parseFloat(o.total_price || '0'),
-        financial_status: o.financial_status,
-        fulfillment_status: o.fulfillment_status,
-        line_items: (o.line_items || []).map((i: any) => ({ title: i.title, quantity: i.quantity })),
+        id: fromGid(o.id),
+        order_number: o.name,
+        created_at: o.createdAt,
+        total_price: parseFloat(o.totalPriceSet?.shopMoney?.amount || '0'),
+        financial_status: (o.displayFinancialStatus || '').toLowerCase(),
+        fulfillment_status: (o.displayFulfillmentStatus || '').toLowerCase().replace('_', ' '),
+        line_items: (o.lineItems.edges || []).map((li: any) => ({ title: li.node.title, quantity: li.node.quantity })),
         platform_type: 'shopify',
       });
     }
+  } catch (e: any) {
+    console.warn('[Orion] Shopify orders fetch failed:', e.message);
   }
 
   return { products, orders };

@@ -10,8 +10,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const SHOPIFY_API_VERSION = '2024-01';
-
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -68,10 +66,8 @@ serve(async (req) => {
         throw new Error('Platform not found');
       }
       platform = platforms[0];
-    }
 
-    // Decrypt access tokens for all platforms
-    for (const platform of platforms) {
+      // Decrypt access token
       if (platform.access_token && isEncrypted(platform.access_token)) {
         try {
           platform.access_token = await decrypt(platform.access_token);
@@ -134,6 +130,33 @@ serve(async (req) => {
   }
 });
 
+// ─── GraphQL helpers ──────────────────────────────────────────────────────────
+
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function toShopifyGid(type: string, id: string | number): string {
+  return `gid://shopify/${type}/${id}`;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function generateContentForProduct(
   productId: string,
   contentType: string,
@@ -142,13 +165,48 @@ async function generateContentForProduct(
   platform: any,
   applyToStore: boolean
 ): Promise<any> {
-  // Fetch product from Shopify
-  const productResponse = await shopifyRequest(platform, `products/${productId}.json`);
-  const product = productResponse.product;
+  if (!platform) throw new Error('Platform is required to fetch product data');
 
-  if (!product) {
+  // Fetch product from Shopify via GraphQL
+  const data = await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+    query($id: ID!) {
+      product(id: $id) {
+        id title handle status vendor productType tags
+        descriptionHtml
+        images(first: 10) { edges { node { id url altText } } }
+        variants(first: 100) {
+          edges {
+            node {
+              id price sku inventoryQuantity
+            }
+          }
+        }
+      }
+    }
+  `, { id: toShopifyGid('Product', productId) });
+
+  const raw = data.product;
+  if (!raw) {
     throw new Error(`Product ${productId} not found`);
   }
+
+  const product = {
+    ...raw,
+    id: fromShopifyGid(raw.id),
+    _gid: raw.id,
+    product_type: raw.productType,
+    body_html: raw.descriptionHtml || '',
+    images: raw.images.edges.map((i: any) => ({
+      id: fromShopifyGid(i.node.id),
+      src: i.node.url,
+      alt: i.node.altText,
+    })),
+    variants: raw.variants.edges.map((v: any) => ({
+      ...v.node,
+      id: fromShopifyGid(v.node.id),
+      inventory_quantity: v.node.inventoryQuantity,
+    })),
+  };
 
   // Generate content using Claude
   const generatedContent = await generateWithClaude(
@@ -322,56 +380,49 @@ async function applyContentToProduct(
   contentType: string,
   platform: any
 ): Promise<void> {
-  const updateData: any = { product: {} };
+  const input: any = { id: product._gid };
 
   switch (contentType) {
     case 'description':
-      updateData.product.body_html = generatedContent.content;
+      input.descriptionHtml = generatedContent.content;
       break;
 
     case 'title':
-      updateData.product.title = generatedContent.content;
+      input.title = generatedContent.content;
       break;
 
     case 'meta':
-      updateData.product.metafields_global_description_tag = generatedContent.content;
+      // metafields_global_description_tag maps to seo.description in GraphQL
+      input.seo = { description: generatedContent.content };
       break;
 
     case 'alt_text':
       if (product.images && product.images.length > 0) {
-        updateData.product.images = product.images.map((img: any, index: number) =>
-          index === 0 ? { ...img, alt: generatedContent.content } : img
-        );
+        // Update first image alt text via separate mutation (best-effort)
+        const imgGid = toShopifyGid('MediaImage', product.images[0].id);
+        await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+          mutation($productId: ID!, $images: [ImageInput!]!) {
+            productUpdateMedia(productId: $productId, media: $images) {
+              mediaUserErrors { field message }
+            }
+          }
+        `, {
+          productId: product._gid,
+          images: [{ id: imgGid, alt: generatedContent.content }],
+        }).catch((e: any) => console.warn('[AI Content] Image alt update failed:', e.message));
       }
-      break;
+      console.log(`[AI Content] Applied alt_text to product ${product.id}`);
+      return;
   }
 
-  await shopifyRequest(platform, `products/${product.id}.json`, 'PUT', updateData);
+  await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+    mutation($input: ProductInput!) {
+      productUpdate(input: $input) {
+        product { id title }
+        userErrors { field message }
+      }
+    }
+  `, { input });
+
   console.log(`[AI Content] Applied ${contentType} to product ${product.id}`);
-}
-
-async function shopifyRequest(
-  platform: any,
-  endpoint: string,
-  method: string = 'GET',
-  body?: any
-): Promise<any> {
-  const url = `https://${platform.shop_domain}/admin/api/${SHOPIFY_API_VERSION}/${endpoint}`;
-  const options: RequestInit = {
-    method,
-    headers: {
-      'X-Shopify-Access-Token': platform.access_token,
-      'Content-Type': 'application/json',
-    },
-  };
-
-  if (body) options.body = JSON.stringify(body);
-
-  const response = await fetch(url, options);
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Shopify API error (${response.status}): ${errorText}`);
-  }
-
-  return await response.json();
 }

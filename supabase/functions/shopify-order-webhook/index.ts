@@ -29,7 +29,32 @@ function isEncrypted(value: string): boolean {
 }
 // --- End encryption helpers ---
 
-const SHOPIFY_API_VERSION = '2024-01';
+// ─── GraphQL helpers ──────────────────────────────────────────────────────────
+
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function toShopifyGid(type: string, id: string | number): string {
+  return `gid://shopify/${type}/${id}`;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function verifyShopifyHmac(body: string, hmacHeader: string, secret: string): Promise<boolean> {
   const encoder = new TextEncoder();
@@ -93,22 +118,44 @@ serve(async (req) => {
 
     for (const lineItem of lineItems) {
       const sku = lineItem.sku;
-      if (!sku) continue;
+      if (!sku || !lineItem.variant_id) continue;
 
-      const variantRes = await fetch(
-        `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/variants/${lineItem.variant_id}.json`,
-        { headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' } }
-      );
-      if (!variantRes.ok) continue;
-      const { variant } = await variantRes.json();
+      // Fetch variant via GraphQL to get inventoryItem id
+      const variantData = await shopifyGraphQL(shopDomain, token, `
+        query($id: ID!) {
+          productVariant(id: $id) {
+            id sku
+            inventoryItem { id }
+          }
+        }
+      `, { id: toShopifyGid('ProductVariant', lineItem.variant_id) }).catch(() => null);
 
-      const invRes = await fetch(
-        `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/inventory_levels.json?inventory_item_ids=${variant.inventory_item_id}`,
-        { headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' } }
-      );
-      if (!invRes.ok) continue;
-      const { inventory_levels } = await invRes.json();
-      const totalQty = (inventory_levels ?? []).reduce((sum: number, l: any) => sum + (l.available ?? 0), 0);
+      if (!variantData?.productVariant) continue;
+
+      const inventoryItemId = variantData.productVariant.inventoryItem?.id;
+      if (!inventoryItemId) continue;
+
+      // Fetch inventory levels via GraphQL
+      const invData = await shopifyGraphQL(shopDomain, token, `
+        query($id: ID!) {
+          inventoryItem(id: $id) {
+            inventoryLevels(first: 10) {
+              edges {
+                node {
+                  quantities(names: ["available"]) { name quantity }
+                }
+              }
+            }
+          }
+        }
+      `, { id: inventoryItemId }).catch(() => null);
+
+      if (!invData?.inventoryItem) continue;
+
+      const totalQty = (invData.inventoryItem.inventoryLevels.edges || []).reduce((sum: number, e: any) => {
+        const avail = e.node.quantities?.find((q: any) => q.name === 'available')?.quantity ?? 0;
+        return sum + avail;
+      }, 0);
 
       skuUpdates.push({ sku, quantity: totalQty });
     }
