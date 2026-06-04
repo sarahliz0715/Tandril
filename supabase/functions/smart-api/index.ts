@@ -5,6 +5,29 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { signSpApiRequest, refreshLwaToken } from '../_shared/awsSigV4.ts';
 
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function toShopifyGid(type: string, id: string | number): string {
+  return `gid://shopify/${type}/${id}`;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
+
 // Bracket-aware extraction of [ORION_ACTION:{...}] blocks.
 // The naive regex /\[ORION_ACTION:([\s\S]*?)\]/ stops at the first ] it finds,
 // which breaks any action block that contains arrays (multi_action, batch_update, etc.).
@@ -1169,12 +1192,6 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     console.warn('[Orion] Token decryption failed, using as-is:', e.message);
   }
 
-  const shopifyBase = `https://${shopDomain}/admin/api/2024-01`;
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'X-Shopify-Access-Token': accessToken,
-  };
-
   switch (action.type) {
     case 'get_inventory': {
       // Returns live Shopify + eBay products normalized for the Inventory page
@@ -1184,10 +1201,40 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       // Fetch Shopify products (only if Shopify is connected)
       let shopifyProducts: any[] = [];
       if (platforms && platforms.length > 0 && shopDomain) {
-        const res = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-        if (res.ok) {
-          const data = await res.json();
-          shopifyProducts = data.products || [];
+        try {
+          const gqlData = await shopifyGraphQL(shopDomain, accessToken, `
+            query {
+              products(first: 250) {
+                edges {
+                  node {
+                    id title handle status vendor productType tags
+                    images(first: 1) { edges { node { url altText } } }
+                    variants(first: 100) {
+                      edges {
+                        node {
+                          id price sku inventoryQuantity
+                          inventoryItem { id }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          `);
+          shopifyProducts = (gqlData.products.edges || []).map((e: any) => ({
+            ...e.node,
+            id: fromShopifyGid(e.node.id),
+            images: e.node.images.edges.map((i: any) => ({ src: i.node.url })),
+            variants: e.node.variants.edges.map((v: any) => ({
+              ...v.node,
+              id: fromShopifyGid(v.node.id),
+              inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null,
+              inventory_quantity: v.node.inventoryQuantity,
+            })),
+          }));
+        } catch (e: any) {
+          console.warn('[Orion] get_inventory GraphQL fetch failed:', e.message);
         }
       }
       for (const p of shopifyProducts) {
@@ -1546,71 +1593,152 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     }
 
     case 'create_product': {
-      const body = {
-        product: {
+      const cpData = await shopifyGraphQL(shopDomain, accessToken, `
+        mutation createProduct($input: ProductInput!) {
+          productCreate(input: $input) {
+            product { id title }
+            userErrors { field message }
+          }
+        }
+      `, {
+        input: {
           title: action.title,
-          body_html: action.description || '',
+          bodyHtml: action.description || '',
           vendor: action.vendor || '',
-          product_type: action.product_type || '',
-          status: 'active',
+          productType: action.product_type || '',
+          status: 'ACTIVE',
           variants: [{
             sku: action.sku || '',
             price: String(action.price ?? '0.00'),
-            inventory_quantity: action.quantity ?? 0,
-            inventory_management: 'shopify',
-            fulfillment_service: 'manual',
+            inventoryQuantities: [{
+              availableQuantity: action.quantity ?? 0,
+              locationId: null,
+            }],
+            inventoryManagement: 'SHOPIFY',
+            fulfillmentService: 'MANUAL',
           }],
         },
-      };
-      const res = await fetch(`${shopifyBase}/products.json`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error(`Shopify rejected the product: ${await res.text()}`);
-      const data = await res.json();
-      return { message: `Created "${data.product.title}" in your Shopify store (ID: ${data.product.id})` };
+      if (cpData.productCreate.userErrors?.length) {
+        throw new Error(`Shopify rejected the product: ${JSON.stringify(cpData.productCreate.userErrors)}`);
+      }
+      const newProduct = cpData.productCreate.product;
+      return { message: `Created "${newProduct.title}" in your Shopify store (ID: ${fromShopifyGid(newProduct.id)})` };
     }
 
     case 'update_inventory': {
-      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      const searchData = await searchRes.json();
-      const allProducts = searchData.products || [];
+      const invGqlData = await shopifyGraphQL(shopDomain, accessToken, `
+        query {
+          products(first: 250) {
+            edges {
+              node {
+                id title handle status vendor productType tags
+                images(first: 1) { edges { node { url altText } } }
+                variants(first: 100) {
+                  edges {
+                    node {
+                      id price sku inventoryQuantity
+                      inventoryItem { id }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      `);
+      const allInvProducts = invGqlData.products.edges.map((e: any) => ({
+        ...e.node,
+        id: fromShopifyGid(e.node.id),
+        images: e.node.images.edges.map((i: any) => ({ src: i.node.url })),
+        variants: e.node.variants.edges.map((v: any) => ({
+          ...v.node,
+          id: fromShopifyGid(v.node.id),
+          inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null,
+          inventory_quantity: v.node.inventoryQuantity,
+        })),
+      }));
 
-      const invProduct = findProduct(allProducts, action.sku, action.product_name);
+      const invProduct = findProduct(allInvProducts, action.sku, action.product_name);
       if (!invProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
       const targetVariant = action.sku
         ? (invProduct.variants || []).find((v: any) => v.sku === action.sku) || invProduct.variants?.[0]
         : invProduct.variants?.[0];
       if (!targetVariant) throw new Error(`Product "${invProduct.title}" has no variants.`);
 
-      const locRes = await fetch(
-        `${shopifyBase}/inventory_levels.json?inventory_item_ids=${targetVariant.inventory_item_id}&limit=1`,
-        { headers }
-      );
-      const locData = await locRes.json();
-      const locationId = locData.inventory_levels?.[0]?.location_id;
+      // Get location ID via GraphQL locations query
+      const locGqlData = await shopifyGraphQL(shopDomain, accessToken, `
+        query {
+          locations(first: 10) {
+            edges {
+              node { id name }
+            }
+          }
+        }
+      `);
+      const locations = locGqlData.locations.edges.map((e: any) => ({
+        id: fromShopifyGid(e.node.id),
+        name: e.node.name,
+      }));
+      const locationId = locations[0]?.id;
       if (!locationId) throw new Error('Could not find inventory location for this product.');
 
-      const setRes = await fetch(`${shopifyBase}/inventory_levels/set.json`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          location_id: locationId,
-          inventory_item_id: targetVariant.inventory_item_id,
-          available: action.quantity,
-        }),
+      await shopifyGraphQL(shopDomain, accessToken, `
+        mutation setInventory($input: InventorySetQuantitiesInput!) {
+          inventorySetQuantities(input: $input) {
+            inventoryAdjustmentGroup { reason }
+            userErrors { field message }
+          }
+        }
+      `, {
+        input: {
+          reason: 'correction',
+          name: 'available',
+          quantities: [{
+            inventoryItemId: toShopifyGid('InventoryItem', targetVariant.inventory_item_id),
+            locationId: toShopifyGid('Location', locationId),
+            quantity: action.quantity,
+          }],
+        },
       });
-      if (!setRes.ok) throw new Error(`Shopify inventory update failed: ${await setRes.text()}`);
       return { message: `Updated inventory for "${action.sku || action.product_name}" to ${action.quantity} units` };
     }
 
     case 'update_price': {
-      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      const searchData = await searchRes.json();
-      const allProducts = searchData.products || [];
+      const priceGqlData = await shopifyGraphQL(shopDomain, accessToken, `
+        query {
+          products(first: 250) {
+            edges {
+              node {
+                id title handle status vendor productType tags
+                images(first: 1) { edges { node { url altText } } }
+                variants(first: 100) {
+                  edges {
+                    node {
+                      id price sku inventoryQuantity
+                      inventoryItem { id }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      `);
+      const allPriceProducts = priceGqlData.products.edges.map((e: any) => ({
+        ...e.node,
+        _gid: e.node.id,
+        id: fromShopifyGid(e.node.id),
+        images: e.node.images.edges.map((i: any) => ({ src: i.node.url })),
+        variants: e.node.variants.edges.map((v: any) => ({
+          ...v.node,
+          id: fromShopifyGid(v.node.id),
+          inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null,
+          inventory_quantity: v.node.inventoryQuantity,
+        })),
+      }));
 
-      const priceProduct = findProduct(allProducts, action.sku, action.product_name);
+      const priceProduct = findProduct(allPriceProducts, action.sku, action.product_name);
       if (!priceProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
 
       const variants: any[] = priceProduct.variants || [];
@@ -1630,19 +1758,22 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const variantsToUpdate = exactMatch ? [exactMatch] : variants;
 
       const previousPrices: Array<{ variant_id: number; previous_price: string; sku: string }> = [];
-      const updateErrors: string[] = [];
-      for (const variant of variantsToUpdate) {
+      const productGid = priceProduct._gid;
+      const variantInputs = variantsToUpdate.map((variant: any) => {
         previousPrices.push({ variant_id: variant.id, previous_price: variant.price, sku: variant.sku || '' });
-        const updateRes = await fetch(`${shopifyBase}/variants/${variant.id}.json`, {
-          method: 'PUT',
-          headers,
-          body: JSON.stringify({ variant: { id: variant.id, price: String(action.price) } }),
-        });
-        if (!updateRes.ok) {
-          updateErrors.push(`variant ${variant.sku || variant.id}: ${await updateRes.text()}`);
+        return { id: toShopifyGid('ProductVariant', variant.id), price: String(action.price) };
+      });
+      const priceUpdateData = await shopifyGraphQL(shopDomain, accessToken, `
+        mutation updateVariantPrice($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+          productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+            productVariants { id price }
+            userErrors { field message }
+          }
         }
+      `, { productId: productGid, variants: variantInputs });
+      if (priceUpdateData.productVariantsBulkUpdate.userErrors?.length) {
+        throw new Error(`Shopify price update failed: ${JSON.stringify(priceUpdateData.productVariantsBulkUpdate.userErrors)}`);
       }
-      if (updateErrors.length > 0) throw new Error(`Shopify price update failed: ${updateErrors.join('; ')}`);
       const label = exactMatch
         ? `variant "${exactMatch.sku || exactMatch.id}" of`
         : variantsToUpdate.length > 1 ? `all ${variantsToUpdate.length} variants of` : '';
@@ -1663,13 +1794,30 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       }
       const restoreErrors: string[] = [];
       for (const vp of variant_prices) {
-        const restoreRes = await fetch(`${shopifyBase}/variants/${vp.variant_id}.json`, {
-          method: 'PUT',
-          headers,
-          body: JSON.stringify({ variant: { id: vp.variant_id, price: String(vp.price) } }),
+        // Get productId from variant GID
+        const variantData = await shopifyGraphQL(shopDomain, accessToken, `
+          query getVariant($id: ID!) {
+            productVariant(id: $id) { id product { id } }
+          }
+        `, { id: toShopifyGid('ProductVariant', vp.variant_id) });
+        if (!variantData.productVariant) {
+          restoreErrors.push(`variant ${vp.variant_id}: not found`);
+          continue;
+        }
+        const productGid = variantData.productVariant.product.id;
+        const restoreData = await shopifyGraphQL(shopDomain, accessToken, `
+          mutation updateVariantPrice($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+            productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+              productVariants { id price }
+              userErrors { field message }
+            }
+          }
+        `, {
+          productId: productGid,
+          variants: [{ id: toShopifyGid('ProductVariant', vp.variant_id), price: String(vp.price) }],
         });
-        if (!restoreRes.ok) {
-          restoreErrors.push(`variant ${vp.variant_id}: ${await restoreRes.text()}`);
+        if (restoreData.productVariantsBulkUpdate.userErrors?.length) {
+          restoreErrors.push(`variant ${vp.variant_id}: ${JSON.stringify(restoreData.productVariantsBulkUpdate.userErrors)}`);
         }
       }
       if (restoreErrors.length > 0) throw new Error(`Price restore failed: ${restoreErrors.join('; ')}`);
@@ -1702,17 +1850,29 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
               if (tok && tok.length > 50 && !tok.startsWith('shpat_') && !tok.startsWith('shpca_')) {
                 try { const { decrypt: dec } = await import('../_shared/encryption.ts'); tok = await dec(tok); } catch { /* use as-is */ }
               }
-              const varRes = await fetch(
-                `https://${platform.shop_domain}/admin/api/2024-01/variants/${link.platform_variant_id}.json`,
-                { headers: { 'X-Shopify-Access-Token': tok } }
-              );
-              if (!varRes.ok) throw new Error(`Shopify variant fetch failed: ${varRes.status}`);
-              const { variant } = await varRes.json();
-              const priceRes = await fetch(
-                `https://${platform.shop_domain}/admin/api/2024-01/variants/${variant.id}.json`,
-                { method: 'PUT', headers: { 'X-Shopify-Access-Token': tok, 'Content-Type': 'application/json' }, body: JSON.stringify({ variant: { id: variant.id, price: String(action.price) } }) }
-              );
-              if (!priceRes.ok) throw new Error(`Shopify price update failed: ${priceRes.status}`);
+              const bcastDomain = platform.shop_domain;
+              const variantId = link.platform_variant_id;
+              const variantGqlData = await shopifyGraphQL(bcastDomain, tok, `
+                query getVariant($id: ID!) {
+                  productVariant(id: $id) { id product { id } }
+                }
+              `, { id: toShopifyGid('ProductVariant', variantId) });
+              if (!variantGqlData.productVariant) throw new Error(`Shopify variant ${variantId} not found`);
+              const bcastProductGid = variantGqlData.productVariant.product.id;
+              const bcastUpdateData = await shopifyGraphQL(bcastDomain, tok, `
+                mutation updateVariantPrice($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+                  productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+                    productVariants { id price }
+                    userErrors { field message }
+                  }
+                }
+              `, {
+                productId: bcastProductGid,
+                variants: [{ id: toShopifyGid('ProductVariant', variantId), price: String(action.price) }],
+              });
+              if (bcastUpdateData.productVariantsBulkUpdate.userErrors?.length) {
+                throw new Error(`Shopify price update failed: ${JSON.stringify(bcastUpdateData.productVariantsBulkUpdate.userErrors)}`);
+              }
               entry.success = true;
               entry.message = `$${action.price}`;
               break;
@@ -1779,59 +1939,67 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     }
 
     case 'update_title': {
-      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      const searchData = await searchRes.json();
-      const allProducts = searchData.products || [];
+      const titleGqlData = await shopifyGraphQL(shopDomain, accessToken, `
+        query { products(first: 250) { edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
+      `);
+      const allTitleProducts = titleGqlData.products.edges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
 
-      const targetProduct = findProduct(allProducts, action.sku, action.product_name);
+      const targetProduct = findProduct(allTitleProducts, action.sku, action.product_name);
       if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
 
-      const updateRes = await fetch(`${shopifyBase}/products/${targetProduct.id}.json`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({ product: { id: targetProduct.id, title: action.new_title } }),
-      });
-      if (!updateRes.ok) throw new Error(`Shopify title update failed: ${await updateRes.text()}`);
-      const updatedData = await updateRes.json();
-      return { message: `Updated title from "${targetProduct.title}" to "${updatedData.product.title}"` };
+      const titleUpdateData = await shopifyGraphQL(shopDomain, accessToken, `
+        mutation productUpdate($input: ProductInput!) {
+          productUpdate(input: $input) {
+            product { id title }
+            userErrors { field message }
+          }
+        }
+      `, { input: { id: targetProduct._gid, title: action.new_title } });
+      if (titleUpdateData.productUpdate.userErrors?.length) throw new Error(`Shopify title update failed: ${JSON.stringify(titleUpdateData.productUpdate.userErrors)}`);
+      return { message: `Updated title from "${targetProduct.title}" to "${titleUpdateData.productUpdate.product.title}"` };
     }
 
     case 'update_tags':
     case 'add_tags': {
-      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      const searchData = await searchRes.json();
-      const allProducts = searchData.products || [];
+      const tagsGqlData = await shopifyGraphQL(shopDomain, accessToken, `
+        query { products(first: 250) { edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
+      `);
+      const allTagsProducts = tagsGqlData.products.edges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
 
-      const targetProduct = findProduct(allProducts, action.sku, action.product_name);
+      const targetProduct = findProduct(allTagsProducts, action.sku, action.product_name);
       if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
 
       // Accept tags as an array or a comma-separated string
       const newTags = Array.isArray(action.tags)
-        ? action.tags.join(', ')
-        : String(action.tags || '');
+        ? action.tags
+        : String(action.tags || '').split(',').map((t: string) => t.trim()).filter(Boolean);
 
-      const updateRes = await fetch(`${shopifyBase}/products/${targetProduct.id}.json`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({ product: { id: targetProduct.id, tags: newTags } }),
-      });
-      if (!updateRes.ok) throw new Error(`Shopify tags update failed: ${await updateRes.text()}`);
-      return { message: `Updated tags on "${targetProduct.title}" to: ${newTags}` };
+      const tagsUpdateData = await shopifyGraphQL(shopDomain, accessToken, `
+        mutation productUpdate($input: ProductInput!) {
+          productUpdate(input: $input) {
+            product { id tags }
+            userErrors { field message }
+          }
+        }
+      `, { input: { id: targetProduct._gid, tags: newTags } });
+      if (tagsUpdateData.productUpdate.userErrors?.length) throw new Error(`Shopify tags update failed: ${JSON.stringify(tagsUpdateData.productUpdate.userErrors)}`);
+      return { message: `Updated tags on "${targetProduct.title}" to: ${newTags.join(', ')}` };
     }
     case 'add_image':
     case 'set_image':
     case 'upload_image': {
-      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      const searchData = await searchRes.json();
-      const allProducts = searchData.products || [];
+      const imgGqlData = await shopifyGraphQL(shopDomain, accessToken, `
+        query { products(first: 250) { edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
+      `);
+      const allImgProducts = imgGqlData.products.edges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
 
-      const targetProduct = findProduct(allProducts, action.sku, action.product_name);
+      const targetProduct = findProduct(allImgProducts, action.sku, action.product_name);
       if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify. Make sure the product exists and try again.`);
       if (!action.image_data) throw new Error('No image data provided. Please re-upload the image and try again.');
 
-      const uploadRes = await fetch(`${shopifyBase}/products/${targetProduct.id}/images.json`, {
+      const uploadRes = await fetch(`https://${shopDomain}/admin/api/2025-01/products/${targetProduct.id}/images.json`, {
         method: 'POST',
-        headers,
+        headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken },
         body: JSON.stringify({
           image: {
             attachment: action.image_data,
@@ -1844,11 +2012,12 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     }
 
     case 'update_metafield': {
-      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      const searchData = await searchRes.json();
-      const allProducts = searchData.products || [];
+      const mfGqlData = await shopifyGraphQL(shopDomain, accessToken, `
+        query { products(first: 250) { edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
+      `);
+      const allMfProducts = mfGqlData.products.edges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
 
-      const targetProduct = findProduct(allProducts, action.sku, action.product_name);
+      const targetProduct = findProduct(allMfProducts, action.sku, action.product_name);
       if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
 
       const namespace = action.metafield_namespace || 'custom';
@@ -1856,26 +2025,27 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const value = action.metafield_value;
       const type = action.metafield_type || 'single_line_text_field';
       if (!key || value === undefined) throw new Error('metafield_key and metafield_value are required.');
+      const restHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
 
       // Check if the metafield already exists so we can update rather than duplicate
       const listRes = await fetch(
-        `${shopifyBase}/products/${targetProduct.id}/metafields.json?namespace=${namespace}&key=${key}`,
-        { headers }
+        `https://${shopDomain}/admin/api/2025-01/products/${targetProduct.id}/metafields.json?namespace=${namespace}&key=${key}`,
+        { headers: restHeaders }
       );
       const listData = await listRes.json();
       const existing = listData.metafields?.[0];
 
       if (existing) {
-        const updateRes = await fetch(`${shopifyBase}/metafields/${existing.id}.json`, {
+        const updateRes = await fetch(`https://${shopDomain}/admin/api/2025-01/metafields/${existing.id}.json`, {
           method: 'PUT',
-          headers,
+          headers: restHeaders,
           body: JSON.stringify({ metafield: { id: existing.id, value, type } }),
         });
         if (!updateRes.ok) throw new Error(`Shopify metafield update failed: ${await updateRes.text()}`);
       } else {
-        const createRes = await fetch(`${shopifyBase}/products/${targetProduct.id}/metafields.json`, {
+        const createRes = await fetch(`https://${shopDomain}/admin/api/2025-01/products/${targetProduct.id}/metafields.json`, {
           method: 'POST',
-          headers,
+          headers: restHeaders,
           body: JSON.stringify({ metafield: { namespace, key, value, type } }),
         });
         if (!createRes.ok) throw new Error(`Shopify metafield create failed: ${await createRes.text()}`);
@@ -1885,22 +2055,24 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
 
     case 'update_image_alt_text':
     case 'update_image_alt': {
-      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      const searchData = await searchRes.json();
-      const allProducts = searchData.products || [];
+      const altGqlData = await shopifyGraphQL(shopDomain, accessToken, `
+        query { products(first: 250) { edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
+      `);
+      const allAltProducts = altGqlData.products.edges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
 
-      const targetProduct = findProduct(allProducts, action.sku, action.product_name);
+      const targetProduct = findProduct(allAltProducts, action.sku, action.product_name);
       if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
       if (!action.alt_text) throw new Error('alt_text is required for update_image_alt.');
+      const restHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
 
-      const imagesRes = await fetch(`${shopifyBase}/products/${targetProduct.id}/images.json`, { headers });
+      const imagesRes = await fetch(`https://${shopDomain}/admin/api/2025-01/products/${targetProduct.id}/images.json`, { headers: restHeaders });
       const imagesData = await imagesRes.json();
       const firstImage = imagesData.images?.[0];
       if (!firstImage) throw new Error(`Product "${targetProduct.title}" has no images.`);
 
-      const updateRes = await fetch(`${shopifyBase}/products/${targetProduct.id}/images/${firstImage.id}.json`, {
+      const updateRes = await fetch(`https://${shopDomain}/admin/api/2025-01/products/${targetProduct.id}/images/${firstImage.id}.json`, {
         method: 'PUT',
-        headers,
+        headers: restHeaders,
         body: JSON.stringify({ image: { id: firstImage.id, alt: action.alt_text } }),
       });
       if (!updateRes.ok) throw new Error(`Shopify image alt update failed: ${await updateRes.text()}`);
@@ -1908,51 +2080,57 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     }
 
     case 'update_description': {
-      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      const searchData = await searchRes.json();
-      const allProducts = searchData.products || [];
+      const descGqlData = await shopifyGraphQL(shopDomain, accessToken, `
+        query { products(first: 250) { edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
+      `);
+      const allDescProducts = descGqlData.products.edges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
 
-      const targetProduct = findProduct(allProducts, action.sku, action.product_name);
+      const targetProduct = findProduct(allDescProducts, action.sku, action.product_name);
       if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
       const body_html = action.body_html || action.description;
       if (!body_html) throw new Error('description is required for update_description.');
 
-      const updateRes = await fetch(`${shopifyBase}/products/${targetProduct.id}.json`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({ product: { id: targetProduct.id, body_html } }),
-      });
-      if (!updateRes.ok) throw new Error(`Shopify description update failed: ${await updateRes.text()}`);
+      const descUpdateData = await shopifyGraphQL(shopDomain, accessToken, `
+        mutation productUpdate($input: ProductInput!) {
+          productUpdate(input: $input) {
+            product { id }
+            userErrors { field message }
+          }
+        }
+      `, { input: { id: targetProduct._gid, descriptionHtml: body_html } });
+      if (descUpdateData.productUpdate.userErrors?.length) throw new Error(`Shopify description update failed: ${JSON.stringify(descUpdateData.productUpdate.userErrors)}`);
       return { message: `Updated product description for "${targetProduct.title}"` };
     }
 
     case 'update_seo_listing': {
-      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      const searchData = await searchRes.json();
-      const allProducts = searchData.products || [];
+      const seoGqlData = await shopifyGraphQL(shopDomain, accessToken, `
+        query { products(first: 250) { edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
+      `);
+      const allSeoProducts = seoGqlData.products.edges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
 
-      const targetProduct = findProduct(allProducts, action.sku, action.product_name);
+      const targetProduct = findProduct(allSeoProducts, action.sku, action.product_name);
       if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
       if (!action.seo_title && !action.seo_description) throw new Error('At least one of seo_title or seo_description is required.');
+      const seoRestHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
 
       const metafieldUpsert = async (key: string, value: string) => {
         const listRes = await fetch(
-          `${shopifyBase}/products/${targetProduct.id}/metafields.json?namespace=global&key=${key}`,
-          { headers }
+          `https://${shopDomain}/admin/api/2025-01/products/${targetProduct.id}/metafields.json?namespace=global&key=${key}`,
+          { headers: seoRestHeaders }
         );
         const listData = await listRes.json();
         const existing = listData.metafields?.[0];
         if (existing) {
-          const r = await fetch(`${shopifyBase}/metafields/${existing.id}.json`, {
+          const r = await fetch(`https://${shopDomain}/admin/api/2025-01/metafields/${existing.id}.json`, {
             method: 'PUT',
-            headers,
+            headers: seoRestHeaders,
             body: JSON.stringify({ metafield: { id: existing.id, value, type: 'single_line_text_field' } }),
           });
           if (!r.ok) throw new Error(`SEO metafield update failed: ${await r.text()}`);
         } else {
-          const r = await fetch(`${shopifyBase}/products/${targetProduct.id}/metafields.json`, {
+          const r = await fetch(`https://${shopDomain}/admin/api/2025-01/products/${targetProduct.id}/metafields.json`, {
             method: 'POST',
-            headers,
+            headers: seoRestHeaders,
             body: JSON.stringify({ metafield: { namespace: 'global', key, value, type: 'single_line_text_field' } }),
           });
           if (!r.ok) throw new Error(`SEO metafield create failed: ${await r.text()}`);
@@ -1972,30 +2150,35 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     }
 
     case 'update_url_handle': {
-      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      const searchData = await searchRes.json();
-      const allProducts = searchData.products || [];
+      const handleGqlData = await shopifyGraphQL(shopDomain, accessToken, `
+        query { products(first: 250) { edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
+      `);
+      const allHandleProducts = handleGqlData.products.edges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
 
-      const targetProduct = findProduct(allProducts, action.sku, action.product_name);
+      const targetProduct = findProduct(allHandleProducts, action.sku, action.product_name);
       if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
       if (!action.new_handle) throw new Error('new_handle is required for update_url_handle.');
 
       const handle = action.new_handle.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-      const updateRes = await fetch(`${shopifyBase}/products/${targetProduct.id}.json`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({ product: { id: targetProduct.id, handle } }),
-      });
-      if (!updateRes.ok) throw new Error(`Shopify handle update failed: ${await updateRes.text()}`);
+      const handleUpdateData = await shopifyGraphQL(shopDomain, accessToken, `
+        mutation productUpdate($input: ProductInput!) {
+          productUpdate(input: $input) {
+            product { id handle }
+            userErrors { field message }
+          }
+        }
+      `, { input: { id: targetProduct._gid, handle } });
+      if (handleUpdateData.productUpdate.userErrors?.length) throw new Error(`Shopify handle update failed: ${JSON.stringify(handleUpdateData.productUpdate.userErrors)}`);
       return { message: `Updated URL handle for "${targetProduct.title}" to "/products/${handle}"` };
     }
 
     case 'update_status': {
-      const searchRes = await fetch(`${shopifyBase}/products.json?limit=250`, { headers });
-      const searchData = await searchRes.json();
-      const allProducts = searchData.products || [];
+      const statusGqlData = await shopifyGraphQL(shopDomain, accessToken, `
+        query { products(first: 250) { edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
+      `);
+      const allStatusProducts = statusGqlData.products.edges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
 
-      const targetProduct = findProduct(allProducts, action.sku, action.product_name);
+      const targetProduct = findProduct(allStatusProducts, action.sku, action.product_name);
       if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
 
       const validStatuses = ['active', 'draft', 'archived'];
@@ -2004,12 +2187,15 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         throw new Error(`Invalid status "${action.status}". Must be one of: active, draft, archived.`);
       }
 
-      const updateRes = await fetch(`${shopifyBase}/products/${targetProduct.id}.json`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify({ product: { id: targetProduct.id, status: newStatus } }),
-      });
-      if (!updateRes.ok) throw new Error(`Shopify status update failed: ${await updateRes.text()}`);
+      const statusUpdateData = await shopifyGraphQL(shopDomain, accessToken, `
+        mutation productUpdate($input: ProductInput!) {
+          productUpdate(input: $input) {
+            product { id status }
+            userErrors { field message }
+          }
+        }
+      `, { input: { id: targetProduct._gid, status: newStatus.toUpperCase() } });
+      if (statusUpdateData.productUpdate.userErrors?.length) throw new Error(`Shopify status update failed: ${JSON.stringify(statusUpdateData.productUpdate.userErrors)}`);
       const labels: Record<string, string> = { active: 'Active (live)', draft: 'Draft (hidden)', archived: 'Archived (removed)' };
       return { message: `Set "${targetProduct.title}" status to ${labels[newStatus] || newStatus}` };
     }
@@ -2601,9 +2787,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
                 tok = await decrypt(tok);
               }
             } catch {}
-            const shopBase = `https://${shopDomain}/admin/api/2024-01`;
             const shopHeaders = { 'X-Shopify-Access-Token': tok, 'Content-Type': 'application/json' };
-            const oRes = await fetch(`${shopBase}/orders.json?limit=250&status=any`, { headers: shopHeaders });
+            const oRes = await fetch(`https://${shopDomain}/admin/api/2025-01/orders.json?limit=250&status=any`, { headers: shopHeaders });
             if (oRes.ok) {
               const { orders: shopOrders } = await oRes.json();
               for (const o of (shopOrders || [])) {
@@ -2981,17 +3166,42 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             tok = await decrypt(tok);
           }
         } catch {}
-        const shopBase = `https://${shopDomain}/admin/api/2024-01`;
+        // Get order line items via GraphQL
+        const orderGqlData = await shopifyGraphQL(shopDomain, tok, `
+          query getOrder($id: ID!) {
+            order(id: $id) {
+              id name email
+              totalPriceSet { shopMoney { amount currencyCode } }
+              lineItems(first: 50) {
+                edges {
+                  node {
+                    title quantity
+                    variant { id sku price }
+                  }
+                }
+              }
+            }
+          }
+        `, { id: toShopifyGid('Order', orderId) });
+        if (!orderGqlData.order) throw new Error(`Could not find Shopify order ${orderId}`);
+        const shopOrder = {
+          ...orderGqlData.order,
+          id: fromShopifyGid(orderGqlData.order.id),
+          total_price: orderGqlData.order.totalPriceSet?.shopMoney?.amount,
+          line_items: orderGqlData.order.lineItems.edges.map((e: any) => ({
+            ...e.node,
+            id: e.node.variant ? fromShopifyGid(e.node.variant.id) : null,
+            variant_id: e.node.variant ? fromShopifyGid(e.node.variant.id) : null,
+          })),
+        };
+        // Get locations via GraphQL
+        const locGqlData = await shopifyGraphQL(shopDomain, tok, `
+          query { locations(first: 10) { edges { node { id name } } } }
+        `);
+        const fulfillLocations = locGqlData.locations.edges.map((e: any) => ({ id: fromShopifyGid(e.node.id), name: e.node.name }));
+        const locationId = fulfillLocations[0]?.id;
+
         const shopH = { 'X-Shopify-Access-Token': tok, 'Content-Type': 'application/json' };
-
-        // Get line item IDs for the fulfillment
-        const oRes = await fetch(`${shopBase}/orders/${orderId}.json`, { headers: shopH });
-        if (!oRes.ok) throw new Error(`Could not find Shopify order ${orderId}`);
-        const { order: shopOrder } = await oRes.json();
-        const locationRes = await fetch(`${shopBase}/locations.json`, { headers: shopH });
-        const locationData = locationRes.ok ? await locationRes.json() : null;
-        const locationId = locationData?.locations?.[0]?.id;
-
         const fulfillBody: any = {
           fulfillment: {
             location_id: locationId,
@@ -3000,7 +3210,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             line_items: (shopOrder.line_items || []).map((i: any) => ({ id: i.id })),
           },
         };
-        const fRes = await fetch(`${shopBase}/orders/${orderId}/fulfillments.json`, {
+        const fRes = await fetch(`https://${shopDomain}/admin/api/2025-01/orders/${orderId}/fulfillments.json`, {
           method: 'POST', headers: shopH, body: JSON.stringify(fulfillBody),
         });
         if (!fRes.ok) throw new Error(`Shopify fulfillment failed: ${await fRes.text()}`);
@@ -3170,11 +3380,19 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             tok = await decrypt(tok);
           }
         } catch {}
-        const cRes = await fetch(`https://${shopDomain}/admin/api/2024-01/orders/${orderId}/cancel.json`, {
-          method: 'POST', headers: { 'X-Shopify-Access-Token': tok, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reason: action.reason || 'customer' }),
+        await shopifyGraphQL(shopDomain, tok, `
+          mutation cancelOrder($orderId: ID!, $reason: OrderCancelReason!, $refund: Boolean!, $restock: Boolean!) {
+            orderCancel(orderId: $orderId, reason: $reason, refund: $refund, restock: $restock) {
+              job { id }
+              userErrors { field message }
+            }
+          }
+        `, {
+          orderId: toShopifyGid('Order', orderId),
+          reason: 'OTHER',
+          refund: false,
+          restock: true,
         });
-        if (!cRes.ok) throw new Error(`Shopify cancel failed: ${await cRes.text()}`);
       }
 
       if (orderPlatform === 'woocommerce') {
@@ -3222,26 +3440,49 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             tok = await decrypt(tok);
           }
         } catch {}
-        // Calculate refund amounts
-        const oRes = await fetch(`https://${shopDomain}/admin/api/2024-01/orders/${orderId}.json`, {
-          headers: { 'X-Shopify-Access-Token': tok, 'Content-Type': 'application/json' },
-        });
-        if (!oRes.ok) throw new Error(`Could not fetch Shopify order ${orderId} for refund.`);
-        const { order: shopOrder } = await oRes.json();
-        const refundBody = {
-          refund: {
+        // Fetch order via GraphQL to get line items and total
+        const refundOrderGql = await shopifyGraphQL(shopDomain, tok, `
+          query getOrder($id: ID!) {
+            order(id: $id) {
+              id name email
+              totalPriceSet { shopMoney { amount currencyCode } }
+              lineItems(first: 50) {
+                edges {
+                  node {
+                    title quantity
+                    variant { id sku price }
+                  }
+                }
+              }
+            }
+          }
+        `, { id: toShopifyGid('Order', orderId) });
+        if (!refundOrderGql.order) throw new Error(`Could not fetch Shopify order ${orderId} for refund.`);
+        const refundOrder = {
+          ...refundOrderGql.order,
+          id: fromShopifyGid(refundOrderGql.order.id),
+          total_price: refundOrderGql.order.totalPriceSet?.shopMoney?.amount,
+          line_items: refundOrderGql.order.lineItems.edges.map((e: any) => ({
+            ...e.node,
+            id: e.node.variant ? fromShopifyGid(e.node.variant.id) : null,
+            variant_id: e.node.variant ? fromShopifyGid(e.node.variant.id) : null,
+          })),
+        };
+        await shopifyGraphQL(shopDomain, tok, `
+          mutation createRefund($input: RefundInput!) {
+            refundCreate(input: $input) {
+              refund { id }
+              userErrors { field message }
+            }
+          }
+        `, {
+          input: {
+            orderId: toShopifyGid('Order', orderId),
             notify: true,
             note: action.reason || 'Refund requested',
-            refund_line_items: (shopOrder.line_items || []).map((i: any) => ({ line_item_id: i.id, quantity: i.quantity, restock_type: 'return' })),
-            transactions: [{ kind: 'refund', gateway: shopOrder.gateway, amount: shopOrder.total_price }],
+            transactions: [],
           },
-        };
-        const rRes = await fetch(`https://${shopDomain}/admin/api/2024-01/orders/${orderId}/refunds.json`, {
-          method: 'POST',
-          headers: { 'X-Shopify-Access-Token': tok, 'Content-Type': 'application/json' },
-          body: JSON.stringify(refundBody),
         });
-        if (!rRes.ok) throw new Error(`Shopify refund failed: ${await rRes.text()}`);
       }
 
       if (orderPlatform === 'woocommerce') {
@@ -4705,18 +4946,19 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         priceRuleBody.price_rule.ends_at = action.ends_at;
       }
 
-      const prRes = await fetch(`${shopifyBase}/price_rules.json`, {
+      const prRestHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
+      const prRes = await fetch(`https://${shopDomain}/admin/api/2025-01/price_rules.json`, {
         method: 'POST',
-        headers,
+        headers: prRestHeaders,
         body: JSON.stringify(priceRuleBody),
       });
       if (!prRes.ok) throw new Error(`Shopify price rule creation failed: ${await prRes.text()}`);
       const { price_rule: newRule } = await prRes.json();
 
       // Attach the discount code to the price rule
-      const codeRes = await fetch(`${shopifyBase}/price_rules/${newRule.id}/discount_codes.json`, {
+      const codeRes = await fetch(`https://${shopDomain}/admin/api/2025-01/price_rules/${newRule.id}/discount_codes.json`, {
         method: 'POST',
-        headers,
+        headers: prRestHeaders,
         body: JSON.stringify({ discount_code: { code: discountCode } }),
       });
       if (!codeRes.ok) throw new Error(`Shopify discount code creation failed: ${await codeRes.text()}`);
@@ -4737,14 +4979,15 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     case 'shopify_delete_discount': {
       // Deletes a Shopify price rule (and all its codes) by price_rule_id or code string.
       let priceRuleId = action.price_rule_id;
+      const delRestHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
 
       if (!priceRuleId && action.code) {
         // Look up price rule by scanning discount codes — Shopify doesn't have a direct lookup endpoint
-        const listRes = await fetch(`${shopifyBase}/price_rules.json?limit=250`, { headers });
+        const listRes = await fetch(`https://${shopDomain}/admin/api/2025-01/price_rules.json?limit=250`, { headers: delRestHeaders });
         if (listRes.ok) {
           const { price_rules } = await listRes.json();
           for (const rule of (price_rules || [])) {
-            const codesRes = await fetch(`${shopifyBase}/price_rules/${rule.id}/discount_codes.json`, { headers });
+            const codesRes = await fetch(`https://${shopDomain}/admin/api/2025-01/price_rules/${rule.id}/discount_codes.json`, { headers: delRestHeaders });
             if (codesRes.ok) {
               const { discount_codes } = await codesRes.json();
               const match = (discount_codes || []).find((c: any) => c.code.toUpperCase() === action.code.toUpperCase());
@@ -4755,7 +4998,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       }
       if (!priceRuleId) throw new Error('price_rule_id or code is required for shopify_delete_discount.');
 
-      const delRes = await fetch(`${shopifyBase}/price_rules/${priceRuleId}.json`, { method: 'DELETE', headers });
+      const delRes = await fetch(`https://${shopDomain}/admin/api/2025-01/price_rules/${priceRuleId}.json`, { method: 'DELETE', headers: delRestHeaders });
       if (!delRes.ok && delRes.status !== 404) throw new Error(`Shopify delete discount failed: ${await delRes.text()}`);
       return { message: `Deleted Shopify discount${action.code ? ` code ${action.code}` : ''} (price rule ${priceRuleId}).` };
     }
@@ -5508,10 +5751,38 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           }
         } catch {}
 
-        const spHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': spToken };
-        const spRes = await fetch(`https://${spDomain}/admin/api/2024-01/products.json?limit=250`, { headers: spHeaders });
-        if (spRes.ok) {
-          const { products: spProducts } = await spRes.json();
+        try {
+          const spGqlData = await shopifyGraphQL(spDomain, spToken, `
+            query {
+              products(first: 250) {
+                edges {
+                  node {
+                    id title handle status vendor productType tags
+                    images(first: 1) { edges { node { url altText } } }
+                    variants(first: 100) {
+                      edges {
+                        node {
+                          id price sku inventoryQuantity
+                          inventoryItem { id }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          `);
+          const spProducts = spGqlData.products.edges.map((e: any) => ({
+            ...e.node,
+            id: fromShopifyGid(e.node.id),
+            images: e.node.images.edges.map((i: any) => ({ src: i.node.url })),
+            variants: e.node.variants.edges.map((v: any) => ({
+              ...v.node,
+              id: fromShopifyGid(v.node.id),
+              inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null,
+              inventory_quantity: v.node.inventoryQuantity,
+            })),
+          }));
           for (const p of (spProducts || [])) {
             for (const v of (p.variants || [])) {
               const stock = v.inventory_quantity || 0;
@@ -5535,6 +5806,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
               }
             }
           }
+        } catch (e: any) {
+          console.warn('[smart-api] check_reorder_needs Shopify GraphQL fetch failed:', e.message);
         }
       }
 
@@ -6156,9 +6429,28 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       // ── Shopify ──────────────────────────────────────────────────────────
       if (targetPlatforms.includes('shopify') && platforms && platforms.length > 0 && shopDomain) {
         try {
-          const shopRes = await fetch(`${shopifyBase}/products.json?limit=250&fields=id,title,variants`, { headers });
-          if (!shopRes.ok) throw new Error(`Shopify products fetch failed: ${shopRes.status}`);
-          const { products: shopProds } = await shopRes.json();
+          const flashGqlData = await shopifyGraphQL(shopDomain, accessToken, `
+            query {
+              products(first: 250) {
+                edges {
+                  node {
+                    id title
+                    variants(first: 100) {
+                      edges {
+                        node { id price sku }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          `);
+          const shopProds = flashGqlData.products.edges.map((e: any) => ({
+            ...e.node,
+            _gid: e.node.id,
+            id: fromShopifyGid(e.node.id),
+            variants: e.node.variants.edges.map((v: any) => ({ ...v.node, _gid: v.node.id, id: fromShopifyGid(v.node.id) })),
+          }));
           const shopFiltered = targetSkus
             ? shopProds.filter((p: any) => (p.variants || []).some((v: any) => targetSkus.includes(v.sku)))
             : shopProds;
@@ -6170,11 +6462,18 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
               const origPrice = parseFloat(v.price);
               if (!origPrice) continue;
               const salePrice = parseFloat((origPrice * multiplier).toFixed(2));
-              const upRes = await fetch(`${shopifyBase}/variants/${v.id}.json`, {
-                method: 'PUT', headers,
-                body: JSON.stringify({ variant: { id: v.id, price: String(salePrice), compare_at_price: String(origPrice) } }),
+              const flashUpData = await shopifyGraphQL(shopDomain, accessToken, `
+                mutation updateVariantPrice($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+                  productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+                    productVariants { id price }
+                    userErrors { field message }
+                  }
+                }
+              `, {
+                productId: p._gid,
+                variants: [{ id: v._gid, price: String(salePrice), compareAtPrice: String(origPrice) }],
               });
-              if (!upRes.ok) continue;
+              if (flashUpData.productVariantsBulkUpdate.userErrors?.length) continue;
               restoreRows.push({
                 user_id: userId, flash_sale_id: flashSaleId, platform_id: platform.id,
                 platform_type: 'shopify', restore_type: 'price',
@@ -6395,20 +6694,37 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       // Shopify
       if (platforms && platforms.length > 0 && shopDomain) {
         try {
-          const invRes = await fetch(`${shopifyBase}/products.json?limit=250&fields=id,title,variants`, { headers });
-          if (invRes.ok) {
-            const { products: shopProds } = await invRes.json();
-            for (const p of shopProds) {
-              for (const v of (p.variants || [])) {
-                const sku = v.sku || p.title;
-                if (!sku) continue;
-                if (targetSkus && !targetSkus.includes(sku)) continue;
-                inventoryMap[sku] = {
-                  current_stock: Number(v.inventory_quantity) || 0,
-                  product_name: `${p.title}${v.title !== 'Default Title' ? ` — ${v.title}` : ''}`,
-                  platform: 'Shopify',
-                };
+          const invGql = await shopifyGraphQL(shopDomain, accessToken, `
+            query {
+              products(first: 250) {
+                edges {
+                  node {
+                    id title
+                    variants(first: 100) {
+                      edges {
+                        node { id sku inventoryQuantity title }
+                      }
+                    }
+                  }
+                }
               }
+            }
+          `);
+          const shopProds = invGql.products.edges.map((e: any) => ({
+            ...e.node,
+            id: fromShopifyGid(e.node.id),
+            variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_quantity: v.node.inventoryQuantity })),
+          }));
+          for (const p of shopProds) {
+            for (const v of (p.variants || [])) {
+              const sku = v.sku || p.title;
+              if (!sku) continue;
+              if (targetSkus && !targetSkus.includes(sku)) continue;
+              inventoryMap[sku] = {
+                current_stock: Number(v.inventory_quantity) || 0,
+                product_name: `${p.title}${v.title !== 'Default Title' ? ` — ${v.title}` : ''}`,
+                platform: 'Shopify',
+              };
             }
           }
         } catch (_e) { /* skip */ }
@@ -6846,38 +7162,59 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
         accessToken = await decrypt(accessToken);
       }
       const shopDomain = shopifyPlatform.shop_domain;
-      const shopifyRes = await fetch(
-        `https://${shopDomain}/admin/api/2024-01/products.json?limit=250`,
-        { headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' } }
-      );
-      if (shopifyRes.ok) {
-        const shopifyData = await shopifyRes.json();
-        products = (shopifyData.products || []).map((p: any) => {
-          const variants = p.variants || [];
-          const totalQty = variants.reduce((sum: number, v: any) => sum + (v.inventory_quantity || 0), 0);
-          const skus = variants.map((v: any) => v.sku).filter(Boolean).join(', ');
-          const prices = variants.map((v: any) => parseFloat(v.price) || 0).filter((n: number) => n > 0);
-          const imageCount = (p.images || []).length;
-          return {
-            id: p.id,
-            title: p.title,
-            sku: skus || 'N/A',
-            price: prices.length > 0 ? Math.min(...prices) : 0,
-            inventory_quantity: totalQty,
-            vendor: p.vendor || '',
-            product_type: p.product_type || '',
-            status: p.status || '',
-            tags: p.tags || '',
-            handle: p.handle || '',
-            body_html: p.body_html ? p.body_html.replace(/<[^>]*>/g, '').slice(0, 150) : '',
-            platform_type: 'shopify',
-            image_count: imageCount,
-            has_images: imageCount > 0,
-            image_url: (p.images || [])[0]?.src || null,
-          };
-        });
-        productCount = products.length;
-      }
+      const ctxGqlData = await shopifyGraphQL(shopDomain, accessToken, `
+        query {
+          products(first: 250) {
+            edges {
+              node {
+                id title handle status vendor productType tags
+                descriptionHtml
+                images(first: 1) { edges { node { url altText } } }
+                variants(first: 100) {
+                  edges {
+                    node {
+                      id price sku inventoryQuantity
+                      inventoryItem { id }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      `);
+      products = ctxGqlData.products.edges.map((e: any) => {
+        const variants = e.node.variants.edges.map((v: any) => ({
+          ...v.node,
+          id: fromShopifyGid(v.node.id),
+          inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null,
+          inventory_quantity: v.node.inventoryQuantity,
+        }));
+        const totalQty = variants.reduce((sum: number, v: any) => sum + (v.inventory_quantity || 0), 0);
+        const skus = variants.map((v: any) => v.sku).filter(Boolean).join(', ');
+        const prices = variants.map((v: any) => parseFloat(v.price) || 0).filter((n: number) => n > 0);
+        const images = e.node.images.edges.map((i: any) => ({ src: i.node.url }));
+        const imageCount = images.length;
+        return {
+          id: fromShopifyGid(e.node.id),
+          title: e.node.title,
+          sku: skus || 'N/A',
+          price: prices.length > 0 ? Math.min(...prices) : 0,
+          inventory_quantity: totalQty,
+          vendor: e.node.vendor || '',
+          product_type: e.node.productType || '',
+          status: e.node.status?.toLowerCase() || '',
+          tags: e.node.tags?.join(', ') || '',
+          handle: e.node.handle || '',
+          body_html: e.node.descriptionHtml ? e.node.descriptionHtml.replace(/<[^>]*>/g, '').slice(0, 150) : '',
+          platform_type: 'shopify',
+          image_count: imageCount,
+          has_images: imageCount > 0,
+          image_url: images[0]?.src || null,
+          variants,
+        };
+      });
+      productCount = products.length;
     } catch (e: any) {
       console.warn('[Orion] Shopify live product fetch failed, falling back to local DB:', e.message);
     }
