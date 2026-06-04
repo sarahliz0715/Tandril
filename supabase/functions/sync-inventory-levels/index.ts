@@ -35,7 +35,28 @@ function isEncrypted(value: string): boolean {
 }
 // --- End encryption helpers ---
 
-const SHOPIFY_API_VERSION = '2024-01';
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function toShopifyGid(type: string, id: string | number): string {
+  return `gid://shopify/${type}/${id}`;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -251,13 +272,15 @@ async function fetchCurrentQty(platform: any, link: any, token: string): Promise
       const shopDomain = platform.shop_domain;
       const variantId = link.platform_variant_id;
       if (!variantId) throw new Error('Shopify source link requires a variant ID to fetch current quantity');
-      const res = await fetch(
-        `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/variants/${variantId}.json`,
-        { headers: { 'X-Shopify-Access-Token': token } }
-      );
-      if (!res.ok) throw new Error(`Shopify variant fetch failed: ${res.status}`);
-      const { variant } = await res.json();
-      return variant.inventory_quantity ?? 0;
+      const data = await shopifyGraphQL(shopDomain, token, `
+        query($id: ID!) {
+          productVariant(id: $id) {
+            id inventoryQuantity
+            inventoryItem { id }
+          }
+        }
+      `, { id: toShopifyGid('ProductVariant', variantId) });
+      return data.productVariant.inventoryQuantity ?? 0;
     }
     case 'woocommerce': {
       const storeUrl = platform.store_url || platform.shop_domain;
@@ -309,31 +332,46 @@ async function fetchCurrentQty(platform: any, link: any, token: string): Promise
 
 async function syncShopify(platform: any, link: any, qty: number, token: string, result: any) {
   const shopDomain = platform.shop_domain;
-  const variantRes = await fetch(
-    `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/variants/${link.platform_variant_id}.json`,
-    { headers: { 'X-Shopify-Access-Token': token } }
-  );
-  if (!variantRes.ok) throw new Error(`Shopify variant fetch failed: ${variantRes.status}`);
-  const { variant } = await variantRes.json();
 
-  const locRes = await fetch(
-    `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/locations.json`,
-    { headers: { 'X-Shopify-Access-Token': token } }
-  );
-  if (!locRes.ok) throw new Error(`Shopify locations fetch failed: ${locRes.status}`);
-  const { locations } = await locRes.json();
+  const varData = await shopifyGraphQL(shopDomain, token, `
+    query($id: ID!) {
+      productVariant(id: $id) {
+        id inventoryQuantity
+        inventoryItem { id }
+      }
+    }
+  `, { id: toShopifyGid('ProductVariant', link.platform_variant_id) });
+  const inventoryItemId = fromShopifyGid(varData.productVariant.inventoryItem.id);
+
+  const locData = await shopifyGraphQL(shopDomain, token, `
+    query { locations(first: 10) { edges { node { id name } } } }
+  `);
+  const locations = locData.locations.edges.map((e: any) => ({
+    id: fromShopifyGid(e.node.id),
+    name: e.node.name,
+  }));
   const locationId = locations?.[0]?.id;
   if (!locationId) throw new Error('No Shopify location found');
 
-  const setRes = await fetch(
-    `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/inventory_levels/set.json`,
-    {
-      method: 'POST',
-      headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ location_id: locationId, inventory_item_id: variant.inventory_item_id, available: qty }),
+  await shopifyGraphQL(shopDomain, token, `
+    mutation($input: InventorySetQuantitiesInput!) {
+      inventorySetQuantities(input: $input) {
+        inventoryAdjustmentGroup { reason }
+        userErrors { field message }
+      }
     }
-  );
-  if (!setRes.ok) throw new Error(`Shopify inventory set failed: ${setRes.status}`);
+  `, {
+    input: {
+      reason: 'correction',
+      name: 'available',
+      quantities: [{
+        inventoryItemId: toShopifyGid('InventoryItem', inventoryItemId),
+        locationId: toShopifyGid('Location', locationId),
+        quantity: qty,
+      }],
+    },
+  });
+
   return { ...result, success: true };
 }
 

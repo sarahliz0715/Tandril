@@ -9,7 +9,31 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const SHOPIFY_API_VERSION = '2024-01';
+// --- GraphQL helpers ---
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function toShopifyGid(type: string, id: string | number): string {
+  return `gid://shopify/${type}/${id}`;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
+// --- End GraphQL helpers ---
+
 const ALGORITHM = 'AES-GCM';
 const KEY_LENGTH = 256;
 const IV_LENGTH = 12;
@@ -105,20 +129,19 @@ async function restoreRow(supabase: any, row: any): Promise<void> {
         let token = plat.access_token;
         if (token && isEncrypted(token)) token = await decrypt(token);
         if (!token) throw new Error('Shopify token missing');
-
-        const res = await fetch(
-          `https://${plat.shop_domain}/admin/api/${SHOPIFY_API_VERSION}/variants/${row.platform_variant_id}.json`,
-          {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
-            body: JSON.stringify({ variant: {
-              id: row.platform_variant_id,
-              price: String(row.original_price),
-              compare_at_price: null,
-            }}),
+        const varData = await shopifyGraphQL(plat.shop_domain, token, `
+          query($id: ID!) { productVariant(id: $id) { product { id } } }
+        `, { id: toShopifyGid('ProductVariant', row.platform_variant_id) });
+        await shopifyGraphQL(plat.shop_domain, token, `
+          mutation($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+            productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+              userErrors { field message }
+            }
           }
-        );
-        if (!res.ok) throw new Error(`Shopify restore failed: ${res.status} ${await res.text()}`);
+        `, {
+          productId: varData.productVariant.product.id,
+          variants: [{ id: toShopifyGid('ProductVariant', row.platform_variant_id), price: String(row.original_price) }],
+        });
         break;
       }
 

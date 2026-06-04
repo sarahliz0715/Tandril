@@ -27,6 +27,29 @@ interface ShopifyInventoryLevel {
   available: number;
 }
 
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function toShopifyGid(type: string, id: string | number): string {
+  return `gid://shopify/${type}/${id}`;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -99,36 +122,54 @@ serve(async (req) => {
       throw new Error('Missing required Shopify scope: write_inventory. Please reconnect your Shopify store with inventory permissions.');
     }
 
+    // Fetch all products/variants via GraphQL for SKU lookup
+    const productsData = await shopifyGraphQL(shopDomain, accessToken, `
+      query {
+        products(first: 250) {
+          edges {
+            node {
+              id
+              variants(first: 100) {
+                edges {
+                  node { id sku inventoryItem { id } }
+                }
+              }
+            }
+          }
+        }
+      }
+    `);
+    const allVariants = productsData.products.edges.flatMap((p: any) =>
+      p.node.variants.edges.map((v: any) => ({
+        id: fromShopifyGid(v.node.id),
+        sku: v.node.sku,
+        inventory_item_id: fromShopifyGid(v.node.inventoryItem.id),
+        product_id: fromShopifyGid(p.node.id),
+      }))
+    );
+
+    // Fetch primary location via GraphQL
+    const locData = await shopifyGraphQL(shopDomain, accessToken, `
+      query { locations(first: 10) { edges { node { id name } } } }
+    `);
+    const locations = locData.locations.edges.map((e: any) => ({
+      id: fromShopifyGid(e.node.id),
+      name: e.node.name,
+    }));
+    const primaryLocationId = locations[0]?.id;
+
     // Process each item
     const results = [];
     for (const item of poItems as PurchaseOrderItem[]) {
       try {
-        // Search for the product in Shopify by SKU or product ID
         let inventoryItemId: string | null = null;
-        let locationId: string | null = null;
+        const locationId: string | null = primaryLocationId ?? null;
 
-        // First, try to find the product by SKU
+        // Find variant by SKU
         if (item.sku) {
-          const searchUrl = `https://${shopDomain}/admin/api/2024-01/products.json?fields=id,variants&limit=250`;
-          const searchResponse = await fetch(searchUrl, {
-            headers: {
-              'X-Shopify-Access-Token': accessToken,
-              'Content-Type': 'application/json',
-            },
-          });
-
-          if (searchResponse.ok) {
-            const searchData = await searchResponse.json();
-            const products = searchData.products || [];
-
-            // Find variant with matching SKU
-            for (const product of products) {
-              const variant = product.variants?.find((v: any) => v.sku === item.sku);
-              if (variant) {
-                inventoryItemId = variant.inventory_item_id;
-                break;
-              }
-            }
+          const match = allVariants.find((v: any) => v.sku === item.sku);
+          if (match) {
+            inventoryItemId = match.inventory_item_id;
           }
         }
 
@@ -143,65 +184,52 @@ serve(async (req) => {
           continue;
         }
 
-        // Get the primary location
-        const locationsUrl = `https://${shopDomain}/admin/api/2024-01/locations.json`;
-        const locationsResponse = await fetch(locationsUrl, {
-          headers: {
-            'X-Shopify-Access-Token': accessToken,
-            'Content-Type': 'application/json',
-          },
-        });
-
-        if (!locationsResponse.ok) {
-          throw new Error(`Failed to fetch locations: ${locationsResponse.statusText}`);
-        }
-
-        const locationsData = await locationsResponse.json();
-        const locations = locationsData.locations || [];
-        locationId = locations[0]?.id; // Use first/primary location
-
         if (!locationId) {
           throw new Error('No Shopify location found');
         }
 
-        // Get current inventory level
-        const inventoryUrl = `https://${shopDomain}/admin/api/2024-01/inventory_levels.json?inventory_item_ids=${inventoryItemId}&location_ids=${locationId}`;
-        const inventoryResponse = await fetch(inventoryUrl, {
-          headers: {
-            'X-Shopify-Access-Token': accessToken,
-            'Content-Type': 'application/json',
-          },
-        });
-
-        if (!inventoryResponse.ok) {
-          throw new Error(`Failed to fetch inventory levels: ${inventoryResponse.statusText}`);
-        }
-
-        const inventoryData = await inventoryResponse.json();
-        const currentLevel = inventoryData.inventory_levels?.[0]?.available || 0;
+        // Get current inventory level via GraphQL
+        const invData = await shopifyGraphQL(shopDomain, accessToken, `
+          query($id: ID!) {
+            inventoryItem(id: $id) {
+              inventoryLevels(first: 10) {
+                edges {
+                  node {
+                    quantities(names: ["available"]) { name quantity }
+                    location { id }
+                  }
+                }
+              }
+            }
+          }
+        `, { id: toShopifyGid('InventoryItem', inventoryItemId) });
+        const level = invData.inventoryItem.inventoryLevels.edges.find((e: any) =>
+          fromShopifyGid(e.node.location.id) === String(locationId)
+        );
+        const currentLevel = level?.node.quantities.find((q: any) => q.name === 'available')?.quantity ?? 0;
 
         // Calculate new inventory level (add received quantity)
         const newLevel = currentLevel + item.quantity_ordered;
 
-        // Update inventory level using the adjust endpoint
-        const adjustUrl = `https://${shopDomain}/admin/api/2024-01/inventory_levels/adjust.json`;
-        const adjustResponse = await fetch(adjustUrl, {
-          method: 'POST',
-          headers: {
-            'X-Shopify-Access-Token': accessToken,
-            'Content-Type': 'application/json',
+        // Adjust inventory via GraphQL mutation
+        await shopifyGraphQL(shopDomain, accessToken, `
+          mutation($input: InventoryAdjustQuantitiesInput!) {
+            inventoryAdjustQuantities(input: $input) {
+              inventoryAdjustmentGroup { reason }
+              userErrors { field message }
+            }
+          }
+        `, {
+          input: {
+            reason: 'received',
+            name: 'available',
+            changes: [{
+              inventoryItemId: toShopifyGid('InventoryItem', inventoryItemId),
+              locationId: toShopifyGid('Location', locationId),
+              delta: item.quantity_ordered,
+            }],
           },
-          body: JSON.stringify({
-            location_id: locationId,
-            inventory_item_id: inventoryItemId,
-            available_adjustment: item.quantity_ordered, // Add the received quantity
-          }),
         });
-
-        if (!adjustResponse.ok) {
-          const errorText = await adjustResponse.text();
-          throw new Error(`Failed to update inventory: ${adjustResponse.statusText} - ${errorText}`);
-        }
 
         console.log(`[Inventory Sync] Updated ${item.product_name}: ${currentLevel} -> ${newLevel}`);
 

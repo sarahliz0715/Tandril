@@ -9,7 +9,31 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const SHOPIFY_API_VERSION = '2024-01';
+// --- GraphQL helpers ---
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function toShopifyGid(type: string, id: string | number): string {
+  return `gid://shopify/${type}/${id}`;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
+// --- End GraphQL helpers ---
+
 const ALGORITHM = 'AES-GCM';
 const KEY_LENGTH = 256;
 const IV_LENGTH = 12;
@@ -107,25 +131,55 @@ async function launchSale(supabase: any, sale: any, flashSaleId: string) {
         const pl = plats[0];
         let token = pl.access_token;
         if (token && isEncrypted(token)) token = await decrypt(token);
-        const shopBase = `https://${pl.shop_domain}/admin/api/${SHOPIFY_API_VERSION}`;
-        const hdrs = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token };
-        const res = await fetch(`${shopBase}/products.json?limit=250&fields=id,title,variants`, { headers: hdrs });
-        if (res.ok) {
-          const { products } = await res.json();
-          const filtered = targetSkus ? products.filter((p: any) => p.variants?.some((v: any) => targetSkus.includes(v.sku))) : products;
-          for (const p of filtered) {
-            for (const v of (p.variants || [])) {
-              if (targetSkus && !targetSkus.includes(v.sku)) continue;
-              const orig = parseFloat(v.price);
-              if (!orig) continue;
-              const sale_price = parseFloat((orig * multiplier).toFixed(2));
-              const up = await fetch(`${shopBase}/variants/${v.id}.json`, {
-                method: 'PUT', headers: hdrs,
-                body: JSON.stringify({ variant: { id: v.id, price: String(sale_price), compare_at_price: String(orig) } }),
-              });
-              if (!up.ok) continue;
-              restoreRows.push({ user_id, flash_sale_id: flashSaleId, platform_id: pl.id, platform_type: 'shopify', restore_type: 'price', platform_product_id: String(p.id), platform_variant_id: String(v.id), product_name: p.title, sku: v.sku || null, original_price: orig, sale_price, restore_at: restoreAt });
+        const productsData = await shopifyGraphQL(pl.shop_domain, token, `
+          query {
+            products(first: 250) {
+              edges {
+                node {
+                  id title
+                  variants(first: 100) {
+                    edges {
+                      node { id sku price }
+                    }
+                  }
+                }
+              }
             }
+          }
+        `);
+        const allProducts = productsData.products.edges.map((pe: any) => ({
+          id: fromShopifyGid(pe.node.id),
+          gid: pe.node.id,
+          title: pe.node.title,
+          variants: pe.node.variants.edges.map((ve: any) => ({
+            id: fromShopifyGid(ve.node.id),
+            gid: ve.node.id,
+            sku: ve.node.sku,
+            price: ve.node.price,
+          })),
+        }));
+        const filtered = targetSkus
+          ? allProducts.filter((p: any) => p.variants.some((v: any) => targetSkus.includes(v.sku)))
+          : allProducts;
+        for (const p of filtered) {
+          for (const v of p.variants) {
+            if (targetSkus && !targetSkus.includes(v.sku)) continue;
+            const orig = parseFloat(v.price);
+            if (!orig) continue;
+            const sale_price = parseFloat((orig * multiplier).toFixed(2));
+            try {
+              await shopifyGraphQL(pl.shop_domain, token, `
+                mutation($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+                  productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+                    userErrors { field message }
+                  }
+                }
+              `, {
+                productId: toShopifyGid('Product', p.id),
+                variants: [{ id: v.gid, price: String(sale_price) }],
+              });
+            } catch { continue; }
+            restoreRows.push({ user_id, flash_sale_id: flashSaleId, platform_id: pl.id, platform_type: 'shopify', restore_type: 'price', platform_product_id: String(p.id), platform_variant_id: String(v.id), product_name: p.title, sku: v.sku || null, original_price: orig, sale_price, restore_at: restoreAt });
           }
         }
       }
