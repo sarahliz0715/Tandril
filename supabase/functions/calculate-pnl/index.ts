@@ -10,7 +10,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const SHOPIFY_API_VERSION = '2024-01';
+// SHOPIFY_API_VERSION removed — now using GraphQL 2025-01
 
 serve(async (req) => {
   // Handle CORS preflight requests
@@ -213,73 +213,61 @@ async function calculatePlatformPnL(
 
   console.log(`[P&L Calculator] Fetching orders from ${startISO} to ${endISO}`);
 
-  // Fetch all orders in the date range
-  const ordersResponse = await shopifyRequest(
-    platform,
-    `orders.json?status=any&created_at_min=${startISO}&created_at_max=${endISO}&limit=250&financial_status=paid`
-  );
-  const orders = ordersResponse.orders || [];
+  // Fetch paid orders in the date range via GraphQL
+  const ordersData = await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+    query {
+      orders(first: 250, query: "financial_status:paid created_at:>=${startISO} created_at:<=${endISO}") {
+        edges {
+          node {
+            id name createdAt
+            totalPriceSet { shopMoney { amount currencyCode } }
+            refunds {
+              transactions(first: 10) {
+                edges { node { kind amount } }
+              }
+            }
+            lineItems(first: 50) {
+              edges {
+                node {
+                  title quantity
+                  product { id }
+                  variant {
+                    id price
+                    inventoryItem { unitCost { amount } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `);
+  const orders = ordersData.orders.edges.map((e: any) => ({
+    ...e.node,
+    id: fromShopifyGid(e.node.id),
+    created_at: e.node.createdAt,
+    total_price: e.node.totalPriceSet?.shopMoney?.amount,
+    refunds: (e.node.refunds || []).map((r: any) => ({
+      transactions: r.transactions.edges.map((t: any) => ({ kind: t.node.kind, amount: t.node.amount }))
+    })),
+    line_items: e.node.lineItems.edges.map((li: any) => ({
+      ...li.node,
+      product_id: li.node.product ? fromShopifyGid(li.node.product.id) : null,
+      variant_id: li.node.variant ? fromShopifyGid(li.node.variant.id) : null,
+      price: li.node.variant?.price,
+      _unit_cost: li.node.variant?.inventoryItem?.unitCost?.amount ?? null,
+    }))
+  }));
 
   console.log(`[P&L Calculator] Found ${orders.length} paid orders`);
 
   let revenue = 0;
   let cogs = 0;
-  let shippingCosts = 0;
   let platformFees = 0;
   let refunds = 0;
-  const productIds = new Set<number>();
-  const variantCostMap = new Map<number, number>(); // Cache variant costs
-
-  // Collect all unique variant IDs from orders
-  const variantIds = new Set<number>();
-  for (const order of orders) {
-    for (const lineItem of order.line_items || []) {
-      if (lineItem.variant_id) {
-        variantIds.add(lineItem.variant_id);
-      }
-    }
-  }
-
-  console.log(`[P&L Calculator] Fetching costs for ${variantIds.size} unique variants`);
-
-  // Fetch costs for all variants (batch process to avoid rate limits)
-  const variantIdArray = Array.from(variantIds);
-  const batchSize = 50;
-
-  for (let i = 0; i < variantIdArray.length; i += batchSize) {
-    const batchIds = variantIdArray.slice(i, i + batchSize);
-
-    for (const variantId of batchIds) {
-      try {
-        // Fetch variant to get inventory_item_id
-        const variantResponse = await shopifyRequest(
-          platform,
-          `variants/${variantId}.json`
-        );
-        const variant = variantResponse.variant;
-
-        if (variant?.inventory_item_id) {
-          // Fetch inventory item to get cost
-          const inventoryResponse = await shopifyRequest(
-            platform,
-            `inventory_items/${variant.inventory_item_id}.json`
-          );
-          const cost = parseFloat(inventoryResponse.inventory_item?.cost || '0');
-          variantCostMap.set(variantId, cost);
-
-          console.log(`[P&L Calculator] Variant ${variantId}: cost = $${cost}`);
-        }
-      } catch (error) {
-        console.error(`[P&L Calculator] Failed to fetch cost for variant ${variantId}:`, error.message);
-        variantCostMap.set(variantId, 0); // Default to 0 if fetch fails
-      }
-    }
-
-    // Small delay between batches to respect rate limits (2 calls per second)
-    if (i + batchSize < variantIdArray.length) {
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-  }
+  const productIds = new Set<string>();
+  const variantIds = new Set<string>();
 
   // Process each order
   for (const order of orders) {
@@ -294,30 +282,24 @@ async function calculatePlatformPnL(
 
     // Process line items for COGS
     for (const lineItem of order.line_items || []) {
-      if (lineItem.product_id) {
-        productIds.add(lineItem.product_id);
-      }
+      if (lineItem.product_id) productIds.add(lineItem.product_id);
+      if (lineItem.variant_id) variantIds.add(lineItem.variant_id);
 
-      // Calculate COGS using fetched costs
+      // Calculate COGS using cost fetched inline with the order query
       const quantity = lineItem.quantity || 1;
-      const variantId = lineItem.variant_id;
-
-      if (variantId && variantCostMap.has(variantId)) {
-        const cost = variantCostMap.get(variantId) || 0;
+      const cost = lineItem._unit_cost !== null ? parseFloat(lineItem._unit_cost || '0') : 0;
+      if (cost > 0) {
         const lineItemCogs = cost * quantity;
         cogs += lineItemCogs;
-
-        console.log(`[P&L Calculator] Order ${order.order_number}: ${lineItem.name} x${quantity} @ $${cost} = $${lineItemCogs} COGS`);
+        console.log(`[P&L Calculator] Order ${order.name}: ${lineItem.title} x${quantity} @ $${cost} = $${lineItemCogs} COGS`);
       }
     }
 
     // Check for refunds
-    if (order.refunds && order.refunds.length > 0) {
-      for (const refund of order.refunds) {
-        for (const transaction of refund.transactions || []) {
-          if (transaction.kind === 'refund') {
-            refunds += parseFloat(transaction.amount || '0');
-          }
+    for (const refund of order.refunds || []) {
+      for (const transaction of refund.transactions || []) {
+        if (transaction.kind === 'refund') {
+          refunds += parseFloat(transaction.amount || '0');
         }
       }
     }
@@ -345,32 +327,25 @@ async function calculatePlatformPnL(
   };
 }
 
-async function shopifyRequest(
-  platform: any,
-  endpoint: string,
-  method: string = 'GET',
-  body?: any
-): Promise<any> {
-  const url = `https://${platform.shop_domain}/admin/api/${SHOPIFY_API_VERSION}/${endpoint}`;
-
-  const options: RequestInit = {
-    method,
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
     headers: {
-      'X-Shopify-Access-Token': platform.access_token,
       'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
     },
-  };
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
 
-  if (body) {
-    options.body = JSON.stringify(body);
-  }
+function toShopifyGid(type: string, id: string | number): string {
+  return `gid://shopify/${type}/${id}`;
+}
 
-  const response = await fetch(url, options);
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Shopify API error (${response.status}): ${errorText}`);
-  }
-
-  return await response.json();
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
 }

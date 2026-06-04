@@ -10,7 +10,26 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { decrypt, isEncrypted } from '../_shared/encryption.ts';
 
-const SHOPIFY_API_VERSION = '2024-01';
+// SHOPIFY_API_VERSION removed — now using GraphQL 2025-01
+
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -146,17 +165,66 @@ async function gatherStoreData(platforms: any[]): Promise<any> {
   if (!token || !domain) return { metrics };
 
   try {
-    const [prodRes, orderRes] = await Promise.all([
-      fetch(`https://${domain}/admin/api/${SHOPIFY_API_VERSION}/products.json?limit=250`, {
-        headers: { 'X-Shopify-Access-Token': token },
-      }),
-      fetch(`https://${domain}/admin/api/${SHOPIFY_API_VERSION}/orders.json?limit=250&status=any`, {
-        headers: { 'X-Shopify-Access-Token': token },
-      }),
+    const [productsData, ordersData] = await Promise.all([
+      shopifyGraphQL(domain, token, `
+        query {
+          products(first: 250) {
+            edges {
+              node {
+                id title
+                variants(first: 100) {
+                  edges {
+                    node { id inventoryQuantity }
+                  }
+                }
+              }
+            }
+          }
+        }
+      `),
+      shopifyGraphQL(domain, token, `
+        query {
+          orders(first: 250, query: "status:any") {
+            edges {
+              node {
+                id createdAt
+                totalPriceSet { shopMoney { amount } }
+                fulfillmentOrders(first: 1) { edges { node { status } } }
+                lineItems(first: 50) {
+                  edges {
+                    node {
+                      title quantity
+                      product { id }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      `),
     ]);
 
-    const { products = [] } = prodRes.ok ? await prodRes.json() : {};
-    const { orders = [] } = orderRes.ok ? await orderRes.json() : {};
+    const products = productsData.products.edges.map((e: any) => ({
+      ...e.node,
+      id: fromShopifyGid(e.node.id),
+      variants: e.node.variants.edges.map((v: any) => ({
+        ...v.node,
+        id: fromShopifyGid(v.node.id),
+        inventory_quantity: v.node.inventoryQuantity,
+      }))
+    }));
+    const orders = ordersData.orders.edges.map((e: any) => ({
+      ...e.node,
+      id: fromShopifyGid(e.node.id),
+      created_at: e.node.createdAt,
+      total_price: e.node.totalPriceSet?.shopMoney?.amount,
+      fulfillment_status: e.node.fulfillmentOrders?.edges?.[0]?.node?.status?.toLowerCase() ?? null,
+      line_items: e.node.lineItems.edges.map((li: any) => ({
+        ...li.node,
+        product_id: li.node.product ? fromShopifyGid(li.node.product.id) : null,
+      }))
+    }));
 
     const now = new Date();
     const day1 = new Date(now.getTime() - 86400000);
