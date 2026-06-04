@@ -10,7 +10,26 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const SHOPIFY_API_VERSION = '2024-01';
+// SHOPIFY_API_VERSION removed — now using GraphQL 2025-01
+
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -137,17 +156,72 @@ async function gatherStoreData(platform: any): Promise<any> {
     const lastWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const lastMonth = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    // Fetch orders
-    const ordersResponse = await shopifyRequest(platform, 'orders.json?limit=250&status=any');
-    const allOrders = ordersResponse.orders || [];
+    // Fetch orders via GraphQL
+    const ordersData = await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+      query {
+        orders(first: 250, query: "status:any") {
+          edges {
+            node {
+              id createdAt
+              totalPriceSet { shopMoney { amount } }
+              fulfillmentOrders(first: 1) { edges { node { status } } }
+              lineItems(first: 50) {
+                edges {
+                  node {
+                    title quantity
+                    product { id }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `);
+    const allOrders = ordersData.orders.edges.map((e: any) => ({
+      ...e.node,
+      id: fromShopifyGid(e.node.id),
+      created_at: e.node.createdAt,
+      total_price: e.node.totalPriceSet?.shopMoney?.amount,
+      fulfillment_status: e.node.fulfillmentOrders?.edges?.[0]?.node?.status?.toLowerCase() ?? null,
+      line_items: e.node.lineItems.edges.map((li: any) => ({
+        ...li.node,
+        product_id: li.node.product ? fromShopifyGid(li.node.product.id) : null,
+      }))
+    }));
 
     const ordersLast24h = allOrders.filter((o) => new Date(o.created_at) > yesterday);
     const ordersLast7d = allOrders.filter((o) => new Date(o.created_at) > lastWeek);
     const ordersLast30d = allOrders.filter((o) => new Date(o.created_at) > lastMonth);
 
-    // Fetch products
-    const productsResponse = await shopifyRequest(platform, 'products.json?limit=250');
-    const products = productsResponse.products || [];
+    // Fetch products via GraphQL
+    const productsData = await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+      query {
+        products(first: 250) {
+          edges {
+            node {
+              id title
+              variants(first: 100) {
+                edges {
+                  node {
+                    id inventoryQuantity
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `);
+    const products = productsData.products.edges.map((e: any) => ({
+      ...e.node,
+      id: fromShopifyGid(e.node.id),
+      variants: e.node.variants.edges.map((v: any) => ({
+        ...v.node,
+        id: fromShopifyGid(v.node.id),
+        inventory_quantity: v.node.inventoryQuantity,
+      }))
+    }));
 
     // Calculate metrics
     const revenue24h = ordersLast24h.reduce((sum, o) => sum + parseFloat(o.total_price || '0'), 0);
@@ -246,22 +320,6 @@ async function gatherStoreData(platform: any): Promise<any> {
   }
 }
 
-async function shopifyRequest(platform: any, endpoint: string): Promise<any> {
-  const url = `https://${platform.shop_domain}/admin/api/${SHOPIFY_API_VERSION}/${endpoint}`;
-
-  const response = await fetch(url, {
-    headers: {
-      'X-Shopify-Access-Token': platform.access_token,
-      'Content-Type': 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Shopify API error: ${response.status}`);
-  }
-
-  return await response.json();
-}
 
 async function generateDailyBriefingWithAI(
   storeData: any,
