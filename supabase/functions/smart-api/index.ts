@@ -3,7 +3,79 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { signSpApiRequest, refreshLwaToken } from '../_shared/awsSigV4.ts';
+
+// --- Inlined from _shared/awsSigV4.ts ---
+async function _sha256hex(data: string | Uint8Array): Promise<string> {
+  const input = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+  const hash = await crypto.subtle.digest('SHA-256', input);
+  return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+async function _hmacSha256(key: ArrayBuffer | Uint8Array, data: string): Promise<ArrayBuffer> {
+  const k = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return crypto.subtle.sign('HMAC', k, new TextEncoder().encode(data));
+}
+async function signSpApiRequest(method: string, url: URL, body: string, region: string, accessKeyId: string, secretKey: string, extraHeaders: Record<string, string>): Promise<Record<string, string>> {
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[-:.]/g, '').slice(0, 15) + 'Z';
+  const dateStamp = amzDate.slice(0, 8);
+  const host = url.host;
+  const canonicalUri = url.pathname || '/';
+  const qp: string[] = [];
+  url.searchParams.forEach((v, k) => qp.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`));
+  const canonicalQS = qp.sort().join('&');
+  const hdrs: Record<string, string> = { host, 'x-amz-date': amzDate, ...extraHeaders };
+  const sortedKeys = Object.keys(hdrs).map(k => k.toLowerCase()).sort();
+  const normalizedHdrs: Record<string, string> = {};
+  for (const k of sortedKeys) { normalizedHdrs[k] = hdrs[k] ?? hdrs[k.toUpperCase()] ?? ''; }
+  const canonicalHdrs = sortedKeys.map(k => `${k}:${normalizedHdrs[k].trim()}`).join('\n') + '\n';
+  const signedHdrs = sortedKeys.join(';');
+  const payloadHash = await _sha256hex(body);
+  const canonicalReq = [method.toUpperCase(), canonicalUri, canonicalQS, canonicalHdrs, signedHdrs, payloadHash].join('\n');
+  const service = 'execute-api';
+  const credScope = `${dateStamp}/${region}/${service}/aws4_request`;
+  const strToSign = ['AWS4-HMAC-SHA256', amzDate, credScope, await _sha256hex(canonicalReq)].join('\n');
+  const kDate    = await _hmacSha256(new TextEncoder().encode(`AWS4${secretKey}`), dateStamp);
+  const kRegion  = await _hmacSha256(kDate, region);
+  const kService = await _hmacSha256(kRegion, service);
+  const kSigning = await _hmacSha256(kService, 'aws4_request');
+  const sigHex = [...new Uint8Array(await _hmacSha256(kSigning, strToSign))].map(b => b.toString(16).padStart(2, '0')).join('');
+  const authHdr = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credScope}, SignedHeaders=${signedHdrs}, Signature=${sigHex}`;
+  return { ...normalizedHdrs, Authorization: authHdr, 'Content-Type': extraHeaders['Content-Type'] || 'application/json' };
+}
+async function refreshLwaToken(refreshToken: string, clientId: string, clientSecret: string): Promise<{ accessToken: string; expiresAt: string }> {
+  const res = await fetch('https://api.amazon.com/auth/o2/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: clientId, client_secret: clientSecret }),
+  });
+  if (!res.ok) throw new Error(`LWA token refresh failed: ${await res.text()}`);
+  const data = await res.json();
+  return { accessToken: data.access_token, expiresAt: new Date(Date.now() + (data.expires_in || 3600) * 1000).toISOString() };
+}
+
+// --- Inlined from _shared/encryption.ts ---
+const _ENC_ALGORITHM = 'AES-GCM';
+const _ENC_IV_LENGTH = 12;
+async function _getEncryptionKey(): Promise<CryptoKey> {
+  const secret = Deno.env.get('ENCRYPTION_SECRET');
+  if (!secret) throw new Error('ENCRYPTION_SECRET environment variable not set');
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(secret), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: encoder.encode('tandril-encryption-salt-v1'), iterations: 100000, hash: 'SHA-256' },
+    keyMaterial, { name: _ENC_ALGORITHM, length: 256 }, false, ['encrypt', 'decrypt']
+  );
+}
+async function decrypt(encrypted: string): Promise<string> {
+  try {
+    const key = await _getEncryptionKey();
+    const combined = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0));
+    const iv = combined.slice(0, _ENC_IV_LENGTH);
+    const ciphertext = combined.slice(_ENC_IV_LENGTH);
+    const decrypted = await crypto.subtle.decrypt({ name: _ENC_ALGORITHM, iv }, key, ciphertext);
+    return new TextDecoder().decode(decrypted);
+  } catch { throw new Error('Failed to decrypt data'); }
+}
 
 async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
   const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
@@ -1185,7 +1257,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
   let accessToken = platform?.access_token;
   try {
     if (accessToken && accessToken.length > 50 && !accessToken.startsWith('shpat_') && !accessToken.startsWith('shpca_')) {
-      const { decrypt } = await import('../_shared/encryption.ts');
+      
       accessToken = await decrypt(accessToken);
     }
   } catch (e) {
@@ -1848,7 +1920,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             case 'shopify': {
               let tok = platform.access_token ?? '';
               if (tok && tok.length > 50 && !tok.startsWith('shpat_') && !tok.startsWith('shpca_')) {
-                try { const { decrypt: dec } = await import('../_shared/encryption.ts'); tok = await dec(tok); } catch { /* use as-is */ }
+                try { tok = await decrypt(tok); } catch { /* use as-is */ }
               }
               const bcastDomain = platform.shop_domain;
               const variantId = link.platform_variant_id;
@@ -2783,7 +2855,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             if (!shopDomain || !tok) continue;
             try {
               if (tok.length > 50 && !tok.startsWith('shpat_') && !tok.startsWith('shpca_')) {
-                const { decrypt } = await import('../_shared/encryption.ts');
+                
                 tok = await decrypt(tok);
               }
             } catch {}
@@ -3162,7 +3234,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         let tok = orderPlat.access_token;
         try {
           if (tok.length > 50 && !tok.startsWith('shpat_') && !tok.startsWith('shpca_')) {
-            const { decrypt } = await import('../_shared/encryption.ts');
+            
             tok = await decrypt(tok);
           }
         } catch {}
@@ -3376,7 +3448,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         let tok = cPlat.access_token;
         try {
           if (tok.length > 50 && !tok.startsWith('shpat_') && !tok.startsWith('shpca_')) {
-            const { decrypt } = await import('../_shared/encryption.ts');
+            
             tok = await decrypt(tok);
           }
         } catch {}
@@ -3436,7 +3508,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         let tok = rPlat.access_token;
         try {
           if (tok.length > 50 && !tok.startsWith('shpat_') && !tok.startsWith('shpca_')) {
-            const { decrypt } = await import('../_shared/encryption.ts');
+            
             tok = await decrypt(tok);
           }
         } catch {}
@@ -5746,7 +5818,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         let spToken = spPlat.access_token;
         try {
           if (spToken && spToken.length > 50 && !spToken.startsWith('shpat_') && !spToken.startsWith('shpca_')) {
-            const { decrypt } = await import('../_shared/encryption.ts');
+            
             spToken = await decrypt(spToken);
           }
         } catch {}
@@ -7158,7 +7230,7 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     try {
       let accessToken = shopifyPlatform.access_token;
       if (accessToken && accessToken.length > 50 && !accessToken.startsWith('shpat_') && !accessToken.startsWith('shpca_')) {
-        const { decrypt } = await import('../_shared/encryption.ts');
+        
         accessToken = await decrypt(accessToken);
       }
       const shopDomain = shopifyPlatform.shop_domain;
