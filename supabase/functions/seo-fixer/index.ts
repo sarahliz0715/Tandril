@@ -10,8 +10,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const SHOPIFY_API_VERSION = '2024-01';
-
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -163,14 +161,76 @@ serve(async (req) => {
   }
 });
 
+// ─── GraphQL helpers ──────────────────────────────────────────────────────────
+
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function toShopifyGid(type: string, id: string | number): string {
+  return `gid://shopify/${type}/${id}`;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function fixSEO(
   platform: any,
   mode: string,
   maxProducts: number
 ): Promise<any> {
-  // Fetch products
-  const productsResponse = await shopifyRequest(platform, `products.json?limit=${maxProducts}`);
-  const products = productsResponse.products || [];
+  // Fetch products via GraphQL
+  const data = await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+    query($first: Int!) {
+      products(first: $first) {
+        edges {
+          node {
+            id title handle status vendor productType tags
+            images(first: 10) { edges { node { id url altText } } }
+            variants(first: 100) {
+              edges {
+                node {
+                  id price sku inventoryQuantity
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `, { first: maxProducts });
+
+  const products = (data.products.edges || []).map((e: any) => ({
+    ...e.node,
+    id: fromShopifyGid(e.node.id),
+    _gid: e.node.id,
+    product_type: e.node.productType,
+    body_html: '',
+    images: e.node.images.edges.map((i: any) => ({
+      id: fromShopifyGid(i.node.id),
+      src: i.node.url,
+      alt: i.node.altText,
+    })),
+    variants: e.node.variants.edges.map((v: any) => ({
+      ...v.node,
+      id: fromShopifyGid(v.node.id),
+      inventory_quantity: v.node.inventoryQuantity,
+    })),
+  }));
 
   console.log(`[SEO Fixer] Found ${products.length} products on ${platform.shop_domain}`);
 
@@ -195,20 +255,35 @@ async function fixSEO(
           const improvements = await generateSEOImprovements(product);
 
           if (improvements) {
-            // Update product in Shopify
-            await shopifyRequest(
-              platform,
-              `products/${product.id}.json`,
-              'PUT',
-              {
-                product: {
-                  title: improvements.title || product.title,
-                  body_html: improvements.description || product.body_html,
-                  // Update image alt text
-                  images: improvements.images || product.images,
-                },
+            // Build productUpdate input
+            const input: any = { id: product._gid };
+            if (improvements.title) input.title = improvements.title;
+            if (improvements.description) input.descriptionHtml = improvements.description;
+
+            await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+              mutation($input: ProductInput!) {
+                productUpdate(input: $input) {
+                  product { id title }
+                  userErrors { field message }
+                }
               }
-            );
+            `, { input });
+
+            // Update image alt text if provided (best-effort per image)
+            if (improvements.images && improvements.images.length > 0) {
+              for (const imgUpdate of improvements.images) {
+                await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+                  mutation($productId: ID!, $images: [ImageInput!]!) {
+                    productUpdateMedia(productId: $productId, media: $images) {
+                      mediaUserErrors { field message }
+                    }
+                  }
+                `, {
+                  productId: product._gid,
+                  images: [{ id: toShopifyGid('MediaImage', imgUpdate.id), alt: imgUpdate.alt }],
+                }).catch((e: any) => console.warn('[SEO Fixer] Image alt update failed:', e.message));
+              }
+            }
 
             fixedProducts.push({
               product_id: product.id,
@@ -372,34 +447,4 @@ Provide SEO-optimized title, description, and image alt text.`;
     console.error('[SEO Fixer] AI generation failed:', error);
     return null;
   }
-}
-
-async function shopifyRequest(
-  platform: any,
-  endpoint: string,
-  method: string = 'GET',
-  body?: any
-): Promise<any> {
-  const url = `https://${platform.shop_domain}/admin/api/${SHOPIFY_API_VERSION}/${endpoint}`;
-
-  const options: RequestInit = {
-    method,
-    headers: {
-      'X-Shopify-Access-Token': platform.access_token,
-      'Content-Type': 'application/json',
-    },
-  };
-
-  if (body) {
-    options.body = JSON.stringify(body);
-  }
-
-  const response = await fetch(url, options);
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Shopify API error (${response.status}): ${errorText}`);
-  }
-
-  return await response.json();
 }

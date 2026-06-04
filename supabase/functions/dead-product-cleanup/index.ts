@@ -10,8 +10,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const SHOPIFY_API_VERSION = '2024-01';
-
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -169,6 +167,33 @@ serve(async (req) => {
   }
 });
 
+// ─── GraphQL helpers ──────────────────────────────────────────────────────────
+
+async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
+  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': token,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!response.ok) throw new Error(`Shopify GraphQL request failed: ${response.status}`);
+  const result = await response.json();
+  if (result.errors?.length) throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+  return result.data;
+}
+
+function toShopifyGid(type: string, id: string | number): string {
+  return `gid://shopify/${type}/${id}`;
+}
+
+function fromShopifyGid(gid: string): string {
+  return String(gid).split('/').pop() || String(gid);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function cleanupDeadProducts(
   platform: any,
   daysInactive: number,
@@ -183,35 +208,64 @@ async function cleanupDeadProducts(
   console.log(`[Dead Product Cleanup] Looking for products with no sales since ${cutoffISO}`);
 
   // Fetch recent orders to find products that HAVE sold
-  const ordersResponse = await shopifyRequest(
-    platform,
-    `orders.json?status=any&created_at_min=${cutoffISO}&limit=250`
-  );
-  const orders = ordersResponse.orders || [];
+  const ordersData = await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+    query($query: String!) {
+      orders(first: 250, query: $query) {
+        edges {
+          node {
+            id
+            lineItems(first: 50) {
+              edges {
+                node {
+                  product { id }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `, { query: `created_at:>=${cutoffISO} status:any` });
 
+  const orders = ordersData.orders.edges || [];
   console.log(`[Dead Product Cleanup] Found ${orders.length} orders in last ${daysInactive} days`);
 
-  // Extract product IDs from recent orders (products that DID sell)
-  const soldProductIds = new Set<number>();
-  for (const order of orders) {
-    for (const lineItem of order.line_items || []) {
-      if (lineItem.product_id) {
-        soldProductIds.add(lineItem.product_id);
+  // Extract product GIDs from recent orders (products that DID sell)
+  const soldProductGids = new Set<string>();
+  for (const orderEdge of orders) {
+    for (const liEdge of orderEdge.node.lineItems.edges || []) {
+      if (liEdge.node.product?.id) {
+        soldProductGids.add(liEdge.node.product.id);
       }
     }
   }
 
-  console.log(`[Dead Product Cleanup] ${soldProductIds.size} unique products sold in last ${daysInactive} days`);
+  console.log(`[Dead Product Cleanup] ${soldProductGids.size} unique products sold in last ${daysInactive} days`);
 
   // Fetch all products
-  const productsResponse = await shopifyRequest(platform, 'products.json?limit=250');
-  const allProducts = productsResponse.products || [];
+  const productsData = await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+    query {
+      products(first: 250) {
+        edges {
+          node {
+            id title status tags
+          }
+        }
+      }
+    }
+  `);
+
+  const allProducts = (productsData.products.edges || []).map((e: any) => ({
+    ...e.node,
+    id: fromShopifyGid(e.node.id),
+    _gid: e.node.id,
+  }));
 
   console.log(`[Dead Product Cleanup] Found ${allProducts.length} total products`);
 
-  // Find dead products (not in sold set and published)
-  const deadProducts = allProducts.filter(product =>
-    !soldProductIds.has(product.id) && product.status === 'active'
+  // Find dead products (not in sold set and active)
+  const deadProducts = allProducts.filter((product: any) =>
+    !soldProductGids.has(product._gid) && product.status === 'ACTIVE'
   );
 
   console.log(`[Dead Product Cleanup] Found ${deadProducts.length} dead products (no sales in ${daysInactive} days)`);
@@ -221,17 +275,15 @@ async function cleanupDeadProducts(
   for (const product of deadProducts) {
     try {
       if (action === 'unpublish') {
-        // Unpublish the product
-        await shopifyRequest(
-          platform,
-          `products/${product.id}.json`,
-          'PUT',
-          {
-            product: {
-              status: 'draft',
-            },
+        // Unpublish the product via productUpdate
+        await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+          mutation($input: ProductInput!) {
+            productUpdate(input: $input) {
+              product { id status }
+              userErrors { field message }
+            }
           }
-        );
+        `, { input: { id: product._gid, status: 'DRAFT' } });
 
         cleanedProducts.push({
           product_id: product.id,
@@ -243,22 +295,22 @@ async function cleanupDeadProducts(
         console.log(`[Dead Product Cleanup] Unpublished: ${product.title}`);
       } else if (action === 'flag') {
         // Add tag to flag as dead
-        const currentTags = product.tags ? product.tags.split(',').map((t: string) => t.trim()) : [];
+        const currentTags: string[] = product.tags
+          ? (Array.isArray(product.tags) ? product.tags : product.tags.split(',').map((t: string) => t.trim()))
+          : [];
 
         // Only add tag if not already present
         if (!currentTags.includes(tagName)) {
-          const newTags = [...currentTags, tagName].join(', ');
+          const newTags = [...currentTags, tagName];
 
-          await shopifyRequest(
-            platform,
-            `products/${product.id}.json`,
-            'PUT',
-            {
-              product: {
-                tags: newTags,
-              },
+          await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+            mutation($input: ProductInput!) {
+              productUpdate(input: $input) {
+                product { id tags }
+                userErrors { field message }
+              }
             }
-          );
+          `, { input: { id: product._gid, tags: newTags } });
 
           cleanedProducts.push({
             product_id: product.id,
@@ -288,36 +340,6 @@ async function cleanupDeadProducts(
     cleaned_count: cleanedProducts.filter(p => p.action !== 'failed').length,
     failed_count: cleanedProducts.filter(p => p.action === 'failed').length,
     cleaned_products: cleanedProducts,
-    products_still_selling: soldProductIds.size,
+    products_still_selling: soldProductGids.size,
   };
-}
-
-async function shopifyRequest(
-  platform: any,
-  endpoint: string,
-  method: string = 'GET',
-  body?: any
-): Promise<any> {
-  const url = `https://${platform.shop_domain}/admin/api/${SHOPIFY_API_VERSION}/${endpoint}`;
-
-  const options: RequestInit = {
-    method,
-    headers: {
-      'X-Shopify-Access-Token': platform.access_token,
-      'Content-Type': 'application/json',
-    },
-  };
-
-  if (body) {
-    options.body = JSON.stringify(body);
-  }
-
-  const response = await fetch(url, options);
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Shopify API error (${response.status}): ${errorText}`);
-  }
-
-  return await response.json();
 }
