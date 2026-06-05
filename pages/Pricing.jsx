@@ -18,7 +18,7 @@ const plans = [
         price: 0,
         description: 'Perfect for getting started with AI automation.',
         features: [
-            '50 AI commands per month',
+            '50 agent tasks per month',
             'Connect up to 2 platforms',
             'Basic automation workflows',
             'Standard AI model access',
@@ -34,7 +34,7 @@ const plans = [
         price: 39.99,
         description: 'For growing businesses who need to automate and scale.',
         features: [
-            '400 AI commands per month',
+            '400 agent tasks per month',
             'Connect up to 4 platforms',
             'Complex workflows',
             'Priority support',
@@ -49,7 +49,7 @@ const plans = [
         price: 129.99,
         description: 'For established businesses requiring advanced features.',
         features: [
-            'Unlimited AI commands',
+            '2,500 agent tasks per month',
             'Connect unlimited platforms',
             'Custom AI model fine-tuning',
             'Dedicated account manager',
@@ -66,6 +66,7 @@ const plans = [
         description: 'For large-scale operations requiring unlimited power.',
         features: [
             'Everything in Professional',
+            '7,500 agent tasks per month',
             'Unlimited automation workflows',
             'White-label options',
             'Custom SLA guarantees',
