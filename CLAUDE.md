@@ -1,5 +1,5 @@
 # Tandril — Project Context for Claude
-**Last updated:** June 4, 2026 | **Repo:** private | **Owner:** Sarah Evenson
+**Last updated:** June 6, 2026 | **Repo:** private | **Owner:** Sarah Evenson
 
 ---
 
@@ -271,6 +271,75 @@ On June 4, 2026 we began migrating all Shopify REST API calls to GraphQL Admin A
 - No proper git repo on Windows — code lives in GitHub and on Linux server
 - Supabase edge functions: always copy from **main branch** on GitHub — feature branches are deleted after merge
 - When deploying edge functions, paste into Supabase dashboard → Edge Functions → [name] → Code → Deploy
+
+---
+
+## Strategic Context — Baked In, Always Apply
+
+**Last updated:** June 6, 2026
+
+### The AI + SMB Landscape
+- The largest market sector affected by AI will be SMBs — not through job loss but through growth
+- Strategic AI application lets small businesses grow without the traditional cost/risk of hiring and outsourcing
+- The gap isn't access to AI anymore — it's who actually uses it
+- SaaS is under real long-term pressure from bespoke AI solutions, but Tandril's moat holds because:
+  1. Sellers in Tandril's ICP cannot build bespoke anything — they want something that works Tuesday morning
+  2. Bespoke solutions break when APIs change; Tandril handles maintenance
+  3. Orion's contextual business intelligence (outcome data from real stores) is not replicable by a generic AI assistant
+
+### Tandril's Moat
+- Not just inventory sync — it's an AI that knows your store well enough to run your ads
+- Orion's value compounds with tenure: the longer a seller stays, the more store history Orion has, the smarter its recommendations get
+- That learning loop is defensible in a way a generic chatbot is not
+
+### Orion's Long-Term Direction
+Orion grows in three phases:
+1. **Ops intelligence** (current) — surface problems, answer questions, execute commands
+2. **Growth execution** (roadmap) — draft ad creative, launch campaigns, report back
+3. **Compounding advisor** (vision) — learns what works for each specific store, applies it automatically
+
+Investor framing: *"The same AI that prevents your stockouts will eventually launch the ad to clear them."*
+
+### GEO / Content Strategy
+- Frame Tandril content around the "who uses it wins" thesis
+- Target: multi-platform sellers posting about pain (Reddit, Etsy forums, Shopify community)
+- Zora Insights is the demand validation tool — use it to find real sellers with real problems
+- Omama Hills (Sarah's own Shopify + Etsy stores) is both a customer and a live testbed
+
+---
+
+## Ad Campaign Feature — Roadmap (Not Yet Built)
+
+**Why it's parked:** Agentic AI and mature image generation didn't exist when Tandril was started. Deliberately waited rather than building a half-baked version. The timing is now right.
+
+**The vision:** Seller types "Orion, move this inventory." Orion picks underperforming SKUs, writes ad creative, assembles image, launches coordinated ads across Meta and TikTok, monitors ROAS, reports back in plain language.
+
+### What's Already Built (Stage 1 foundation)
+- Orion surfaces slow movers, low stock, growth opportunities, risk alerts
+- AI content generator writes product copy — ad copy is a small extension
+- Product images already pulled from stores
+- TikTok Shop already connected
+
+### Stage 2 — Creative Generation (to build)
+| What | Where | Effort |
+|---|---|---|
+| Ad copy generator (headline, body, CTA via Claude) | `supabase/functions/ad-copy-generator/index.ts` | S |
+| Image generation (product photo + DALL-E/Stability AI) | `supabase/functions/ad-image-generator/index.ts` | M |
+| Ad preview UI component | `components/ads/AdPreviewCard.jsx` | M |
+| `ad_creatives` table + Supabase Storage bucket | SQL migration + dashboard | S |
+
+### Stage 3 — Launch, Reporting, Learning (to build)
+| What | Where | Effort |
+|---|---|---|
+| Meta Ads launch edge function | `supabase/functions/meta-ads-launch/index.ts` | L |
+| TikTok Ads launch edge function | `supabase/functions/tiktok-ads-launch/index.ts` | L |
+| Meta + TikTok Ads OAuth flows | Extend `Platforms.jsx` + new auth edge functions | M each |
+| Ad performance sync cron | `supabase/functions/sync-ad-performance/index.ts` | M |
+| Campaigns UI page | `pages/Campaigns.jsx` | L |
+| Orion action types: `draft_ad`, `launch_ad`, `get_ad_performance` | Extend `smart-api/index.ts` | M |
+| Learning loop — performance back into Orion context | `orion_ad_learnings` table + system prompt injection | M |
+
+**New secrets needed when building:** `META_APP_ID`, `META_APP_SECRET`, `META_ACCESS_TOKEN`, `TIKTOK_ADS_APP_ID`, `TIKTOK_ADS_SECRET`, image generation API key
 
 ---
 
