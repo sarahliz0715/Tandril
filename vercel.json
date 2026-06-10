@@ -4,6 +4,13 @@
   "devCommand": "npm run dev",
   "installCommand": "npm install",
   "framework": "vite",
+  "redirects": [
+    {
+      "source": "/waitlist",
+      "destination": "https://zorainsights.com/waitlist/tandril-your-ai-e-commerce-operations-partner",
+      "permanent": false
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/(.*)",
