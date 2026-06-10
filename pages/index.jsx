@@ -108,7 +108,9 @@ import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-route
 
 const PAGES = {
     
-    Dashboard: Dashboard,
+Home: Home,
+    
+            Dashboard: Dashboard,
     
     Platforms: Platforms,
     
