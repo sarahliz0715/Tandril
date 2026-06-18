@@ -163,8 +163,6 @@ Home: Home,
     Listings: Listings,
     
     Inbox: Inbox,
-    
-    Home: Home,
 
     VacationDashboard: VacationDashboard,
     
