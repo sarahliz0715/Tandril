@@ -663,13 +663,14 @@ async function getOrCreateConversation(supabaseClient: any, userId: string, conv
 }
 
 async function loadConversationHistory(supabaseClient: any, userId: string, conversationId: string) {
-  const { data: currentMessages } = await supabaseClient
+  const { data: currentMessagesDesc } = await supabaseClient
     .from('orion_messages')
     .select('role, content, created_at')
     .eq('conversation_id', conversationId)
     .eq('user_id', userId)
-    .order('created_at', { ascending: true })
+    .order('created_at', { ascending: false })
     .limit(40);
+  const currentMessages = (currentMessagesDesc || []).slice().reverse();
 
   const { data: prevConversations } = await supabaseClient
     .from('orion_conversations')
