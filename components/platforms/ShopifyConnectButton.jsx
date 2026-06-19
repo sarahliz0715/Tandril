@@ -58,7 +58,7 @@ export default function ShopifyConnectButton({ onConnectionSuccess, label }) {
 
                 // Add a small delay to show the toast
                 setTimeout(() => {
-                    window.location.href = response.data.authorization_url;
+                    window.top.location.href = response.data.authorization_url;
                 }, 500);
             } else {
                 const error = "No authorization URL received from server";
