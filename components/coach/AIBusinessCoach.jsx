@@ -595,6 +595,21 @@ export default function AIBusinessCoach() {
     ));
   };
 
+  // Defensive formatter for action card field values. No matter what shape
+  // the backend sends (primitive, array, or nested object), this guarantees
+  // a human-readable string instead of the default toString() output, which
+  // turns any object into the literal text "[object Object]".
+  const formatActionValue = (v) => {
+    if (v === null || v === undefined || v === '') return '—';
+    if (Array.isArray(v)) return v.map(formatActionValue).join(', ');
+    if (typeof v === 'object') {
+      return Object.entries(v)
+        .map(([k, vv]) => `${k.replace(/_/g, ' ')}: ${formatActionValue(vv)}`)
+        .join('; ');
+    }
+    return String(v);
+  };
+
   const getActionInfo = (action) => {
     if (!action) return { icon: '⚡', title: 'Store Action', fields: [] };
     switch (action.type) {
@@ -837,7 +852,29 @@ export default function AIBusinessCoach() {
           fields: [
             ...updates.slice(0, 8).map((u) => ({
               label: u.product_name || u.sku || '',
-              value: String(u.new_value),
+              value: formatActionValue(u.new_value),
+            })),
+            updates.length > 8 && { label: '', value: `+ ${updates.length - 8} more products` },
+          ].filter(Boolean),
+        };
+      }
+      case 'bulk_ai_content': {
+        // AI-generated content (title/description/tags/SEO/alt text) applied to
+        // many products in one confirmed batch. Each entry in action.updates is
+        // a per-product object like { product_name, sku, title?, description?,
+        // tags?, seo_title?, seo_description?, url_handle?, image_alt? } — only
+        // the fields actually being changed are present, so we list which ones.
+        const updates = action.updates || [];
+        const changedFieldLabels = (u) =>
+          ['title', 'description', 'tags', 'seo_title', 'seo_description', 'url_handle', 'image_alt']
+            .filter((k) => u[k] !== undefined && u[k] !== null && u[k] !== '')
+            .map((k) => k.replace(/_/g, ' '));
+        return {
+          icon: '🪄', title: `AI Content Rewrite on ${updates.length} Product${updates.length !== 1 ? 's' : ''}`,
+          fields: [
+            ...updates.slice(0, 8).map((u) => ({
+              label: u.product_name || u.sku || '',
+              value: changedFieldLabels(u).join(', ') || 'No fields specified',
             })),
             updates.length > 8 && { label: '', value: `+ ${updates.length - 8} more products` },
           ].filter(Boolean),
@@ -848,7 +885,7 @@ export default function AIBusinessCoach() {
           icon: '⚡', title: 'Store Action',
           fields: Object.entries(action)
             .filter(([k]) => k !== 'type')
-            .map(([k, v]) => ({ label: k, value: String(v) })),
+            .map(([k, v]) => ({ label: k.replace(/_/g, ' '), value: formatActionValue(v) })),
         };
     }
   };
