@@ -452,48 +452,58 @@ export default function AIBusinessCoach() {
     return api.functions.chatWithCoach({ execute_action: resolvedAction });
   };
 
-  const handleConfirmAction = async (messageIdx, action) => {
+  // Advances to the next card in the queue WITHOUT executing anything yet.
+  // This lets the user review every product before any changes are written —
+  // nothing actually gets applied until handleApproveAndApplyAll runs at the end.
+  const handleApproveAndNext = (messageIdx) => {
+    setChatMessages(prev => prev.map((m, i) => {
+      if (i !== messageIdx) return m;
+      const queueIdx = m.queueIdx || 0;
+      return { ...m, queueIdx: queueIdx + 1 };
+    }));
+  };
+
+  // Applies every action in the queue in one batch. Called either when the
+  // queue has only one action, or after the user has approved every card —
+  // so the store only gets written to once, not once per product.
+  const handleApproveAndApplyAll = async (messageIdx) => {
     const msg = chatMessages[messageIdx];
     const pendingActions = msg.pendingActions || [];
-    const queueIdx = msg.queueIdx || 0;
-    const prevResults = msg.queueResults || [];
-    const prevErrors = msg.queueErrors || [];
+    if (pendingActions.length === 0) return;
 
-    setChatMessages(prev => prev.map((m, i) => i === messageIdx ? { ...m, executing: true } : m));
+    setChatMessages(prev => prev.map((m, i) => i === messageIdx ? { ...m, executing: true, queueIdx: 0 } : m));
     setIsChatLoading(true);
 
-    let allResults = [...prevResults];
-    let allErrors = [...prevErrors];
-    let isDone = false;
+    const localResults = [];
+    const localErrors = [];
 
-    try {
-      const resolvedAction = await resolveAction(action);
-      const result = await executeOrionAction(resolvedAction);
-      const resultMsg = result.execution_result?.message || 'Action completed successfully.';
-      const newQueueIdx = queueIdx + 1;
-      isDone = newQueueIdx >= pendingActions.length;
-      allResults = [...prevResults, resultMsg];
-      setChatMessages(prev => prev.map((m, i) =>
-        i === messageIdx ? { ...m, executing: false, queueIdx: newQueueIdx, queueResults: allResults, queueDone: isDone } : m
+    for (let i = 0; i < pendingActions.length; i++) {
+      setChatMessages(prev => prev.map((m, idx) =>
+        idx === messageIdx ? { ...m, executing: true, queueIdx: i } : m
       ));
-      if (!isDone) toast.success(`Step ${newQueueIdx} of ${pendingActions.length} complete`);
-    } catch (error) {
-      console.error('[Orion] Action error:', error);
-      const newQueueIdx = queueIdx + 1;
-      isDone = newQueueIdx >= pendingActions.length;
-      allErrors = [...prevErrors, error.message];
-      setChatMessages(prev => prev.map((m, i) =>
-        i === messageIdx ? { ...m, executing: false, queueIdx: newQueueIdx, queueErrors: allErrors, queueDone: isDone } : m
-      ));
-      if (!isDone) toast.error('Action failed');
-    } finally {
-      setIsChatLoading(false);
+      try {
+        const resolvedAction = await resolveAction(pendingActions[i]);
+        const result = await executeOrionAction(resolvedAction);
+        localResults.push(result.execution_result?.message || 'Done');
+      } catch (error) {
+        console.error('[Orion] Action error:', error);
+        const label = pendingActions[i].product_name || `Action ${i + 1}`;
+        localErrors.push(`${label}: ${error.message}`);
+      }
     }
 
-    if (isDone) {
-      await saveActionResultToDb(allResults, allErrors);
-      await reportToOrion(allResults, allErrors, pendingActions);
-    }
+    setChatMessages(prev => prev.map((m, idx) =>
+      idx === messageIdx ? { ...m, executing: false, queueIdx: pendingActions.length, queueResults: localResults, queueErrors: localErrors, queueDone: true } : m
+    ));
+    setIsChatLoading(false);
+
+    const fc = localResults.length, ec = localErrors.length;
+    if (ec === 0) toast.success(pendingActions.length > 1 ? `All ${pendingActions.length} changes applied` : 'Done');
+    else if (fc === 0) toast.error(`All ${pendingActions.length} changes failed`);
+    else toast.warning(`${fc} applied, ${ec} failed`);
+
+    await saveActionResultToDb(localResults, localErrors);
+    await reportToOrion(localResults, localErrors, pendingActions);
   };
 
   const handleConfirmAll = async (messageIdx) => {
@@ -1596,20 +1606,33 @@ export default function AIBusinessCoach() {
                               {!isExecuting ? (
                                 <div className="flex gap-2 px-4 py-3 bg-slate-50 border-t border-slate-100 flex-wrap">
                                   <button
-                                    onClick={() => isMultiPlatform
-                                      ? handleConfirmMultiPlatform(idx, currentAction, selectedPlatforms ?? currentAction.platforms)
-                                      : handleConfirmAction(idx, currentAction)}
+                                    onClick={() => {
+                                      if (isMultiPlatform) {
+                                        // Multi-platform picks still apply immediately per product —
+                                        // deferring would require tracking per-product platform
+                                        // choices, which isn't worth the complexity for this case.
+                                        handleConfirmMultiPlatform(idx, currentAction, selectedPlatforms ?? currentAction.platforms);
+                                      } else if (total > 1 && queueIdx < total - 1) {
+                                        handleApproveAndNext(idx);
+                                      } else {
+                                        handleApproveAndApplyAll(idx);
+                                      }
+                                    }}
                                     disabled={isMultiPlatform && (selectedPlatforms ?? currentAction.platforms).length === 0}
                                     className="px-4 py-2 text-sm font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                   >
-                                    {total > 1 && queueIdx < total - 1 ? 'Confirm & Next →' : 'Confirm & Execute'}
+                                    {total > 1 && queueIdx < total - 1
+                                      ? 'Approve & Next →'
+                                      : total > 1
+                                      ? `Approve & Apply All ${total}`
+                                      : 'Confirm & Execute'}
                                   </button>
                                   {remainingCount > 1 && (
                                     <button
                                       onClick={() => handleConfirmAll(idx)}
                                       className="px-4 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                                     >
-                                      Confirm All ({remainingCount})
+                                      Skip Review — Apply All ({remainingCount})
                                     </button>
                                   )}
                                   <button
