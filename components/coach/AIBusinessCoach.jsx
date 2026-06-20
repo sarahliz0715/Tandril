@@ -294,24 +294,18 @@ export default function AIBusinessCoach() {
       });
 
       if (response && response.success) {
-        // Build the action queue from all returned blocks (preferred) or fall back to single
-        const pendingActions =
-          response.pending_actions?.length > 0
-            ? response.pending_actions
-            : response.pending_action
-            ? [response.pending_action]
-            : [];
+        const { response: finalResponse, pendingActions } = await ensureActionBlock(response);
         setChatMessages((prev) => [
           ...prev,
           {
             role: 'assistant',
-            content: response.response,
+            content: finalResponse.response,
             pendingActions,
             queueIdx: 0,
           },
         ]);
-        if (response.conversation_id) {
-          setConversationId(response.conversation_id);
+        if (finalResponse.conversation_id) {
+          setConversationId(finalResponse.conversation_id);
         }
         setUploadedFiles([]);
       } else {
@@ -401,17 +395,50 @@ export default function AIBusinessCoach() {
         conversation_id: conversationId,
       });
       if (response?.success) {
-        const pendingActions = response.pending_actions?.length > 0
-          ? response.pending_actions
-          : response.pending_action ? [response.pending_action] : [];
-        setChatMessages(prev => [...prev, { role: 'assistant', content: response.response, pendingActions, queueIdx: 0 }]);
-        if (response.conversation_id) setConversationId(response.conversation_id);
+        const { response: finalResponse, pendingActions } = await ensureActionBlock(response);
+        setChatMessages(prev => [...prev, { role: 'assistant', content: finalResponse.response, pendingActions, queueIdx: 0 }]);
+        if (finalResponse.conversation_id) setConversationId(finalResponse.conversation_id);
       }
     } catch (e) {
       console.error('[Orion] Failed to send action report:', e);
     } finally {
       setIsChatLoading(false);
     }
+  };
+
+  // Safety net: Orion sometimes describes a batch and asks the user to "confirm"
+  // without actually emitting the [ORION_ACTION:...] block, leaving no card to
+  // approve and the conversation stuck. Detect that pattern (a "confirm"-style
+  // response with zero pending actions) and automatically ask Orion, once, to
+  // generate the real action block for exactly what it just described — this is
+  // the same nudge that worked when typed manually, just automatic now.
+  const ensureActionBlock = async (response) => {
+    let pendingActions = response.pending_actions?.length > 0
+      ? response.pending_actions
+      : response.pending_action ? [response.pending_action] : [];
+
+    if (pendingActions.length > 0 || !/confirm/i.test(response.response || '')) {
+      return { response, pendingActions };
+    }
+
+    try {
+      const retry = await api.functions.chatWithCoach({
+        message: 'You just described a batch of changes and asked the user to confirm, but no actual action block was included in that message, so no card was created and nothing can be approved yet. Please generate the real action block now for exactly the batch you just described, in this response.',
+        conversation_id: response.conversation_id || conversationId,
+      });
+      if (retry?.success) {
+        const retryActions = retry.pending_actions?.length > 0
+          ? retry.pending_actions
+          : retry.pending_action ? [retry.pending_action] : [];
+        if (retryActions.length > 0) {
+          return { response: retry, pendingActions: retryActions };
+        }
+      }
+    } catch (e) {
+      console.warn('[Orion] Auto-nudge for missing action block failed:', e);
+    }
+
+    return { response, pendingActions };
   };
 
   const executeOrionAction = async (resolvedAction) => {
