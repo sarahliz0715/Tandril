@@ -379,16 +379,20 @@ export default function AIBusinessCoach() {
   };
 
   const reportToOrion = async (results, errors, actions) => {
-    if (errors.length === 0) return;
     const total = results.length + errors.length;
+    if (total === 0) return;
     const lines = [`Action execution complete: ${results.length} of ${total} succeeded.`];
     if (results.length > 0) {
       lines.push('Succeeded:');
       results.forEach(r => lines.push(`✅ ${r}`));
     }
-    lines.push('Failed:');
-    errors.forEach(e => lines.push(`❌ ${e}`));
-    lines.push('\nPlease tell the user what failed and why in plain English, and give them a concrete next step. Do NOT say "I\'ve flagged it" or "I\'ve noted it" — those imply a background notification was created, which is not true. Just explain the error directly and suggest what to do.');
+    if (errors.length > 0) {
+      lines.push('Failed:');
+      errors.forEach(e => lines.push(`❌ ${e}`));
+      lines.push('\nPlease tell the user what failed and why in plain English, and give them a concrete next step. Do NOT say "I\'ve flagged it" or "I\'ve noted it" — those imply a background notification was created, which is not true. Just explain the error directly and suggest what to do.');
+    } else {
+      lines.push('\nIf the user\'s original request covered more items than this one batch (for example "do all my totes" and this batch was only some of them), continue automatically now — generate the next batch as a new action for the user to approve, without waiting for them to ask again. If everything from the original request is now done, just tell the user it\'s complete.');
+    }
 
     setIsChatLoading(true);
     try {
