@@ -8847,8 +8847,9 @@ ${mode === 'demo/test' ?
     const errorText = await response.text();
     let isOverloaded = false;
     try {
-      isOverloaded = JSON.parse(errorText)?.error?.type === 'overloaded_error';
-    } catch { /* ignore */ }
+        const errType = JSON.parse(errorText)?.error?.type;
+            isOverloaded = ['overloaded_error', 'rate_limit_error', 'api_error'].includes(errType) || [429, 500, 502, 503, 529].includes(response.status);}
+  }            catch { /* ignore */ }
 
     lastError = new Error(`Claude API error: ${errorText}`);
     if (!isOverloaded) break; // Don't retry non-overload errors
