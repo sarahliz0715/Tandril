@@ -417,7 +417,11 @@ export default function AIBusinessCoach() {
       ? response.pending_actions
       : response.pending_action ? [response.pending_action] : [];
 
-    if (pendingActions.length > 0 || !/confirm/i.test(response.response || '')) {
+    // Only treat this as a "described a batch but forgot the action block" case
+    // when the phrasing actually matches Orion's batch-confirmation pattern
+    // ("confirm all/this/these/that") — a bare "confirm" can show up in plain
+    // conversational replies that have nothing to do with a product batch.
+    if (pendingActions.length > 0 || !/confirm (all|this|these|that)\b/i.test(response.response || '')) {
       return { response, pendingActions };
     }
 
