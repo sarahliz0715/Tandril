@@ -421,24 +421,32 @@ export default function AIBusinessCoach() {
       return { response, pendingActions };
     }
 
-    try {
-      const retry = await api.functions.chatWithCoach({
-        message: 'You just described a batch of changes and asked the user to confirm, but no actual action block was included in that message, so no card was created and nothing can be approved yet. Please generate the real action block now for exactly the batch you just described, in this response.',
-        conversation_id: response.conversation_id || conversationId,
-      });
-      if (retry?.success) {
-        const retryActions = retry.pending_actions?.length > 0
-          ? retry.pending_actions
-          : retry.pending_action ? [retry.pending_action] : [];
-        if (retryActions.length > 0) {
-          return { response: retry, pendingActions: retryActions };
+    let current = response;
+    // Try up to twice — a single nudge doesn't always land, especially right
+    // after a long category-transition recap, so give it a second shot before
+    // giving up and showing the (cardless) text as-is.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const retry = await api.functions.chatWithCoach({
+          message: 'You just described a batch of changes and asked the user to confirm, but no actual action block was included in that message, so no card was created and nothing can be approved yet. Please generate the real action block now for exactly the batch you just described, in this response — do not just repeat the description.',
+          conversation_id: current.conversation_id || conversationId,
+        });
+        if (retry?.success) {
+          const retryActions = retry.pending_actions?.length > 0
+            ? retry.pending_actions
+            : retry.pending_action ? [retry.pending_action] : [];
+          if (retryActions.length > 0) {
+            return { response: retry, pendingActions: retryActions };
+          }
+          current = retry;
         }
+      } catch (e) {
+        console.warn('[Orion] Auto-nudge for missing action block failed:', e);
+        break;
       }
-    } catch (e) {
-      console.warn('[Orion] Auto-nudge for missing action block failed:', e);
     }
 
-    return { response, pendingActions };
+    return { response: current, pendingActions: [] };
   };
 
   const executeOrionAction = async (resolvedAction) => {
