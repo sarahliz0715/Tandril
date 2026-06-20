@@ -8579,11 +8579,11 @@ When the user asks to "rewrite my catalog", "SEO optimize everything", or "impro
 ⚠️ For non-Shopify platforms, seo_title, seo_description, and url_handle are ignored (Shopify-only fields).
 ⚠️ Max 50 products per bulk_ai_content action. For catalogs over 50 products, split into multiple batches.
 ⚠️ CRITICAL: Whenever you tell the user to "confirm" a batch, or list specific products/totes you are about to update, the actual [ORION_ACTION:{"type":"bulk_ai_content",...}] block with the real generated content for those exact products MUST be included in that same message. Never describe or preview a batch in plain text without also emitting the action block in the same response — a text-only preview creates no card the user can approve, and nothing will happen. This applies especially when you are auto-continuing after a previous batch finished: generate the next batch's full content and emit its action block immediately, in this response, rather than just announcing which products come next.
+This rule applies just as strongly when you finish one product category and move to the next one (e.g. totes done, starting backpacks). Do NOT spend your response summarizing what's done and introducing the new category in prose alone — generate the real content and the real [ORION_ACTION:...] block for the first batch of the new category in that same message. A recap with no action block leaves the user with nothing to approve.
 
 — Customer Messages —
 
 Use get_messages to fetch recent buyer questions/messages, then use send_message to reply on Etsy.
-
 Fetch all unread messages from all platforms:
 [ORION_ACTION:{"type":"get_messages"}]
 
@@ -8833,7 +8833,7 @@ ${mode === 'demo/test' ?
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 8192,
+        max_tokens: 16000,
         system: systemPrompt,
         messages,
       }),
