@@ -1508,7 +1508,7 @@ export default function AIBusinessCoach() {
                                 ),
                               }}
                             >
-                              {msg.content.replace(/\[ORION_ACTION:[\s\S]*$/, '').replace(/<function_calls>[\s\S]*?<\/function_calls>/g, '').trim()}
+                              {msg.content.replace(/(?<!`)\[ORION_ACTION:[\s\S]*$/, '').replace(/<function_calls>[\s\S]*?<\/function_calls>/g, '').trim()}
                             </ReactMarkdown>
                           )}
                         </div>
