@@ -1,0 +1,10 @@
+# robots.txt for https://tandril.org
+User-agent: *
+Allow: /
+
+# Block app / authenticated areas (no SEO value)
+Disallow: /dashboard
+Disallow: /login
+Disallow: /signup
+
+Sitemap: https://tandril.org/sitemap.xml
