@@ -23,6 +23,7 @@ export default function ShopifyCallback() {
                 const code = urlParams.get('code');
                 const state = urlParams.get('state');
                 const shop = urlParams.get('shop');
+                if (shop) localStorage.setItem('tandril_shopify_shop', shop);
                 const error = urlParams.get('error');
                 const errorDescription = urlParams.get('error_description');
 
