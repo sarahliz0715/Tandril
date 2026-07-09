@@ -16,6 +16,10 @@ export default function SubscriptionSettings() {
     const [isLoading, setIsLoading] = useState(true);
     const navigate = useNavigate();
 
+    // Detect if user came through Shopify — set in ShopifyCallback.jsx
+    const shopifyShop = localStorage.getItem('tandril_shopify_shop');
+    const isShopifyUser = !!shopifyShop;
+
     useEffect(() => {
         const loadUser = async () => {
             try {
@@ -32,6 +36,12 @@ export default function SubscriptionSettings() {
     }, []);
 
     const handleManageBilling = async () => {
+        // Shopify users manage billing through Shopify Admin, not Stripe
+        if (isShopifyUser) {
+            window.open(`https://${shopifyShop}/admin/charges`, '_blank');
+            return;
+        }
+
         if (!user?.stripe_customer_id) {
             toast.error("Billing portal not available.", {
                 description: "Your account was created before billing was set up. Please contact support."
@@ -64,7 +74,7 @@ export default function SubscriptionSettings() {
             </Card>
         );
     }
-    
+
     const commandUsage = user.api_usage_current || 0;
     const commandLimit = user.subscription_tier === 'free' ? 50 : Infinity;
     const commandProgress = commandLimit === Infinity ? 100 : (commandUsage / commandLimit) * 100;
@@ -85,13 +95,23 @@ export default function SubscriptionSettings() {
                          <Button variant="outline" onClick={() => navigate(createPageUrl('Pricing'))}>
                             Upgrade Plan
                         </Button>
-                        <Button onClick={handleManageBilling} disabled={isRedirecting}>
-                            {isRedirecting ? (
-                                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Redirecting...</>
-                            ) : (
-                                <><ExternalLink className="mr-2 h-4 w-4" />Manage Billing</>
-                            )}
-                        </Button>
+                        {isShopifyUser ? (
+                            <div className="flex flex-col items-end gap-1">
+                                <p className="text-xs text-slate-500">Billing managed through Shopify</p>
+                                <Button variant="outline" onClick={handleManageBilling}>
+                                    <ExternalLink className="mr-2 h-4 w-4" />
+                                    Manage in Shopify Admin
+                                </Button>
+                            </div>
+                        ) : (
+                            <Button onClick={handleManageBilling} disabled={isRedirecting}>
+                                {isRedirecting ? (
+                                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Redirecting...</>
+                                ) : (
+                                    <><ExternalLink className="mr-2 h-4 w-4" />Manage Billing</>
+                                )}
+                            </Button>
+                        )}
                     </div>
                 </div>
 
