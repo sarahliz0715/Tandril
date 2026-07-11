@@ -1271,41 +1271,52 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const LOW_STOCK_THRESHOLD = 10;
       const inventory: any[] = [];
 
-      // Fetch Shopify products (only if Shopify is connected)
+      // Fetch Shopify products (only if Shopify is connected) — paginated to handle >250 products
       let shopifyProducts: any[] = [];
       if (platforms && platforms.length > 0 && shopDomain) {
         try {
-          const gqlData = await shopifyGraphQL(shopDomain, accessToken, `
-            query {
-              products(first: 250) {
-                edges {
-                  node {
-                    id title handle status vendor productType tags
-                    images(first: 1) { edges { node { url altText } } }
-                    variants(first: 100) {
-                      edges {
-                        node {
-                          id price sku inventoryQuantity
-                          inventoryItem { id }
+          let hasNextPage = true;
+          let cursor: string | null = null;
+          while (hasNextPage) {
+            const afterClause = cursor ? `, after: "${cursor}"` : '';
+            const gqlData = await shopifyGraphQL(shopDomain, accessToken, `
+              query {
+                products(first: 250${afterClause}) {
+                  pageInfo { hasNextPage endCursor }
+                  edges {
+                    node {
+                      id title handle status vendor productType tags
+                      images(first: 1) { edges { node { url altText } } }
+                      variants(first: 100) {
+                        edges {
+                          node {
+                            id price sku inventoryQuantity
+                            inventoryItem { id }
+                          }
                         }
                       }
                     }
                   }
                 }
               }
-            }
-          `);
-          shopifyProducts = (gqlData.products.edges || []).map((e: any) => ({
-            ...e.node,
-            id: fromShopifyGid(e.node.id),
-            images: e.node.images.edges.map((i: any) => ({ src: i.node.url })),
-            variants: e.node.variants.edges.map((v: any) => ({
-              ...v.node,
-              id: fromShopifyGid(v.node.id),
-              inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null,
-              inventory_quantity: v.node.inventoryQuantity,
-            })),
-          }));
+            `);
+            const page = gqlData.products;
+            shopifyProducts = shopifyProducts.concat(
+              (page.edges || []).map((e: any) => ({
+                ...e.node,
+                id: fromShopifyGid(e.node.id),
+                images: e.node.images.edges.map((i: any) => ({ src: i.node.url })),
+                variants: e.node.variants.edges.map((v: any) => ({
+                  ...v.node,
+                  id: fromShopifyGid(v.node.id),
+                  inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null,
+                  inventory_quantity: v.node.inventoryQuantity,
+                })),
+              }))
+            );
+            hasNextPage = page.pageInfo?.hasNextPage ?? false;
+            cursor = page.pageInfo?.endCursor ?? null;
+          }
         } catch (e: any) {
           console.warn('[Orion] get_inventory GraphQL fetch failed:', e.message);
         }
