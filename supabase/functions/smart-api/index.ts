@@ -183,6 +183,8 @@ function summarizeOrionAction(action: any): string {
     case 'ebay_create_listing':         return `Created eBay listing: "${action.title || name}"`;
     case 'tiktok_update_price':         return `Updated TikTok Shop price for "${name}" → $${action.price}`;
     case 'tiktok_update_inventory':     return `Updated TikTok Shop inventory for "${name}" → ${action.quantity} units`;
+    case 'instagram_update_price':      return `Updated Instagram Shopping price for "${name}" → $${action.price}`;
+    case 'instagram_update_inventory':  return `Updated Instagram Shopping inventory for "${name}" → ${action.quantity} units`;
     case 'tiktok_update_title':         return `Updated TikTok Shop title for "${name}"`;
     case 'tiktok_update_description':   return `Updated TikTok Shop description for "${name}"`;
     case 'tiktok_end_listing':          return `Deactivated TikTok Shop listing "${name}"`;
@@ -1232,6 +1234,10 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       update_description: 'faire_update_description',
       create_product:     'faire_create_product',
     },
+    instagram: {
+      update_price:       'instagram_update_price',
+      update_inventory:   'instagram_update_inventory',
+    },
   };
   if (_platformTypeMap[_plat]?.[action.type]) {
     action = { ...action, type: _platformTypeMap[_plat][action.type] };
@@ -1245,8 +1251,9 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     .or('is_active.eq.true,status.eq.connected')
     .limit(1);
 
-  // flash_sale, smart_restock, and get_inventory operate across all platforms — Shopify not required
-  const shopifyRequired = action.type !== 'flash_sale' && action.type !== 'smart_restock' && action.type !== 'get_inventory';
+  // flash_sale, smart_restock, get_inventory, and Instagram actions operate across all platforms — Shopify not required
+  const shopifyRequired = action.type !== 'flash_sale' && action.type !== 'smart_restock' && action.type !== 'get_inventory'
+    && action.type !== 'instagram_update_price' && action.type !== 'instagram_update_inventory';
   if (shopifyRequired && (!platforms || platforms.length === 0)) {
     throw new Error('No connected Shopify store found. Connect one in the Platforms tab first.');
   }
@@ -1672,6 +1679,70 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           }
         }
       } catch (e: any) { console.warn('[smart-api] Faire inventory fetch failed:', e.message); }
+
+      // Fetch Instagram Shopping catalog products
+      try {
+        const { data: igPlatforms } = await supabaseClient
+          .from('platforms')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('platform_type', 'instagram')
+          .or('is_active.eq.true,status.eq.connected');
+
+        for (const igPlat of (igPlatforms || [])) {
+          const creds = igPlat.credentials;
+          const meta = igPlat.metadata || {};
+          const token = creds?.access_token;
+          const catalogId = meta?.catalog_id;
+          if (!token || !catalogId) continue;
+
+          let afterCursor: string | null = null;
+          let hasMore = true;
+          while (hasMore) {
+            const params = new URLSearchParams({
+              fields: 'id,name,price,sale_price,availability,inventory,image_url,brand,retailer_id',
+              access_token: token,
+              limit: '200',
+            });
+            if (afterCursor) params.set('after', afterCursor);
+            const igRes = await fetch(`https://graph.facebook.com/v19.0/${catalogId}/products?${params}`);
+            if (!igRes.ok) break;
+            const igData = await igRes.json();
+            if (igData.error) break;
+
+            for (const p of (igData.data || [])) {
+              const priceRaw = p.sale_price || p.price || '0 USD';
+              const priceCents = parseInt(String(priceRaw).split(' ')[0]) || 0;
+              const priceFloat = priceCents / 100;
+              const qty = parseInt(p.inventory || '0') || 0;
+              const avail = (p.availability || 'in stock').toLowerCase();
+              let status = 'active';
+              if (avail === 'out of stock') status = 'out_of_stock';
+              else if (qty === 0) status = 'out_of_stock';
+              else if (qty <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+              inventory.push({
+                id: `instagram-${p.id}`,
+                product_name: p.name || 'Instagram Product',
+                sku: p.retailer_id || String(p.id),
+                category: '',
+                status,
+                total_stock: qty,
+                base_price: priceFloat,
+                image_url: p.image_url || null,
+                vendor: p.brand || '',
+                tags: '',
+                platform_listings: [{ listing_id: String(p.id), platform: 'Instagram Shopping' }],
+                source: 'instagram',
+              });
+            }
+
+            afterCursor = igData.paging?.cursors?.after ?? null;
+            hasMore = !!(afterCursor && (igData.data?.length ?? 0) >= 200);
+          }
+        }
+      } catch (e: any) {
+        console.warn('[smart-api] Instagram inventory fetch failed:', e.message);
+      }
 
       return { inventory };
     }
@@ -2640,6 +2711,79 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const data = await res.json();
       if (data.code !== 0) throw new Error(`TikTok API error: ${data.message}`);
       return { message: `Updated TikTok Shop inventory for "${action.product_name || action.sku}" to ${action.quantity} units` };
+    }
+
+    case 'instagram_update_price': {
+      if (action.price == null) throw new Error('price is required for instagram_update_price.');
+      if (!action.product_id && !action.retailer_id) throw new Error('product_id or retailer_id is required for instagram_update_price.');
+
+      const { data: igPricePlatforms } = await supabaseClient
+        .from('platforms')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('platform_type', 'instagram')
+        .or('is_active.eq.true,status.eq.connected')
+        .limit(1);
+
+      if (!igPricePlatforms?.length) throw new Error('No connected Instagram platform found.');
+      const igPricePlat = igPricePlatforms[0];
+      const igPriceToken = igPricePlat.credentials?.access_token;
+      if (!igPriceToken) throw new Error('Instagram access token missing.');
+
+      // Price format required by Facebook Graph API: integer cents + space + currency code (e.g. "1999 USD")
+      const igPriceCents = Math.round(parseFloat(String(action.price)) * 100);
+      const igPriceStr = `${igPriceCents} USD`;
+      const igProductId = action.product_id;
+
+      const igPriceRes = await fetch(`https://graph.facebook.com/v19.0/${igProductId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ price: igPriceStr, access_token: igPriceToken }),
+      });
+      if (!igPriceRes.ok) {
+        const igPriceErr = await igPriceRes.json();
+        throw new Error(`Instagram price update failed: ${igPriceErr?.error?.message || igPriceRes.status}`);
+      }
+      return { message: `Updated Instagram Shopping price for "${action.product_name || igProductId}" to $${action.price}` };
+    }
+
+    case 'instagram_update_inventory': {
+      if (action.quantity == null) throw new Error('quantity is required for instagram_update_inventory.');
+      if (!action.retailer_id) throw new Error('retailer_id is required for instagram_update_inventory.');
+
+      const { data: igInvPlatforms } = await supabaseClient
+        .from('platforms')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('platform_type', 'instagram')
+        .or('is_active.eq.true,status.eq.connected')
+        .limit(1);
+
+      if (!igInvPlatforms?.length) throw new Error('No connected Instagram platform found.');
+      const igInvPlat = igInvPlatforms[0];
+      const igInvToken = igInvPlat.credentials?.access_token;
+      const igCatalogId = igInvPlat.metadata?.catalog_id;
+      if (!igInvToken || !igCatalogId) throw new Error('Instagram access token or catalog_id missing.');
+
+      const igAvailability = Number(action.quantity) > 0 ? 'in stock' : 'out of stock';
+      const igInvRes = await fetch(`https://graph.facebook.com/v19.0/${igCatalogId}/items_batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          access_token: igInvToken,
+          allow_upsert: true,
+          requests: [{
+            method: 'UPDATE',
+            retailer_id: action.retailer_id,
+            data: { availability: igAvailability, inventory: Number(action.quantity) },
+          }],
+        }),
+      });
+      if (!igInvRes.ok) {
+        const igInvErr = await igInvRes.json();
+        throw new Error(`Instagram inventory update failed: ${igInvErr?.error?.message || igInvRes.status}`);
+      }
+      return { message: `Updated Instagram Shopping inventory for "${action.product_name || action.retailer_id}" to ${action.quantity} units` };
     }
 
     case 'tiktok_update_title':
