@@ -151,6 +151,7 @@ const PlanCard = ({ plan, onSelect, isLoading, currentTier }) => {
 export default function Pricing() {
     const [user, setUser] = useState(null);
     const [hasShopify, setHasShopify] = useState(false);
+    const [shopifyDomain, setShopifyDomain] = useState(null);
     const [loadingPlan, setLoadingPlan] = useState(null);
     const [authChecked, setAuthChecked] = useState(false);
 
@@ -165,8 +166,9 @@ export default function Pricing() {
                 // Shopify Billing API instead of Stripe for paid plans
                 try {
                     const platforms = await Platform.filter({ user_id: currentUser.id });
-                    const shopifyConnected = platforms.some(p => p.platform_type === 'shopify');
-                    setHasShopify(shopifyConnected);
+                    const shopifyPlatform = platforms.find(p => p.platform_type === 'shopify');
+                    setHasShopify(!!shopifyPlatform);
+                    if (shopifyPlatform?.shop_domain) setShopifyDomain(shopifyPlatform.shop_domain);
                 } catch (_) {
                     // Non-fatal — fall back to Stripe
                 }
@@ -229,6 +231,7 @@ export default function Pricing() {
                     const result = await api.functions.invoke('shopify-billing', {
                         action: 'create',
                         planId: plan.priceId,
+                        shop: shopifyDomain,
                     });
                     if (result?.error) throw new Error(result.error);
                     if (!result?.confirmationUrl) throw new Error('No confirmation URL returned');

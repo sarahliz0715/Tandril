@@ -16,7 +16,8 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
-    const { action, planId, chargeId } = await req.json();
+    const reqBody = await req.json();
+    const { action, planId, chargeId, shop: shopParam } = reqBody;
 
     // --- Auth ---
     const authHeader = req.headers.get('Authorization');
@@ -33,15 +34,38 @@ serve(async (req) => {
 
     // --- Get Shopify connection ---
     const { data: platform, error: platformError } = await supabaseClient
-      .from('platform_connections')
+      .from('platforms')
       .select('shop_domain, access_token')
       .eq('user_id', user.id)
       .eq('platform_type', 'shopify')
       .single();
 
-    if (platformError || !platform) throw new Error('No Shopify store connected');
+    // If not found in platforms table but embedded shop param provided, try service-role lookup
+    let shop_domain: string;
+    let access_token: string;
 
-    const { shop_domain, access_token } = platform;
+    if (platformError || !platform) {
+      if (shopParam) {
+        const serviceClient = createClient(
+          Deno.env.get('SUPABASE_URL') ?? '',
+          Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+        );
+        const { data: svcPlatform, error: svcError } = await serviceClient
+          .from('platforms')
+          .select('shop_domain, access_token')
+          .eq('shop_domain', shopParam)
+          .eq('platform_type', 'shopify')
+          .single();
+        if (svcError || !svcPlatform) throw new Error('No Shopify store connected');
+        shop_domain = svcPlatform.shop_domain;
+        access_token = svcPlatform.access_token;
+      } else {
+        throw new Error('No Shopify store connected');
+      }
+    } else {
+      shop_domain = platform.shop_domain;
+      access_token = platform.access_token;
+    }
     const shopifyGraphQL = `https://${shop_domain}/admin/api/2025-10/graphql.json`;
 
     // =========================================================
