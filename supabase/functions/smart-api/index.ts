@@ -492,7 +492,7 @@ serve(async (req) => {
       );
     }
 
-    if (!message) throw new Error('Message is required');
+    if (!message && (!uploaded_files || uploaded_files.length === 0)) throw new Error('Message is required');
 
     console.log(`[Orion] Processing message for user ${userId}`);
 
@@ -8949,7 +8949,8 @@ ${mode === 'demo/test' ?
     }
   }
 
-  const currentContent: any[] = [{ type: 'text', text: message }];
+  const effectiveMessage = message || (uploadedFiles && uploadedFiles.length > 0 ? 'I uploaded a file. Please analyze it and tell me what you see.' : '');
+  const currentContent: any[] = [{ type: 'text', text: effectiveMessage }];
 
   for (const block of productImageBlocks) {
     currentContent.push(block);
