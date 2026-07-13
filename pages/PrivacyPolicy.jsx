@@ -12,7 +12,7 @@ export default function PrivacyPolicy() {
               <Shield className="w-6 h-6" />
               Privacy Policy
             </CardTitle>
-            <p className="text-sm text-slate-500">Last updated: January 7, 2026</p>
+            <p className="text-sm text-slate-500">Last updated: July 13, 2026</p>
             <p className="text-sm text-slate-600 mt-2">
               Effective Date: January 7, 2026
             </p>
@@ -22,7 +22,7 @@ export default function PrivacyPolicy() {
             {/* Introduction */}
             <section>
               <p className="text-slate-700 leading-relaxed">
-                Tandril, Inc. ("Tandril," "we," "us," or "our") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our AI-powered e-commerce automation platform (the "Service"). By using Tandril, you agree to the collection and use of information in accordance with this policy.
+                Tandril ("we," "us," or "our") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our AI-powered e-commerce automation platform (the "Service"). By using Tandril, you agree to the collection and use of information in accordance with this policy.
               </p>
             </section>
 
@@ -232,7 +232,7 @@ export default function PrivacyPolicy() {
                 If you have questions about this Privacy Policy or wish to exercise your privacy rights, contact us:
               </p>
               <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-2">
-                <p className="text-slate-800"><strong>Tandril, Inc.</strong></p>
+                <p className="text-slate-800"><strong>Tandril</strong></p>
                 <p className="text-slate-700">Email: <a href="mailto:hello@tandril.org" className="text-emerald-600 hover:underline font-semibold">hello@tandril.org</a></p>
                 <p className="text-slate-700">Website: <a href="https://www.tandril.org" className="text-emerald-600 hover:underline font-semibold">https://www.tandril.org</a></p>
               </div>
