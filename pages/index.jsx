@@ -252,8 +252,10 @@ function PagesContent() {
                 <Route path="/Intelligence" element={<Intelligence />} />
                 
                 <Route path="/TermsOfService" element={<TermsOfService />} />
-                
+                <Route path="/terms" element={<TermsOfService />} />
+
                 <Route path="/PrivacyPolicy" element={<PrivacyPolicy />} />
+                <Route path="/privacy" element={<PrivacyPolicy />} />
                 
                 <Route path="/Workflows" element={<Workflows />} />
                 
