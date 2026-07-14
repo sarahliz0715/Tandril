@@ -842,17 +842,18 @@ function findProduct(allProducts: any[], sku: string, productName: string): any 
       }
     }
   }
-  // 5. Significant word overlap (≥3 words matching, ignoring short words).
-  // Raised from 2 to 3 to prevent accidental cross-product matches when product names
-  // share common words like "Spring", "Cotton", "Tee".
-  const needleWords = needle.split(/\s+/).filter((w: string) => w.length > 3);
+  // 5. Significant word overlap, ignoring short words.
+  // Also checks partial word containment so "shirt" matches "t-shirt", "vesting" matches "vesting".
+  // Threshold is 3 for long queries, 2 for short ones (≤3 meaningful words).
+  const needleWords = needle.replace(/['"]/g, '').split(/\s+/).filter((w: string) => w.length > 3);
   if (needleWords.length > 0) {
+    const threshold = needleWords.length <= 3 ? 2 : 3;
     let bestMatch: any = null;
     let bestScore = 0;
     for (const p of allProducts) {
-      const titleWords = p.title.toLowerCase().split(/\s+/);
-      const score = needleWords.filter((w: string) => titleWords.some((tw: string) => tw === w)).length;
-      if (score >= 3 && score > bestScore) { bestScore = score; bestMatch = p; }
+      const titleWords = p.title.toLowerCase().replace(/['"]/g, '').split(/\s+/);
+      const score = needleWords.filter((w: string) => titleWords.some((tw: string) => tw === w || tw.includes(w) || w.includes(tw))).length;
+      if (score >= threshold && score > bestScore) { bestScore = score; bestMatch = p; }
     }
     if (bestMatch) return bestMatch;
   }
