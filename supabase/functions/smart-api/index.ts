@@ -7392,28 +7392,38 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
         accessToken = await decrypt(accessToken);
       }
       const shopDomain = shopifyPlatform.shop_domain;
-      const ctxGqlData = await shopifyGraphQL(shopDomain, accessToken, `
-        query {
-          products(first: 250) {
-            edges {
-              node {
-                id title handle status vendor productType tags
-                descriptionHtml
-                images(first: 1) { edges { node { url altText } } }
-                variants(first: 100) {
-                  edges {
-                    node {
-                      id price sku inventoryQuantity
-                      inventoryItem { id }
+      let ctxHasNextPage = true;
+      let ctxCursor: string | null = null;
+      const ctxAllEdges: any[] = [];
+      while (ctxHasNextPage) {
+        const afterClause = ctxCursor ? `, after: "${ctxCursor}"` : '';
+        const ctxGqlData = await shopifyGraphQL(shopDomain, accessToken, `
+          query {
+            products(first: 250${afterClause}) {
+              pageInfo { hasNextPage endCursor }
+              edges {
+                node {
+                  id title handle status vendor productType tags
+                  descriptionHtml
+                  images(first: 1) { edges { node { url altText } } }
+                  variants(first: 100) {
+                    edges {
+                      node {
+                        id price sku inventoryQuantity
+                        inventoryItem { id }
+                      }
                     }
                   }
                 }
               }
             }
           }
-        }
-      `);
-      products = ctxGqlData.products.edges.map((e: any) => {
+        `);
+        ctxAllEdges.push(...ctxGqlData.products.edges);
+        ctxHasNextPage = ctxGqlData.products.pageInfo?.hasNextPage ?? false;
+        ctxCursor = ctxGqlData.products.pageInfo?.endCursor ?? null;
+      }
+      products = ctxAllEdges.map((e: any) => {
         const variants = e.node.variants.edges.map((v: any) => ({
           ...v.node,
           id: fromShopifyGid(v.node.id),
