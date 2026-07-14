@@ -549,7 +549,7 @@ serve(async (req) => {
         }
       }
     }
-    const pendingAction = pendingActions[0] || null; // backwards compat
+    let pendingAction = pendingActions[0] || null; // backwards compat
 
     // Safety net: the model often generates "update_product" or similar for image uploads
     // even when explicitly told not to. If the user attached images and the action type
