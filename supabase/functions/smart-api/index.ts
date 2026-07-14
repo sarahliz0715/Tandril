@@ -574,8 +574,11 @@ serve(async (req) => {
       }
     }
 
-    // If images were uploaded but Orion produced no action at all, synthesize one
-    if (imageFiles.length > 0 && !pendingAction) {
+    // Only synthesize an upload_image action if the user sent NO text message
+    // (pure image drop with no instruction). If there's a real message, let Orion's
+    // response stand — the image is context, not necessarily a product photo to upload.
+    const isImageOnlyMessage = imageFiles.length > 0 && (!message || message.trim() === '');
+    if (isImageOnlyMessage && !pendingAction) {
       pendingAction = {
         type: 'upload_image',
         product_name: '',
@@ -587,12 +590,10 @@ serve(async (req) => {
       }
     }
 
-    // Final pass: if there are image files and an upload_image action is queued,
-    // but the response text still contains apologetic / capability-disclaimer language,
-    // replace it entirely. This catches the case where the model generated the correct
-    // action type but still wrote the wrong text.
+    // Final pass: only override response text with upload prompt if this was a pure
+    // image-drop (no text message) — never override when the user gave a real instruction.
     if (
-      imageFiles.length > 0 &&
+      isImageOnlyMessage &&
       pendingAction?.type === 'upload_image' &&
       !imageActionCoerced &&
       /cannot|can't|do not have the capability|unable to|apologize/i.test(response)
