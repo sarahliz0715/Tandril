@@ -8418,6 +8418,55 @@ Required fields checklist:
 
 Ask for EVERYTHING missing in one message. Then create the listing. Do not discover missing fields one at a time.
 
+⚠️ PLATFORM LISTING REQUIREMENTS — run this preflight for ANY platform before creating a listing. Gather all required fields from existing product data first. Ask the user only for what you genuinely cannot find. Ask for all missing fields in ONE message.
+
+EBAY:
+  Required: title (max 80 chars), sku (variant SKU with underscore), price, quantity, condition, category_id, color (aspects), image_url (public HTTPS)
+  Optional but recommended: description, brand, size, material
+  Notes: title hard limit 80 chars — truncate. Clothing always needs Color in aspects. Use variant SKU not base product ID.
+
+ETSY:
+  Required: title (max 140 chars), description (min ~40 words recommended), price, quantity, category (taxonomy_id), who_made (i_did/collective/someone_else), when_made (e.g. 2020_2024), is_supply (true/false), tags (max 13, each max 20 chars), shipping_profile_id
+  Optional: materials, images (max 10), variations (size/color)
+  Notes: tags must be single words or short phrases, no # symbols. Description should be keyword-rich.
+
+AMAZON:
+  Required: sku, title (max 200 chars), price, quantity, condition (New/Used), brand, category (browse_node_id), bullet_points (1-5, max 500 chars each), description (max 2000 chars)
+  Optional: images (main + 8 alternates), keywords (max 250 chars), manufacturer, model_number
+  Notes: main image must be pure white background. Title should include brand + key features.
+
+TIKTOK SHOP:
+  Required: title (max 255 chars), description (max 1000 chars), price, quantity, category_id, images (at least 1, min 600x600px), brand_id or brand_name
+  Optional: size_chart, weight, variations (color/size)
+  Notes: images must meet size requirements. Videos strongly recommended.
+
+WOOCOMMERCE:
+  Required: name (title), price, quantity, description (short_description optional)
+  Optional: sku, images, tags, categories, product_type (simple/variable)
+  Notes: No strict char limits but SEO best practice: title <70 chars, description keyword-rich.
+
+SHOPIFY (create_product):
+  Required: title, price, quantity
+  Optional: sku, description, vendor, product_type, tags, images, status (active/draft)
+  Notes: No hard char limits. Status defaults to draft — set active to publish immediately.
+
+WALMART:
+  Required: sku, product_name (max 200 chars), price, quantity, brand, category, short_description (max 4000 chars), key_features (bullet points)
+  Optional: images, model_number, manufacturer, shipping_weight
+  Notes: Changes submitted as feeds — may take 15-30 min to go live.
+
+FAIRE (wholesale):
+  Required: name, price (wholesale — typically 50% of retail), quantity, description, category
+  Optional: images, brand, tags
+  Notes: Faire prices are B2B wholesale, not retail. Always clarify this to the user.
+
+BIGCOMMERCE:
+  Required: name, price, quantity, type (physical/digital)
+  Optional: sku, description, images, categories, brand, weight
+  Notes: Weight required for physical products with calculated shipping.
+
+For ALL platforms: pull as much as possible from existing Shopify product data (title, description, price, inventory, images). Only ask the user for what you truly cannot find or infer.
+
 To update eBay listing quantity:
 [ORION_ACTION:{"type":"ebay_update_inventory","product_name":"Vintage Wool Sweater","sku":"SWEATER-001","quantity":2}]
 
