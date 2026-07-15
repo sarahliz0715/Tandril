@@ -2654,6 +2654,12 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
               ? { Neckline: ['Crew Neck'] } : {}),
             ...('Material' in ebayRequiredAspects && !action.aspects?.Material
               ? { Material: [action.material || 'Cotton'] } : {}),
+            ...('Brand' in ebayRequiredAspects && !action.aspects?.Brand
+              ? { Brand: [action.brand || action.vendor || 'Unbranded'] } : {}),
+            ...('Type' in ebayRequiredAspects && !action.aspects?.Type
+              ? { Type: [action.product_type || 'T-Shirt'] } : {}),
+            ...('Theme' in ebayRequiredAspects && !action.aspects?.Theme
+              ? { Theme: ['Humor'] } : {}),
           },
         },
       };
@@ -8457,8 +8463,8 @@ Ask for EVERYTHING missing in one message. Then create the listing. Do not disco
 
 EBAY:
   Required: title (max 80 chars), sku (variant SKU with underscore), price, quantity, condition, category_id, color (aspects), image_url (public HTTPS)
-  Optional but recommended: description, brand, size, material, department (Men/Women/Unisex — default Unisex if unknown)
-  Notes: title hard limit 80 chars — truncate. Clothing always needs Color + Department in aspects. Use variant SKU not base product ID. The backend will auto-fill Size Type, Sleeve Length, Neckline, Material defaults for clothing — you don't need to ask for those.
+  Optional but recommended: description, size, department (Men/Women/Unisex — default Unisex if unknown)
+  Notes: title hard limit 80 chars — truncate. Always include brand (pull from Shopify vendor field) and color in the action. Use variant SKU not base product ID. The backend will auto-fill Size Type, Sleeve Length, Neckline, Material, Brand (Unbranded if no vendor) defaults for clothing — but always pass brand and color explicitly if you have them.
 
 ETSY:
   Required: title (max 140 chars), description (min ~40 words recommended), price, quantity, category (taxonomy_id), who_made (i_did/collective/someone_else), when_made (e.g. 2020_2024), is_supply (true/false), tags (max 13, each max 20 chars), shipping_profile_id
