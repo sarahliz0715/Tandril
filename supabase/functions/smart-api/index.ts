@@ -2655,14 +2655,41 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         ...(action.category_id ? { categoryId: String(action.category_id) } : {}),
       };
 
+      // Step 3: Create offer — if one already exists for this SKU, update it instead
+      let offerId: string;
       const offerRes = await fetch(`${apiBase}/sell/inventory/v1/offer`, {
         method: 'POST',
         headers: ebayHeaders,
         body: JSON.stringify(offerBody),
       });
-      if (!offerRes.ok) throw new Error(`eBay offer creation failed: ${await offerRes.text()}`);
-      const offerData = await offerRes.json();
-      const offerId = offerData.offerId;
+      if (!offerRes.ok) {
+        const offerErrText = await offerRes.text();
+        let existingOfferId: string | null = null;
+        try {
+          const offerErr = JSON.parse(offerErrText);
+          const alreadyExists = offerErr.errors?.some((e: any) => e.errorId === 25002);
+          if (alreadyExists) {
+            const param = offerErr.errors[0]?.parameters?.find((p: any) => p.name === 'offerId');
+            existingOfferId = param?.value || null;
+          }
+        } catch { /* ignore parse error */ }
+
+        if (existingOfferId) {
+          // Update the existing offer then publish it
+          const updateRes = await fetch(`${apiBase}/sell/inventory/v1/offer/${existingOfferId}`, {
+            method: 'PUT',
+            headers: ebayHeaders,
+            body: JSON.stringify(offerBody),
+          });
+          if (!updateRes.ok) throw new Error(`eBay offer update failed: ${await updateRes.text()}`);
+          offerId = existingOfferId;
+        } else {
+          throw new Error(`eBay offer creation failed: ${offerErrText}`);
+        }
+      } else {
+        const offerData = await offerRes.json();
+        offerId = offerData.offerId;
+      }
 
       // Step 4: Publish offer
       const publishRes = await fetch(`${apiBase}/sell/inventory/v1/offer/${offerId}/publish`, {
