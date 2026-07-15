@@ -2654,8 +2654,12 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
               ? { Neckline: ['Crew Neck'] } : {}),
             ...('Material' in ebayRequiredAspects && !action.aspects?.Material
               ? { Material: [action.material || 'Cotton'] } : {}),
-            ...('Brand' in ebayRequiredAspects && !action.aspects?.Brand
-              ? { Brand: [action.brand || action.vendor || 'Unbranded'] } : {}),
+            ...('Brand' in ebayRequiredAspects && !action.aspects?.Brand ? (() => {
+              const podSuppliers = /printful|printify|gooten|spod|apliiq|teelaunch|printed\s*mint|scalable\s*press|awkward\s*styles/i;
+              const rawVendor = action.vendor || '';
+              const brand = action.brand || (rawVendor && !podSuppliers.test(rawVendor) ? rawVendor : 'Unbranded');
+              return { Brand: [brand] };
+            })() : {}),
             ...('Type' in ebayRequiredAspects && !action.aspects?.Type
               ? { Type: [action.product_type || 'T-Shirt'] } : {}),
             ...('Theme' in ebayRequiredAspects && !action.aspects?.Theme
