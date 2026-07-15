@@ -2596,7 +2596,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           description: action.description || '',
           ...(action.image_urls ? { imageUrls: action.image_urls } : action.image_url ? { imageUrls: [action.image_url] } : {}),
           ...(action.brand ? { brand: action.brand } : {}),
-          ...(action.aspects ? { aspects: action.aspects } : {}),
+          aspects: {
+            ...(action.aspects || {}),
+            ...(action.color ? { Color: [action.color] } : {}),
+            ...(action.size ? { Size: Array.isArray(action.size) ? action.size : [action.size] } : {}),
+          },
         },
       };
 
