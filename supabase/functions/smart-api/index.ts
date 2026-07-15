@@ -2638,17 +2638,6 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             const urls = action.image_urls?.filter(validImageUrl) || (action.image_url && validImageUrl(action.image_url) ? [action.image_url] : []);
             return urls.length ? { imageUrls: urls } : {};
           })()),
-          // Brand and MPN are top-level product fields in eBay Sell API, NOT aspects
-          ...(() => {
-            const podSuppliers = /printful|printify|gooten|spod|apliiq|teelaunch|printed\s*mint|scalable\s*press|awkward\s*styles/i;
-            const rawVendor = (action.vendor || '').replace(/['']/g, '').trim();
-            // Use explicit brand if provided; for POD suppliers default to Unbranded
-            const brand = action.brand
-              ? action.brand.replace(/['']/g, '').trim()
-              : 'Unbranded';
-            const mpn = (action.mpn || sku.split('_')[0] || sku).replace(/['']/g, '');
-            return { brand, mpn };
-          })(),
           aspects: {
             ...(action.aspects || {}),
             ...(resolvedColor ? { Color: [resolvedColor] } : {}),
@@ -2665,6 +2654,9 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
               ? { Neckline: ['Crew Neck'] } : {}),
             ...('Material' in ebayRequiredAspects && !action.aspects?.Material
               ? { Material: [action.material || 'Cotton'] } : {}),
+            // Brand + MPN belong in aspects in eBay Sell Inventory API
+            Brand: [action.brand ? action.brand.replace(/['']/g, '').trim() : 'Unbranded'],
+            MPN: [(action.mpn || sku.split('_')[0] || sku).replace(/['']/g, '')],
             ...('Type' in ebayRequiredAspects && !action.aspects?.Type
               ? { Type: [action.product_type || 'T-Shirt'] } : {}),
             ...('Theme' in ebayRequiredAspects && !action.aspects?.Theme
