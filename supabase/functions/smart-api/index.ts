@@ -2638,7 +2638,14 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             const urls = action.image_urls?.filter(validImageUrl) || (action.image_url && validImageUrl(action.image_url) ? [action.image_url] : []);
             return urls.length ? { imageUrls: urls } : {};
           })()),
-          ...(action.brand ? { brand: action.brand } : {}),
+          // Brand and MPN are top-level product fields in eBay Sell API, NOT aspects
+          ...(() => {
+            const podSuppliers = /printful|printify|gooten|spod|apliiq|teelaunch|printed\s*mint|scalable\s*press|awkward\s*styles/i;
+            const rawVendor = action.vendor || '';
+            const brand = action.brand || (rawVendor && !podSuppliers.test(rawVendor) ? rawVendor : 'Unbranded');
+            const mpn = action.mpn || sku.split('_')[0] || sku;
+            return { brand, mpn };
+          })(),
           aspects: {
             ...(action.aspects || {}),
             ...(resolvedColor ? { Color: [resolvedColor] } : {}),
@@ -2654,12 +2661,6 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
               ? { Neckline: ['Crew Neck'] } : {}),
             ...('Material' in ebayRequiredAspects && !action.aspects?.Material
               ? { Material: [action.material || 'Cotton'] } : {}),
-            ...('Brand' in ebayRequiredAspects && !action.aspects?.Brand ? (() => {
-              const podSuppliers = /printful|printify|gooten|spod|apliiq|teelaunch|printed\s*mint|scalable\s*press|awkward\s*styles/i;
-              const rawVendor = action.vendor || '';
-              const brand = action.brand || (rawVendor && !podSuppliers.test(rawVendor) ? rawVendor : 'Unbranded');
-              return { Brand: [brand], MPN: [action.mpn || sku.split('_')[0] || sku] };
-            })() : {}),
             ...('Type' in ebayRequiredAspects && !action.aspects?.Type
               ? { Type: [action.product_type || 'T-Shirt'] } : {}),
             ...('Theme' in ebayRequiredAspects && !action.aspects?.Theme
