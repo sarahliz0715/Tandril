@@ -2641,9 +2641,12 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           // Brand and MPN are top-level product fields in eBay Sell API, NOT aspects
           ...(() => {
             const podSuppliers = /printful|printify|gooten|spod|apliiq|teelaunch|printed\s*mint|scalable\s*press|awkward\s*styles/i;
-            const rawVendor = action.vendor || '';
-            const brand = action.brand || (rawVendor && !podSuppliers.test(rawVendor) ? rawVendor : 'Unbranded');
-            const mpn = action.mpn || sku.split('_')[0] || sku;
+            const rawVendor = (action.vendor || '').replace(/['']/g, '').trim();
+            // Use explicit brand if provided; for POD or store-name vendors default to Unbranded
+            const brand = action.brand
+              ? action.brand.replace(/['']/g, '').trim()
+              : (rawVendor && !podSuppliers.test(rawVendor) && rawVendor.length < 30 ? rawVendor : 'Unbranded');
+            const mpn = (action.mpn || sku.split('_')[0] || sku).replace(/['']/g, '');
             return { brand, mpn };
           })(),
           aspects: {
@@ -8470,7 +8473,7 @@ Ask for EVERYTHING missing in one message. Then create the listing. Do not disco
 EBAY:
   Required: title (max 80 chars), sku (variant SKU with underscore), price, quantity, condition, category_id, color (aspects), image_url (public HTTPS)
   Optional but recommended: description, size, department (Men/Women/Unisex — default Unisex if unknown)
-  Notes: title hard limit 80 chars — truncate. Always include color in the action. Use variant SKU not base product ID. The backend auto-fills Brand, MPN, Size Type, Sleeve Length, Neckline, Material, Department, and Size (defaults to XS-3XL range if not specified). Pass size explicitly if you know the exact sizes from variant data.
+  Notes: title hard limit 80 chars — truncate. Always include color in the action. Use variant SKU not base product ID. The backend auto-fills Brand (Unbranded for POD — do NOT pass the store name as brand), MPN, Size Type, Sleeve Length, Neckline, Material, Department, and Size (defaults to XS-3XL range if not specified). Pass size explicitly if you know the exact sizes from variant data. Never pass store names or shop names as Brand.
 
 ETSY:
   Required: title (max 140 chars), description (min ~40 words recommended), price, quantity, category (taxonomy_id), who_made (i_did/collective/someone_else), when_made (e.g. 2020_2024), is_supply (true/false), tags (max 13, each max 20 chars), shipping_profile_id
