@@ -2642,10 +2642,10 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           ...(() => {
             const podSuppliers = /printful|printify|gooten|spod|apliiq|teelaunch|printed\s*mint|scalable\s*press|awkward\s*styles/i;
             const rawVendor = (action.vendor || '').replace(/['']/g, '').trim();
-            // Use explicit brand if provided; for POD or store-name vendors default to Unbranded
+            // Use explicit brand if provided; for POD suppliers default to Unbranded
             const brand = action.brand
               ? action.brand.replace(/['']/g, '').trim()
-              : (rawVendor && !podSuppliers.test(rawVendor) && rawVendor.length < 30 ? rawVendor : 'Unbranded');
+              : (rawVendor && !podSuppliers.test(rawVendor) && rawVendor.length < 30 ? rawVendor.replace(/['']/g, '') : 'OMama Hills');
             const mpn = (action.mpn || sku.split('_')[0] || sku).replace(/['']/g, '');
             return { brand, mpn };
           })(),
