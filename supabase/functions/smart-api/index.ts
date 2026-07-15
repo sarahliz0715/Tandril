@@ -2649,7 +2649,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           aspects: {
             ...(action.aspects || {}),
             ...(resolvedColor ? { Color: [resolvedColor] } : {}),
-            ...(action.size ? { Size: Array.isArray(action.size) ? action.size : [action.size] } : {}),
+            ...('Size' in ebayRequiredAspects && !action.aspects?.Size
+              ? { Size: action.size ? (Array.isArray(action.size) ? action.size : [action.size]) : ['XS','S','M','L','XL','2XL','3XL'] } : {}),
             // Clothing defaults — fill required aspects eBay would otherwise reject
             ...('Department' in ebayRequiredAspects && !action.aspects?.Department
               ? { Department: [action.department || 'Unisex'] } : {}),
@@ -8469,7 +8470,7 @@ Ask for EVERYTHING missing in one message. Then create the listing. Do not disco
 EBAY:
   Required: title (max 80 chars), sku (variant SKU with underscore), price, quantity, condition, category_id, color (aspects), image_url (public HTTPS)
   Optional but recommended: description, size, department (Men/Women/Unisex — default Unisex if unknown)
-  Notes: title hard limit 80 chars — truncate. Always include brand (pull from Shopify vendor field) and color in the action. Use variant SKU not base product ID. The backend will auto-fill Size Type, Sleeve Length, Neckline, Material, Brand (Unbranded if no vendor) defaults for clothing — but always pass brand and color explicitly if you have them.
+  Notes: title hard limit 80 chars — truncate. Always include color in the action. Use variant SKU not base product ID. The backend auto-fills Brand, MPN, Size Type, Sleeve Length, Neckline, Material, Department, and Size (defaults to XS-3XL range if not specified). Pass size explicitly if you know the exact sizes from variant data.
 
 ETSY:
   Required: title (max 140 chars), description (min ~40 words recommended), price, quantity, category (taxonomy_id), who_made (i_did/collective/someone_else), when_made (e.g. 2020_2024), is_supply (true/false), tags (max 13, each max 20 chars), shipping_profile_id
