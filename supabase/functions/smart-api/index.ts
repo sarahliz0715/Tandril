@@ -2633,7 +2633,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         product: {
           title: action.title.length > 80 ? action.title.slice(0, 77) + '...' : action.title,
           description: action.description || '',
-          ...(action.image_urls ? { imageUrls: action.image_urls } : action.image_url ? { imageUrls: [action.image_url] } : {}),
+          ...((() => {
+            const validImageUrl = (url: string) => url && /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(url);
+            const urls = action.image_urls?.filter(validImageUrl) || (action.image_url && validImageUrl(action.image_url) ? [action.image_url] : []);
+            return urls.length ? { imageUrls: urls } : {};
+          })()),
           ...(action.brand ? { brand: action.brand } : {}),
           aspects: {
             ...(action.aspects || {}),
@@ -8444,7 +8448,7 @@ Required fields checklist:
 5. condition — default NEW for new products.
 6. category_id — look it up based on product type. Clothing = 11450. T-shirts = 15687. Use best match.
 7. color — extract from Shopify variant options. If not available in the data, ask the user.
-8. image_url — use the product's image_url from the store context. If none, ask the user for a public image URL.
+8. image_url — use the product's image_url from the store context. Must be a full public HTTPS URL ending in a file extension (.jpg, .png, .gif, .webp). If the URL has no filename/extension, or starts with a local path, it is invalid — ask the user for a valid public image URL instead. When a user uploads an image file, remind them it must be hosted at a public URL — they can upload it to Shopify first, then use the Shopify CDN URL.
 9. description — pull from Shopify product description. If empty, write a short one from the product title/type.
 
 Ask for EVERYTHING missing in one message. Then create the listing. Do not discover missing fields one at a time.
