@@ -2585,6 +2585,26 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       if (action.price == null) throw new Error('price is required for ebay_create_listing.');
       if (action.quantity == null) throw new Error('quantity is required for ebay_create_listing.');
 
+      // Step 0: Fetch eBay's required aspects for the category so we don't miss any
+      let ebayRequiredAspects: Record<string, string[]> = {};
+      if (action.category_id) {
+        try {
+          const aspectRes = await fetch(
+            `${apiBase}/commerce/taxonomy/v1/category_tree/0/get_item_aspects_for_category?category_id=${action.category_id}`,
+            { headers: ebayHeaders }
+          );
+          if (aspectRes.ok) {
+            const aspectData = await aspectRes.json();
+            for (const aspect of (aspectData.aspects || [])) {
+              if (aspect.aspectConstraint?.aspectRequired) {
+                const vals = aspect.aspectValues?.map((v: any) => v.localizedValue) || [];
+                ebayRequiredAspects[aspect.localizedAspectName] = vals;
+              }
+            }
+          }
+        } catch { /* non-fatal — continue with what we have */ }
+      }
+
       // Auto-extract color from Shopify product data if not provided by Orion
       let resolvedColor = action.color || null;
       if (!resolvedColor) {
@@ -2619,6 +2639,17 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             ...(action.aspects || {}),
             ...(resolvedColor ? { Color: [resolvedColor] } : {}),
             ...(action.size ? { Size: Array.isArray(action.size) ? action.size : [action.size] } : {}),
+            // Clothing defaults — fill required aspects eBay would otherwise reject
+            ...('Department' in ebayRequiredAspects && !action.aspects?.Department
+              ? { Department: [action.department || 'Unisex'] } : {}),
+            ...('Size Type' in ebayRequiredAspects && !action.aspects?.['Size Type']
+              ? { 'Size Type': ['Regular'] } : {}),
+            ...('Sleeve Length' in ebayRequiredAspects && !action.aspects?.['Sleeve Length']
+              ? { 'Sleeve Length': ['Short Sleeve'] } : {}),
+            ...('Neckline' in ebayRequiredAspects && !action.aspects?.Neckline
+              ? { Neckline: ['Crew Neck'] } : {}),
+            ...('Material' in ebayRequiredAspects && !action.aspects?.Material
+              ? { Material: [action.material || 'Cotton'] } : {}),
           },
         },
       };
@@ -8422,8 +8453,8 @@ Ask for EVERYTHING missing in one message. Then create the listing. Do not disco
 
 EBAY:
   Required: title (max 80 chars), sku (variant SKU with underscore), price, quantity, condition, category_id, color (aspects), image_url (public HTTPS)
-  Optional but recommended: description, brand, size, material
-  Notes: title hard limit 80 chars — truncate. Clothing always needs Color in aspects. Use variant SKU not base product ID.
+  Optional but recommended: description, brand, size, material, department (Men/Women/Unisex — default Unisex if unknown)
+  Notes: title hard limit 80 chars — truncate. Clothing always needs Color + Department in aspects. Use variant SKU not base product ID. The backend will auto-fill Size Type, Sleeve Length, Neckline, Material defaults for clothing — you don't need to ask for those.
 
 ETSY:
   Required: title (max 140 chars), description (min ~40 words recommended), price, quantity, category (taxonomy_id), who_made (i_did/collective/someone_else), when_made (e.g. 2020_2024), is_supply (true/false), tags (max 13, each max 20 chars), shipping_profile_id
