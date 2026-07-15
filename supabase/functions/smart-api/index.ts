@@ -2096,12 +2096,23 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     }
 
     case 'update_title': {
-      const titleGqlData = await shopifyGraphQL(shopDomain, accessToken, `
-        query { products(first: 250) { edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
-      `);
-      const allTitleProducts = titleGqlData.products.edges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
+      let titleHasNextPage = true;
+      let titleCursor: string | null = null;
+      const titleAllEdges: any[] = [];
+      while (titleHasNextPage) {
+        const titleAfter = titleCursor ? `, after: "${titleCursor}"` : '';
+        const titleGqlData = await shopifyGraphQL(shopDomain, accessToken, `
+          query { products(first: 250${titleAfter}) { pageInfo { hasNextPage endCursor } edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
+        `);
+        titleAllEdges.push(...titleGqlData.products.edges);
+        titleHasNextPage = titleGqlData.products.pageInfo?.hasNextPage ?? false;
+        titleCursor = titleGqlData.products.pageInfo?.endCursor ?? null;
+      }
+      const allTitleProducts = titleAllEdges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
 
-      const targetProduct = findProduct(allTitleProducts, action.sku, action.product_name);
+      // If sku looks like a bare product ID (no underscore), prefer name-based lookup
+      const titleSku = action.sku && action.sku.includes('_') ? action.sku : null;
+      const targetProduct = findProduct(allTitleProducts, titleSku, action.product_name || action.sku);
       if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
 
       const titleUpdateData = await shopifyGraphQL(shopDomain, accessToken, `
@@ -2581,7 +2592,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         },
         condition: action.condition || 'NEW',
         product: {
-          title: action.title,
+          title: action.title.length > 80 ? action.title.slice(0, 77) + '...' : action.title,
           description: action.description || '',
           ...(action.image_urls ? { imageUrls: action.image_urls } : action.image_url ? { imageUrls: [action.image_url] } : {}),
           ...(action.brand ? { brand: action.brand } : {}),
