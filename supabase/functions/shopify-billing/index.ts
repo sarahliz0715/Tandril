@@ -117,6 +117,7 @@ serve(async (req) => {
       });
 
       const result = await response.json();
+      console.log('[shopify-billing] appSubscriptionCreate response:', JSON.stringify(result));
       const { confirmationUrl, userErrors } = result.data?.appSubscriptionCreate ?? {};
 
       if (userErrors?.length) throw new Error(userErrors[0].message);
