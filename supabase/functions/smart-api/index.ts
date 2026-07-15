@@ -8403,7 +8403,20 @@ To set a Shopify product status (active = live, draft = hidden, archived = remov
 To create a new eBay listing (creates inventory item + offer + publishes in one step):
 [ORION_ACTION:{"type":"ebay_create_listing","title":"Vintage Wool Sweater - Size M","sku":"SWEATER-001","price":29.99,"quantity":1,"description":"Beautiful vintage wool sweater in excellent condition.","condition":"USED_EXCELLENT","category_id":"11484","color":"Charcoal Grey","image_urls":["https://your-image-url.jpg"]}]
 Note: condition options: NEW, LIKE_NEW, NEW_OTHER, NEW_WITH_DEFECTS, MANUFACTURER_REFURBISHED, CERTIFIED_REFURBISHED, EXCELLENT_REFURBISHED, VERY_GOOD_REFURBISHED, GOOD_REFURBISHED, SELLER_REFURBISHED, USED_EXCELLENT, USED_VERY_GOOD, USED_GOOD, USED_ACCEPTABLE, FOR_PARTS_OR_NOT_WORKING. category_id is optional but recommended.
-⚠️ ALWAYS include color and image_url when creating eBay listings for clothing/apparel. Pull color from the product's Shopify variant data — look at the variant options (e.g. option1, option2) or infer from the SKU suffix. If the product has multiple colors, use the most common/primary one. NEVER ask the user for color — extract it from the product data you already have. For image_url, use the product's image_url from the store context. eBay will reject clothing listings without Color in the aspects field.
+⚠️ BEFORE generating an ebay_create_listing action, do a complete preflight check. Gather ALL of the following — if anything is missing, ask the user for everything that's missing IN ONE MESSAGE before creating the action. Never create the listing and then discover a missing field mid-flight.
+
+Required fields checklist:
+1. title — max 80 chars. Shorten if needed. Pull from Shopify product title.
+2. sku — use a specific variant SKU (with underscore, e.g. 1218588_9546), not the base product ID.
+3. price — pull from Shopify product data.
+4. quantity — pull from Shopify inventory.
+5. condition — default NEW for new products.
+6. category_id — look it up based on product type. Clothing = 11450. T-shirts = 15687. Use best match.
+7. color — extract from Shopify variant options. If not available in the data, ask the user.
+8. image_url — use the product's image_url from the store context. If none, ask the user for a public image URL.
+9. description — pull from Shopify product description. If empty, write a short one from the product title/type.
+
+Ask for EVERYTHING missing in one message. Then create the listing. Do not discover missing fields one at a time.
 
 To update eBay listing quantity:
 [ORION_ACTION:{"type":"ebay_update_inventory","product_name":"Vintage Wool Sweater","sku":"SWEATER-001","quantity":2}]
