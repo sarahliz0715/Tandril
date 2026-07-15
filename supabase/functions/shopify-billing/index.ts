@@ -186,6 +186,66 @@ serve(async (req) => {
       );
     }
 
+    // =========================================================
+    // ACTION: status — verify active subscription against Shopify
+    //                  so the Pricing page always reflects truth
+    // =========================================================
+    if (action === 'status') {
+      const { data: { user: authUser } } = await supabaseClient.auth.getUser();
+      const meta = authUser?.user_metadata ?? {};
+      const subscriptionId = meta.shopify_subscription_id;
+
+      if (!subscriptionId) {
+        return new Response(
+          JSON.stringify({ tier: meta.subscription_tier ?? 'free', subscription: null }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const gid = subscriptionId.startsWith('gid://')
+        ? subscriptionId
+        : `gid://shopify/AppSubscription/${subscriptionId}`;
+
+      const query = `query { node(id: "${gid}") { ... on AppSubscription { id name status } } }`;
+      const shopifyRes = await fetch(shopifyGraphQL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': access_token },
+        body: JSON.stringify({ query }),
+      });
+
+      if (!shopifyRes.ok) {
+        return new Response(
+          JSON.stringify({ tier: meta.subscription_tier ?? 'free', subscription: null, warning: 'Shopify API unavailable' }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const shopifyResult = await shopifyRes.json();
+      const subscription = shopifyResult.data?.node ?? null;
+
+      // If Shopify says the subscription is not ACTIVE, sync the tier down
+      if (subscription && subscription.status !== 'ACTIVE') {
+        const serviceClient = createClient(
+          Deno.env.get('SUPABASE_URL') ?? '',
+          Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+        );
+        await serviceClient.auth.admin.updateUserById(user.id, {
+          user_metadata: {
+            ...meta,
+            subscription_tier: 'free',
+            shopify_subscription_id: null,
+            api_usage_limit: 50,
+            platforms_limit: 2,
+          },
+        });
+      }
+
+      return new Response(
+        JSON.stringify({ tier: meta.subscription_tier ?? 'free', subscription }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     throw new Error(`Unknown action: ${action}`);
 
   } catch (error) {

@@ -154,19 +154,24 @@ serve(async (req) => {
       throw new Error(`Failed to store platform: ${platformError.message}`);
     }
 
-    // Register order webhook for real-time inventory sync
-    try {
-      const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/shopify-order-webhook`;
-      await fetch(`https://${shop}/admin/api/2024-01/webhooks.json`, {
-        method: 'POST',
-        headers: { 'X-Shopify-Access-Token': access_token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          webhook: { topic: 'orders/paid', address: webhookUrl, format: 'json' }
-        }),
-      });
-      console.log(`[Shopify Exchange] Registered orders/paid webhook for ${shop}`);
-    } catch (webhookErr) {
-      console.warn(`[Shopify Exchange] Webhook registration failed: ${webhookErr.message}`);
+    // Register webhooks for orders, subscription changes, and uninstall
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const webhooksToRegister = [
+      { topic: 'orders/paid',              address: `${supabaseUrl}/functions/v1/shopify-order-webhook` },
+      { topic: 'app/uninstalled',          address: `${supabaseUrl}/functions/v1/app-uninstalled` },
+      { topic: 'app_subscriptions/update', address: `${supabaseUrl}/functions/v1/app-subscription-update` },
+    ];
+    for (const wh of webhooksToRegister) {
+      try {
+        await fetch(`https://${shop}/admin/api/2024-01/webhooks.json`, {
+          method: 'POST',
+          headers: { 'X-Shopify-Access-Token': access_token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ webhook: { topic: wh.topic, address: wh.address, format: 'json' } }),
+        });
+        console.log(`[Shopify Exchange] Registered ${wh.topic} webhook for ${shop}`);
+      } catch (webhookErr) {
+        console.warn(`[Shopify Exchange] Webhook registration failed for ${wh.topic}: ${webhookErr.message}`);
+      }
     }
 
     await adminClient.from('oauth_states').delete().eq('state', state);

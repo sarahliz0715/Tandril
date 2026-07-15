@@ -82,11 +82,11 @@ serve(async (req) => {
     // 1. Immediately revoke the access token — most important step.
     //    Nulling the token means even if the row stays, no API calls succeed.
     const { error: revokeError } = await supabase
-      .from('platform_connections')
+      .from('platforms')
       .update({
         access_token: null,
-        status: 'disconnected',
-        disconnected_at: new Date().toISOString(),
+        is_active: false,
+        last_synced_at: new Date().toISOString(),
       })
       .eq('platform_type', 'shopify')
       .or(`shop_domain.eq.${domain},shop_domain.eq.${domain?.replace('.myshopify.com', '')}`);
@@ -101,11 +101,11 @@ serve(async (req) => {
     //    (the actual Shopify-side cancellation happens automatically on uninstall)
     try {
       const { data: platform } = await supabase
-        .from('platform_connections')
+        .from('platforms')
         .select('user_id')
         .eq('platform_type', 'shopify')
         .or(`shop_domain.eq.${domain},shop_domain.eq.${domain?.replace('.myshopify.com', '')}`)
-        .single();
+        .maybeSingle();
 
       if (platform?.user_id) {
         // Look up the user and clear shopify_subscription_id if they had a Shopify billing plan
