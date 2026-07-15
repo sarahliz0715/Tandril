@@ -81,6 +81,14 @@ Outbound email is sent via Resend (resend.com). The `RESEND_FROM_EMAIL` Supabase
 - `security@tandril.org` forwards to omamahills@gmail.com (set up in GoDaddy Email Forwarding → edit rule)
 - GoDaddy email plan is Microsoft 365-style (paid), used to satisfy Etsy developer account requirement
 
+## Shopify API Credentials
+- **Client ID** = `SHOPIFY_API_KEY` in code/Vercel/Supabase
+- **Client Secret** = `SHOPIFY_API_SECRET` in code/Vercel/Supabase
+- Shopify rebranded "API key/secret" to "Client ID/Secret" — they are the same thing
+- Location: Shopify Partners dashboard → Tandril Beta → **"visit your Dev Dashboard"** (blue banner) → **Settings** → Credentials section
+- Direct path: partners.shopify.com → Apps → Tandril Beta → Overview → blue "visit your Dev Dashboard" link → Settings
+- Current Client ID: `41641b42c46bc650c3f4472682f3b6d9`
+
 ## Stripe Setup
 - Stripe account: live mode, business name "Tandril"
 - Webhook endpoint: `https://www.tandril.org/api/stripe-webhook`
