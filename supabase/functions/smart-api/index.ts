@@ -2658,7 +2658,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
               const podSuppliers = /printful|printify|gooten|spod|apliiq|teelaunch|printed\s*mint|scalable\s*press|awkward\s*styles/i;
               const rawVendor = action.vendor || '';
               const brand = action.brand || (rawVendor && !podSuppliers.test(rawVendor) ? rawVendor : 'Unbranded');
-              return { Brand: [brand], MPN: [action.mpn || 'Does Not Apply'] };
+              return { Brand: [brand], MPN: [action.mpn || sku.split('_')[0] || sku] };
             })() : {}),
             ...('Type' in ebayRequiredAspects && !action.aspects?.Type
               ? { Type: [action.product_type || 'T-Shirt'] } : {}),
