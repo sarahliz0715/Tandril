@@ -2630,6 +2630,12 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           shipToLocationAvailability: { quantity: Number(action.quantity) },
         },
         condition: action.condition || 'NEW',
+        packageWeightAndSize: {
+          weight: {
+            value: action.weight || 0.5,
+            unit: action.weight_unit || 'POUND',
+          },
+        },
         product: {
           title: action.title.length > 80 ? action.title.slice(0, 77) + '...' : action.title,
           description: action.description || `${action.title || action.product_name || 'Product'}. Available in multiple sizes and colors. High quality print-on-demand item. Ships fast. Great gift idea.`,
@@ -8457,7 +8463,8 @@ Required fields checklist:
 7. color — extract from Shopify variant options. If not available in the data, ask the user.
 7b. brand — always ask: "Is this your own branded design, or should it list as Unbranded?" If branded, get the exact brand name from them (note: avoid apostrophes — eBay rejects them, so "OMama Hills" not "O'Mama Hill's"). Pass it as action.brand. Backend defaults to Unbranded if not provided.
 8. image_url — use the product's image_url from the store context. Must be a full public HTTPS URL ending in a file extension (.jpg, .png, .gif, .webp). If the URL has no filename/extension, or starts with a local path, it is invalid — ask the user for a valid public image URL instead. When a user uploads an image file, remind them it must be hosted at a public URL — they can upload it to Shopify first, then use the Shopify CDN URL.
-9. description — pull from Shopify product description. If empty, WRITE ONE YOURSELF based on the product title, type, and tags. Never ask the user for a description — you are a copywriter, write it. Aim for 150-300 words, keyword-rich, conversational tone.
+9. weight — backend defaults to 0.5 lbs for all listings. Only pass action.weight if the user specifies it. Never ask for it.
+10. description — pull from Shopify product description. If empty, WRITE ONE YOURSELF based on the product title, type, and tags. Never ask the user for a description — you are a copywriter, write it. Aim for 150-300 words, keyword-rich, conversational tone.
 
 Ask for EVERYTHING missing in one message. Then create the listing. Do not discover missing fields one at a time.
 
