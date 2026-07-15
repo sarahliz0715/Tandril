@@ -2585,6 +2585,25 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       if (action.price == null) throw new Error('price is required for ebay_create_listing.');
       if (action.quantity == null) throw new Error('quantity is required for ebay_create_listing.');
 
+      // Auto-extract color from Shopify product data if not provided by Orion
+      let resolvedColor = action.color || null;
+      if (!resolvedColor) {
+        const { data: shopifyProducts } = await supabaseClient
+          .from('products')
+          .select('variant_options')
+          .eq('user_id', userId)
+          .eq('platform_type', 'shopify')
+          .ilike('sku', `${sku.split('_')[0]}%`)
+          .limit(10);
+        if (shopifyProducts?.length) {
+          for (const p of shopifyProducts) {
+            const opts = p.variant_options;
+            if (opts?.color) { resolvedColor = opts.color; break; }
+            if (opts?.Color) { resolvedColor = opts.Color; break; }
+          }
+        }
+      }
+
       // Step 1: Create/update inventory item
       const inventoryItemBody: any = {
         availability: {
@@ -2598,7 +2617,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           ...(action.brand ? { brand: action.brand } : {}),
           aspects: {
             ...(action.aspects || {}),
-            ...(action.color ? { Color: [action.color] } : {}),
+            ...(resolvedColor ? { Color: [resolvedColor] } : {}),
             ...(action.size ? { Size: Array.isArray(action.size) ? action.size : [action.size] } : {}),
           },
         },
@@ -8382,8 +8401,9 @@ To set a Shopify product status (active = live, draft = hidden, archived = remov
 — eBay Actions —
 
 To create a new eBay listing (creates inventory item + offer + publishes in one step):
-[ORION_ACTION:{"type":"ebay_create_listing","title":"Vintage Wool Sweater - Size M","sku":"SWEATER-001","price":29.99,"quantity":1,"description":"Beautiful vintage wool sweater in excellent condition.","condition":"USED_EXCELLENT","category_id":"11484","image_urls":["https://your-image-url.jpg"]}]
+[ORION_ACTION:{"type":"ebay_create_listing","title":"Vintage Wool Sweater - Size M","sku":"SWEATER-001","price":29.99,"quantity":1,"description":"Beautiful vintage wool sweater in excellent condition.","condition":"USED_EXCELLENT","category_id":"11484","color":"Charcoal Grey","image_urls":["https://your-image-url.jpg"]}]
 Note: condition options: NEW, LIKE_NEW, NEW_OTHER, NEW_WITH_DEFECTS, MANUFACTURER_REFURBISHED, CERTIFIED_REFURBISHED, EXCELLENT_REFURBISHED, VERY_GOOD_REFURBISHED, GOOD_REFURBISHED, SELLER_REFURBISHED, USED_EXCELLENT, USED_VERY_GOOD, USED_GOOD, USED_ACCEPTABLE, FOR_PARTS_OR_NOT_WORKING. category_id is optional but recommended.
+⚠️ ALWAYS include color and image_url when creating eBay listings for clothing/apparel. Pull color from the product's Shopify variant data — look at the variant options (e.g. option1, option2) or infer from the SKU suffix. If the product has multiple colors, use the most common/primary one. NEVER ask the user for color — extract it from the product data you already have. For image_url, use the product's image_url from the store context. eBay will reject clothing listings without Color in the aspects field.
 
 To update eBay listing quantity:
 [ORION_ACTION:{"type":"ebay_update_inventory","product_name":"Vintage Wool Sweater","sku":"SWEATER-001","quantity":2}]
