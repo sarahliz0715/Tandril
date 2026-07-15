@@ -2641,8 +2641,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           aspects: {
             ...(action.aspects || {}),
             ...(resolvedColor ? { Color: [resolvedColor] } : {}),
-            ...('Size' in ebayRequiredAspects && !action.aspects?.Size
-              ? { Size: action.size ? (Array.isArray(action.size) ? action.size : [action.size]) : ['XS','S','M','L','XL','2XL','3XL'] } : {}),
+            ...('Size' in ebayRequiredAspects && !action.aspects?.Size && action.size
+              ? { Size: Array.isArray(action.size) ? [action.size[0]] : [action.size] } : {}),
             // Clothing defaults — fill required aspects eBay would otherwise reject
             ...('Department' in ebayRequiredAspects && !action.aspects?.Department
               ? { Department: [action.department || 'Unisex'] } : {}),
