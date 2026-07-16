@@ -240,24 +240,11 @@ export default function Pricing() {
                 return;
             }
 
-            // Route Shopify merchants through Shopify Billing API;
-            // everyone else goes to Stripe
+            // Shopify merchants manage billing through Shopify admin (managed pricing).
+            // Direct them to Shopify admin to change their plan — the
+            // app_subscriptions/update webhook activates the new tier automatically.
             if (hasShopify) {
-                console.log('Shopify merchant detected — using Shopify Billing API for:', plan.name);
-                try {
-                    toast.info(`Setting up ${plan.name} via Shopify…`);
-                    const result = await api.functions.invoke('shopify-billing', {
-                        action: 'create',
-                        planId: plan.priceId,
-                        shop: shopifyDomain,
-                    });
-                    if (result?.error) throw new Error(result.error);
-                    if (!result?.confirmationUrl) throw new Error('No confirmation URL returned');
-                    window.location.href = result.confirmationUrl;
-                } catch (err) {
-                    console.error('[Pricing] Shopify billing error:', err);
-                    toast.error('Could not start Shopify checkout: ' + err.message);
-                }
+                toast.info('To change your Tandril plan, visit your Shopify admin → Apps → Tandril.', { duration: 6000 });
                 return;
             }
 
