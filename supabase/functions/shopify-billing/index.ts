@@ -6,6 +6,32 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// --- Decryption helpers (mirrors shopify-auth-exchange encryption) ---
+const ALGORITHM = 'AES-GCM';
+const KEY_LENGTH = 256;
+const IV_LENGTH = 12;
+
+async function getEncryptionKey(): Promise<CryptoKey> {
+  const secret = Deno.env.get('ENCRYPTION_SECRET');
+  if (!secret) throw new Error('ENCRYPTION_SECRET not set');
+  const enc = new TextEncoder();
+  const km = await crypto.subtle.importKey('raw', enc.encode(secret), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: enc.encode('tandril-encryption-salt-v1'), iterations: 100000, hash: 'SHA-256' },
+    km, { name: ALGORITHM, length: KEY_LENGTH }, false, ['encrypt', 'decrypt']
+  );
+}
+
+async function decrypt(ciphertext: string): Promise<string> {
+  const key = await getEncryptionKey();
+  const combined = Uint8Array.from(atob(ciphertext), c => c.charCodeAt(0));
+  const iv = combined.slice(0, IV_LENGTH);
+  const ct = combined.slice(IV_LENGTH);
+  const plain = await crypto.subtle.decrypt({ name: ALGORITHM, iv }, key, ct);
+  return new TextDecoder().decode(plain);
+}
+// --- End decryption helpers ---
+
 const PLAN_CONFIG: Record<string, { name: string; amount: number }> = {
   starter:      { name: 'Tandril Starter',      amount: 39.99  },
   professional: { name: 'Tandril Professional', amount: 129.99 },
@@ -16,7 +42,8 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
-    const { action, planId, chargeId } = await req.json();
+    const reqBody = await req.json();
+    const { action, planId, chargeId, shop: shopParam } = reqBody;
 
     // --- Auth ---
     const authHeader = req.headers.get('Authorization');
@@ -33,15 +60,46 @@ serve(async (req) => {
 
     // --- Get Shopify connection ---
     const { data: platform, error: platformError } = await supabaseClient
-      .from('platform_connections')
+      .from('platforms')
       .select('shop_domain, access_token')
       .eq('user_id', user.id)
       .eq('platform_type', 'shopify')
       .single();
 
-    if (platformError || !platform) throw new Error('No Shopify store connected');
+    // If not found in platforms table but embedded shop param provided, try service-role lookup
+    let shop_domain: string;
+    let access_token: string;
 
-    const { shop_domain, access_token } = platform;
+    if (platformError || !platform) {
+      if (shopParam) {
+        const serviceClient = createClient(
+          Deno.env.get('SUPABASE_URL') ?? '',
+          Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+        );
+        const { data: svcPlatform, error: svcError } = await serviceClient
+          .from('platforms')
+          .select('shop_domain, access_token')
+          .eq('shop_domain', shopParam)
+          .eq('platform_type', 'shopify')
+          .single();
+        if (svcError || !svcPlatform) throw new Error('No Shopify store connected');
+        shop_domain = svcPlatform.shop_domain;
+        access_token = svcPlatform.access_token;
+      } else {
+        throw new Error('No Shopify store connected');
+      }
+    } else {
+      shop_domain = platform.shop_domain;
+      access_token = platform.access_token;
+    }
+
+    // Decrypt the stored access token
+    try {
+      access_token = await decrypt(access_token);
+    } catch (_) {
+      // Token may not be encrypted (legacy rows) — use as-is
+    }
+
     const shopifyGraphQL = `https://${shop_domain}/admin/api/2025-10/graphql.json`;
 
     // =========================================================
@@ -93,6 +151,7 @@ serve(async (req) => {
       });
 
       const result = await response.json();
+      console.log('[shopify-billing] appSubscriptionCreate response:', JSON.stringify(result));
       const { confirmationUrl, userErrors } = result.data?.appSubscriptionCreate ?? {};
 
       if (userErrors?.length) throw new Error(userErrors[0].message);
@@ -158,6 +217,66 @@ serve(async (req) => {
 
       return new Response(
         JSON.stringify({ success: true, status: appSubscription.status, tier: planId }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // =========================================================
+    // ACTION: status — verify active subscription against Shopify
+    //                  so the Pricing page always reflects truth
+    // =========================================================
+    if (action === 'status') {
+      const { data: { user: authUser } } = await supabaseClient.auth.getUser();
+      const meta = authUser?.user_metadata ?? {};
+      const subscriptionId = meta.shopify_subscription_id;
+
+      if (!subscriptionId) {
+        return new Response(
+          JSON.stringify({ tier: meta.subscription_tier ?? 'free', subscription: null }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const gid = subscriptionId.startsWith('gid://')
+        ? subscriptionId
+        : `gid://shopify/AppSubscription/${subscriptionId}`;
+
+      const query = `query { node(id: "${gid}") { ... on AppSubscription { id name status } } }`;
+      const shopifyRes = await fetch(shopifyGraphQL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': access_token },
+        body: JSON.stringify({ query }),
+      });
+
+      if (!shopifyRes.ok) {
+        return new Response(
+          JSON.stringify({ tier: meta.subscription_tier ?? 'free', subscription: null, warning: 'Shopify API unavailable' }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const shopifyResult = await shopifyRes.json();
+      const subscription = shopifyResult.data?.node ?? null;
+
+      // If Shopify says the subscription is not ACTIVE, sync the tier down
+      if (subscription && subscription.status !== 'ACTIVE') {
+        const serviceClient = createClient(
+          Deno.env.get('SUPABASE_URL') ?? '',
+          Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+        );
+        await serviceClient.auth.admin.updateUserById(user.id, {
+          user_metadata: {
+            ...meta,
+            subscription_tier: 'free',
+            shopify_subscription_id: null,
+            api_usage_limit: 50,
+            platforms_limit: 2,
+          },
+        });
+      }
+
+      return new Response(
+        JSON.stringify({ tier: meta.subscription_tier ?? 'free', subscription }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

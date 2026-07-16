@@ -96,8 +96,8 @@ export default function Layout({ children, currentPageName }) {
         let mounted = true;
         let authHandled = false;
 
-        const publicPages = ['Home', 'Pricing', 'TermsOfService', 'PrivacyPolicy', 'EmailSignups', 'Survey', 'Login', 'Signup'];
-        const excludedFromOnboarding = ['Onboarding', 'Home', 'ShopifyCallback', 'TermsOfService', 'PrivacyPolicy', 'Pricing', 'EmailSignups', 'Survey'];
+        const publicPages = ['Home', 'Pricing', 'TermsOfService', 'PrivacyPolicy', 'privacy', 'terms', 'EmailSignups', 'Survey', 'Login', 'Signup'];
+        const excludedFromOnboarding = ['Onboarding', 'Home', 'ShopifyCallback', 'TermsOfService', 'PrivacyPolicy', 'privacy', 'terms', 'Pricing', 'EmailSignups', 'Survey'];
 
         const applySession = async (session) => {
             if (!mounted || authHandled) return;

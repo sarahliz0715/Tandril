@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { api } from '@/lib/apiClient';
+import { supabase } from '@/lib/supabaseClient';
 import { Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -11,6 +12,7 @@ const PLATFORM_NAMES = {
   etsy: 'Etsy',
   tiktok_shop: 'TikTok Shop',
   meta_ads: 'Facebook / Meta',
+  instagram: 'Instagram Shopping',
   amazon: 'Amazon',
   square: 'Square',
   wix: 'Wix',
@@ -73,6 +75,32 @@ export default function OAuthCallback() {
           setPlatformName(name);
           setStatus('success');
           setMessage(`${name} connected successfully!`);
+
+          // For Instagram: trigger initial product sync from Facebook catalog (fire-and-forget)
+          if (response.platform === 'instagram') {
+            try {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session?.user?.id) {
+                const { data: igPlats } = await supabase
+                  .from('platforms')
+                  .select('id')
+                  .eq('user_id', session.user.id)
+                  .eq('platform_type', 'instagram')
+                  .limit(1);
+                if (igPlats?.[0]?.id) {
+                  api.functions.invoke('fetch-platform-products', {
+                    user_id: session.user.id,
+                    platform_id: igPlats[0].id,
+                    search: '',
+                    page: 1,
+                  }).catch(e => console.warn('[OAuthCallback] Instagram initial sync failed (non-critical):', e.message));
+                }
+              }
+            } catch (syncErr) {
+              console.warn('[OAuthCallback] Instagram sync trigger failed (non-critical):', syncErr.message);
+            }
+          }
+
           setTimeout(() => {
             if (mounted) navigate(createPageUrl('Platforms'));
           }, 2000);

@@ -416,7 +416,7 @@ export default function Home() {
             <footer className="bg-white border-t border-slate-200">
                 <div className="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
                     <div className="flex justify-between items-center">
-                        <p className="text-sm text-slate-500">&copy; {new Date().getFullYear()} Tandril, Inc. All rights reserved.</p>
+                        <p className="text-sm text-slate-500">&copy; {new Date().getFullYear()} Tandril. All rights reserved.</p>
                         <div className="flex gap-6">
                             <Link to={createPageUrl('TermsOfService')} className="text-sm text-slate-500 hover:text-slate-700">Terms</Link>
                             <Link to={createPageUrl('PrivacyPolicy')} className="text-sm text-slate-500 hover:text-slate-700">Privacy</Link>

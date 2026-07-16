@@ -81,6 +81,30 @@ serve(async (req) => {
 
     const products = await fetchProducts(platform, search, page);
 
+    // For Instagram, also upsert products to the products table so inventory page sees them
+    if (platform.platform_type === 'instagram' && products.length > 0) {
+      try {
+        const rows = products.map((p: any) => ({
+          user_id,
+          platform_type: 'instagram',
+          title: p.title,
+          sku: p.sku || `instagram-${p.id}`,
+          price: p.price ?? 0,
+          inventory_quantity: p.quantity ?? 0,
+          status: p.availability === 'out of stock' ? 'out_of_stock' : 'active',
+          vendor: p.brand || '',
+          product_type: '',
+        }));
+        await supabase.from('products').upsert(rows, {
+          onConflict: 'user_id,platform_type,sku',
+          ignoreDuplicates: false,
+        });
+        console.log(`[fetch-platform-products] Synced ${rows.length} Instagram products for user ${user_id}`);
+      } catch (syncErr: any) {
+        console.warn('[fetch-platform-products] Instagram upsert failed (non-critical):', syncErr.message);
+      }
+    }
+
     return new Response(JSON.stringify({ success: true, products }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -100,6 +124,7 @@ async function fetchProducts(platform: any, search: string, page: number): Promi
     case 'woocommerce': return fetchWooProducts(platform, search, page);
     case 'etsy': return fetchEtsyProducts(platform, search, page);
     case 'ebay': return fetchEbayProducts(platform, search, page);
+    case 'instagram': return fetchInstagramProducts(platform, search, page);
     default: return [];
   }
 }
@@ -244,4 +269,57 @@ async function fetchEbayProducts(platform: any, search: string, page: number) {
     image_url: item.product?.imageUrls?.[0] ?? null,
     variants: [], // eBay is SKU-level, no sub-variants
   }));
+}
+
+async function fetchInstagramProducts(platform: any, search: string, page: number) {
+  const token = platform.credentials?.access_token;
+  const catalogId = platform.metadata?.catalog_id;
+  if (!token || !catalogId) throw new Error('Instagram access token or catalog_id missing.');
+
+  const results: any[] = [];
+  let afterCursor: string | null = null;
+  let hasMore = true;
+  const limit = 200;
+
+  while (hasMore) {
+    const params = new URLSearchParams({
+      fields: 'id,name,description,price,sale_price,availability,inventory,url,image_url,brand,condition,retailer_id',
+      access_token: token,
+      limit: String(limit),
+    });
+    if (afterCursor) params.set('after', afterCursor);
+
+    const res = await fetch(`https://graph.facebook.com/v19.0/${catalogId}/products?${params}`);
+    if (!res.ok) throw new Error(`Facebook catalog fetch failed: ${res.status}`);
+    const data = await res.json();
+    if (data.error) throw new Error(`Facebook API error: ${data.error.message}`);
+
+    for (const p of (data.data || [])) {
+      const priceRaw = p.sale_price || p.price || '0 USD';
+      // Facebook price format: "1999 USD" (integer cents + space + currency)
+      const priceParts = String(priceRaw).split(' ');
+      const priceCents = parseInt(priceParts[0]) || 0;
+      const priceFloat = priceCents / 100;
+      const qty = parseInt(p.inventory || '0') || 0;
+      const titleLower = (p.name || '').toLowerCase();
+      if (search && !titleLower.includes(search.toLowerCase())) continue;
+
+      results.push({
+        id: String(p.id),
+        title: p.name || 'Instagram Product',
+        sku: p.retailer_id || String(p.id),
+        quantity: qty,
+        image_url: p.image_url || null,
+        price: priceFloat,
+        availability: p.availability || 'in stock',
+        brand: p.brand || '',
+        variants: [], // Facebook catalog is item-level
+      });
+    }
+
+    afterCursor = data.paging?.cursors?.after ?? null;
+    hasMore = !!(afterCursor && (data.data?.length ?? 0) >= limit);
+  }
+
+  return results;
 }

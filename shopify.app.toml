@@ -26,6 +26,11 @@ api_version = "2025-10"
 topics = ["app/uninstalled"]
 uri = "https://biksocozipayckfuzzul.supabase.co/functions/v1/app-uninstalled"
 
+# app_subscriptions/update — fires when merchant changes plan in Shopify admin
+[[webhooks.subscriptions]]
+topics = ["app_subscriptions/update"]
+uri = "https://biksocozipayckfuzzul.supabase.co/functions/v1/app-subscription-update"
+
 # Mandatory GDPR/Privacy Compliance Webhooks
 # Required for all apps on the Shopify App Store
 [[webhooks.subscriptions]]

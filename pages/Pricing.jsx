@@ -151,6 +151,7 @@ const PlanCard = ({ plan, onSelect, isLoading, currentTier }) => {
 export default function Pricing() {
     const [user, setUser] = useState(null);
     const [hasShopify, setHasShopify] = useState(false);
+    const [shopifyDomain, setShopifyDomain] = useState(null);
     const [loadingPlan, setLoadingPlan] = useState(null);
     const [authChecked, setAuthChecked] = useState(false);
 
@@ -165,8 +166,27 @@ export default function Pricing() {
                 // Shopify Billing API instead of Stripe for paid plans
                 try {
                     const platforms = await Platform.filter({ user_id: currentUser.id });
-                    const shopifyConnected = platforms.some(p => p.platform_type === 'shopify');
-                    setHasShopify(shopifyConnected);
+                    const shopifyPlatform = platforms.find(p => p.platform_type === 'shopify');
+                    setHasShopify(!!shopifyPlatform);
+                    if (shopifyPlatform?.shop_domain) setShopifyDomain(shopifyPlatform.shop_domain);
+
+                    // Verify subscription state against Shopify's truth so the
+                    // plan UI always reflects what Shopify actually has on file.
+                    if (shopifyPlatform) {
+                        try {
+                            const statusResult = await api.functions.invoke('shopify-billing', {
+                                action: 'status',
+                                shop: shopifyPlatform.shop_domain,
+                            });
+                            if (!statusResult?.error && statusResult?.tier) {
+                                // Re-fetch user so the updated tier is reflected
+                                const refreshed = await User.me();
+                                setUser(refreshed);
+                            }
+                        } catch (_) {
+                            // Non-fatal — stale tier is better than a broken page
+                        }
+                    }
                 } catch (_) {
                     // Non-fatal — fall back to Stripe
                 }

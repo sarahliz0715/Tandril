@@ -183,6 +183,8 @@ function summarizeOrionAction(action: any): string {
     case 'ebay_create_listing':         return `Created eBay listing: "${action.title || name}"`;
     case 'tiktok_update_price':         return `Updated TikTok Shop price for "${name}" → $${action.price}`;
     case 'tiktok_update_inventory':     return `Updated TikTok Shop inventory for "${name}" → ${action.quantity} units`;
+    case 'instagram_update_price':      return `Updated Instagram Shopping price for "${name}" → $${action.price}`;
+    case 'instagram_update_inventory':  return `Updated Instagram Shopping inventory for "${name}" → ${action.quantity} units`;
     case 'tiktok_update_title':         return `Updated TikTok Shop title for "${name}"`;
     case 'tiktok_update_description':   return `Updated TikTok Shop description for "${name}"`;
     case 'tiktok_end_listing':          return `Deactivated TikTok Shop listing "${name}"`;
@@ -490,7 +492,7 @@ serve(async (req) => {
       );
     }
 
-    if (!message) throw new Error('Message is required');
+    if (!message && (!uploaded_files || uploaded_files.length === 0)) throw new Error('Message is required');
 
     console.log(`[Orion] Processing message for user ${userId}`);
 
@@ -547,7 +549,7 @@ serve(async (req) => {
         }
       }
     }
-    const pendingAction = pendingActions[0] || null; // backwards compat
+    let pendingAction = pendingActions[0] || null; // backwards compat
 
     // Safety net: the model often generates "update_product" or similar for image uploads
     // even when explicitly told not to. If the user attached images and the action type
@@ -572,8 +574,11 @@ serve(async (req) => {
       }
     }
 
-    // If images were uploaded but Orion produced no action at all, synthesize one
-    if (imageFiles.length > 0 && !pendingAction) {
+    // Only synthesize an upload_image action if the user sent NO text message
+    // (pure image drop with no instruction). If there's a real message, let Orion's
+    // response stand — the image is context, not necessarily a product photo to upload.
+    const isImageOnlyMessage = imageFiles.length > 0 && (!message || message.trim() === '');
+    if (isImageOnlyMessage && !pendingAction) {
       pendingAction = {
         type: 'upload_image',
         product_name: '',
@@ -585,12 +590,10 @@ serve(async (req) => {
       }
     }
 
-    // Final pass: if there are image files and an upload_image action is queued,
-    // but the response text still contains apologetic / capability-disclaimer language,
-    // replace it entirely. This catches the case where the model generated the correct
-    // action type but still wrote the wrong text.
+    // Final pass: only override response text with upload prompt if this was a pure
+    // image-drop (no text message) — never override when the user gave a real instruction.
     if (
-      imageFiles.length > 0 &&
+      isImageOnlyMessage &&
       pendingAction?.type === 'upload_image' &&
       !imageActionCoerced &&
       /cannot|can't|do not have the capability|unable to|apologize/i.test(response)
@@ -839,17 +842,18 @@ function findProduct(allProducts: any[], sku: string, productName: string): any 
       }
     }
   }
-  // 5. Significant word overlap (≥3 words matching, ignoring short words).
-  // Raised from 2 to 3 to prevent accidental cross-product matches when product names
-  // share common words like "Spring", "Cotton", "Tee".
-  const needleWords = needle.split(/\s+/).filter((w: string) => w.length > 3);
+  // 5. Significant word overlap, ignoring short words.
+  // Also checks partial word containment so "shirt" matches "t-shirt", "vesting" matches "vesting".
+  // Threshold is 3 for long queries, 2 for short ones (≤3 meaningful words).
+  const needleWords = needle.replace(/['"]/g, '').split(/\s+/).filter((w: string) => w.length > 3);
   if (needleWords.length > 0) {
+    const threshold = needleWords.length <= 3 ? 2 : 3;
     let bestMatch: any = null;
     let bestScore = 0;
     for (const p of allProducts) {
-      const titleWords = p.title.toLowerCase().split(/\s+/);
-      const score = needleWords.filter((w: string) => titleWords.some((tw: string) => tw === w)).length;
-      if (score >= 3 && score > bestScore) { bestScore = score; bestMatch = p; }
+      const titleWords = p.title.toLowerCase().replace(/['"]/g, '').split(/\s+/);
+      const score = needleWords.filter((w: string) => titleWords.some((tw: string) => tw === w || tw.includes(w) || w.includes(tw))).length;
+      if (score >= threshold && score > bestScore) { bestScore = score; bestMatch = p; }
     }
     if (bestMatch) return bestMatch;
   }
@@ -1232,6 +1236,10 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       update_description: 'faire_update_description',
       create_product:     'faire_create_product',
     },
+    instagram: {
+      update_price:       'instagram_update_price',
+      update_inventory:   'instagram_update_inventory',
+    },
   };
   if (_platformTypeMap[_plat]?.[action.type]) {
     action = { ...action, type: _platformTypeMap[_plat][action.type] };
@@ -1245,8 +1253,9 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     .or('is_active.eq.true,status.eq.connected')
     .limit(1);
 
-  // flash_sale, smart_restock, and get_inventory operate across all platforms — Shopify not required
-  const shopifyRequired = action.type !== 'flash_sale' && action.type !== 'smart_restock' && action.type !== 'get_inventory';
+  // flash_sale, smart_restock, get_inventory, and Instagram actions operate across all platforms — Shopify not required
+  const shopifyRequired = action.type !== 'flash_sale' && action.type !== 'smart_restock' && action.type !== 'get_inventory'
+    && action.type !== 'instagram_update_price' && action.type !== 'instagram_update_inventory';
   if (shopifyRequired && (!platforms || platforms.length === 0)) {
     throw new Error('No connected Shopify store found. Connect one in the Platforms tab first.');
   }
@@ -1673,6 +1682,70 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         }
       } catch (e: any) { console.warn('[smart-api] Faire inventory fetch failed:', e.message); }
 
+      // Fetch Instagram Shopping catalog products
+      try {
+        const { data: igPlatforms } = await supabaseClient
+          .from('platforms')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('platform_type', 'instagram')
+          .or('is_active.eq.true,status.eq.connected');
+
+        for (const igPlat of (igPlatforms || [])) {
+          const creds = igPlat.credentials;
+          const meta = igPlat.metadata || {};
+          const token = creds?.access_token;
+          const catalogId = meta?.catalog_id;
+          if (!token || !catalogId) continue;
+
+          let afterCursor: string | null = null;
+          let hasMore = true;
+          while (hasMore) {
+            const params = new URLSearchParams({
+              fields: 'id,name,price,sale_price,availability,inventory,image_url,brand,retailer_id',
+              access_token: token,
+              limit: '200',
+            });
+            if (afterCursor) params.set('after', afterCursor);
+            const igRes = await fetch(`https://graph.facebook.com/v19.0/${catalogId}/products?${params}`);
+            if (!igRes.ok) break;
+            const igData = await igRes.json();
+            if (igData.error) break;
+
+            for (const p of (igData.data || [])) {
+              const priceRaw = p.sale_price || p.price || '0 USD';
+              const priceCents = parseInt(String(priceRaw).split(' ')[0]) || 0;
+              const priceFloat = priceCents / 100;
+              const qty = parseInt(p.inventory || '0') || 0;
+              const avail = (p.availability || 'in stock').toLowerCase();
+              let status = 'active';
+              if (avail === 'out of stock') status = 'out_of_stock';
+              else if (qty === 0) status = 'out_of_stock';
+              else if (qty <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+              inventory.push({
+                id: `instagram-${p.id}`,
+                product_name: p.name || 'Instagram Product',
+                sku: p.retailer_id || String(p.id),
+                category: '',
+                status,
+                total_stock: qty,
+                base_price: priceFloat,
+                image_url: p.image_url || null,
+                vendor: p.brand || '',
+                tags: '',
+                platform_listings: [{ listing_id: String(p.id), platform: 'Instagram Shopping' }],
+                source: 'instagram',
+              });
+            }
+
+            afterCursor = igData.paging?.cursors?.after ?? null;
+            hasMore = !!(afterCursor && (igData.data?.length ?? 0) >= 200);
+          }
+        }
+      } catch (e: any) {
+        console.warn('[smart-api] Instagram inventory fetch failed:', e.message);
+      }
+
       return { inventory };
     }
 
@@ -2023,12 +2096,23 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     }
 
     case 'update_title': {
-      const titleGqlData = await shopifyGraphQL(shopDomain, accessToken, `
-        query { products(first: 250) { edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
-      `);
-      const allTitleProducts = titleGqlData.products.edges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
+      let titleHasNextPage = true;
+      let titleCursor: string | null = null;
+      const titleAllEdges: any[] = [];
+      while (titleHasNextPage) {
+        const titleAfter = titleCursor ? `, after: "${titleCursor}"` : '';
+        const titleGqlData = await shopifyGraphQL(shopDomain, accessToken, `
+          query { products(first: 250${titleAfter}) { pageInfo { hasNextPage endCursor } edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
+        `);
+        titleAllEdges.push(...titleGqlData.products.edges);
+        titleHasNextPage = titleGqlData.products.pageInfo?.hasNextPage ?? false;
+        titleCursor = titleGqlData.products.pageInfo?.endCursor ?? null;
+      }
+      const allTitleProducts = titleAllEdges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
 
-      const targetProduct = findProduct(allTitleProducts, action.sku, action.product_name);
+      // If sku looks like a bare product ID (no underscore), prefer name-based lookup
+      const titleSku = action.sku && action.sku.includes('_') ? action.sku : null;
+      const targetProduct = findProduct(allTitleProducts, titleSku, action.product_name || action.sku);
       if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
 
       const titleUpdateData = await shopifyGraphQL(shopDomain, accessToken, `
@@ -2501,18 +2585,89 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       if (action.price == null) throw new Error('price is required for ebay_create_listing.');
       if (action.quantity == null) throw new Error('quantity is required for ebay_create_listing.');
 
+      // Step 0: Fetch eBay's required aspects for the category so we don't miss any
+      let ebayRequiredAspects: Record<string, string[]> = {};
+      if (action.category_id) {
+        try {
+          const aspectRes = await fetch(
+            `${apiBase}/commerce/taxonomy/v1/category_tree/0/get_item_aspects_for_category?category_id=${action.category_id}`,
+            { headers: ebayHeaders }
+          );
+          if (aspectRes.ok) {
+            const aspectData = await aspectRes.json();
+            for (const aspect of (aspectData.aspects || [])) {
+              if (aspect.aspectConstraint?.aspectRequired) {
+                const vals = aspect.aspectValues?.map((v: any) => v.localizedValue) || [];
+                ebayRequiredAspects[aspect.localizedAspectName] = vals;
+              }
+            }
+          }
+        } catch { /* non-fatal — continue with what we have */ }
+      }
+
+      // Auto-extract color from Shopify product data if not provided by Orion
+      let resolvedColor = action.color || null;
+      if (!resolvedColor) {
+        const { data: shopifyProducts } = await supabaseClient
+          .from('products')
+          .select('variant_options')
+          .eq('user_id', userId)
+          .eq('platform_type', 'shopify')
+          .ilike('sku', `${sku.split('_')[0]}%`)
+          .limit(10);
+        if (shopifyProducts?.length) {
+          for (const p of shopifyProducts) {
+            const opts = p.variant_options;
+            if (opts?.color) { resolvedColor = opts.color; break; }
+            if (opts?.Color) { resolvedColor = opts.Color; break; }
+          }
+        }
+      }
+
       // Step 1: Create/update inventory item
       const inventoryItemBody: any = {
         availability: {
           shipToLocationAvailability: { quantity: Number(action.quantity) },
         },
         condition: action.condition || 'NEW',
+        packageWeightAndSize: {
+          weight: {
+            value: action.weight || 0.5,
+            unit: action.weight_unit || 'POUND',
+          },
+        },
         product: {
-          title: action.title,
-          description: action.description || '',
-          ...(action.image_urls ? { imageUrls: action.image_urls } : action.image_url ? { imageUrls: [action.image_url] } : {}),
-          ...(action.brand ? { brand: action.brand } : {}),
-          ...(action.aspects ? { aspects: action.aspects } : {}),
+          title: action.title.length > 80 ? action.title.slice(0, 77) + '...' : action.title,
+          description: action.description || `${action.title || action.product_name || 'Product'}. Available in multiple sizes and colors. High quality print-on-demand item. Ships fast. Great gift idea.`,
+          ...((() => {
+            const validImageUrl = (url: string) => url && /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(url);
+            const urls = action.image_urls?.filter(validImageUrl) || (action.image_url && validImageUrl(action.image_url) ? [action.image_url] : []);
+            return urls.length ? { imageUrls: urls } : {};
+          })()),
+          aspects: {
+            ...(action.aspects || {}),
+            ...(resolvedColor && !action.aspects?.Color ? { Color: [resolvedColor] } : {}),
+            ...(action.size && !action.aspects?.Size
+              ? { Size: Array.isArray(action.size) ? [action.size[0]] : [action.size] } : {}),
+            // Clothing defaults — fill required aspects eBay would otherwise reject
+            ...('Department' in ebayRequiredAspects && !action.aspects?.Department
+              ? { Department: [action.department || 'Unisex'] } : {}),
+            ...('Size Type' in ebayRequiredAspects && !action.aspects?.['Size Type']
+              ? { 'Size Type': ['Regular'] } : {}),
+            ...('Sleeve Length' in ebayRequiredAspects && !action.aspects?.['Sleeve Length']
+              ? { 'Sleeve Length': ['Short Sleeve'] } : {}),
+            ...('Neckline' in ebayRequiredAspects && !action.aspects?.Neckline
+              ? { Neckline: ['Crew Neck'] } : {}),
+            ...('Material' in ebayRequiredAspects && !action.aspects?.Material
+              ? { Material: [action.material || 'Cotton'] } : {}),
+            // Brand + MPN belong in aspects in eBay Sell Inventory API
+            Brand: [action.brand ? action.brand.replace(/['']/g, '').trim() : 'Unbranded'],
+            MPN: [(action.mpn || sku.split('_')[0] || sku).replace(/['']/g, '')],
+            ...('Type' in ebayRequiredAspects && !action.aspects?.Type
+              ? { Type: [action.product_type || 'T-Shirt'] } : {}),
+            ...('Theme' in ebayRequiredAspects && !action.aspects?.Theme
+              ? { Theme: ['Humor'] } : {}),
+          },
         },
       };
 
@@ -2571,14 +2726,41 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         ...(action.category_id ? { categoryId: String(action.category_id) } : {}),
       };
 
+      // Step 3: Create offer — if one already exists for this SKU, update it instead
+      let offerId: string;
       const offerRes = await fetch(`${apiBase}/sell/inventory/v1/offer`, {
         method: 'POST',
         headers: ebayHeaders,
         body: JSON.stringify(offerBody),
       });
-      if (!offerRes.ok) throw new Error(`eBay offer creation failed: ${await offerRes.text()}`);
-      const offerData = await offerRes.json();
-      const offerId = offerData.offerId;
+      if (!offerRes.ok) {
+        const offerErrText = await offerRes.text();
+        let existingOfferId: string | null = null;
+        try {
+          const offerErr = JSON.parse(offerErrText);
+          const alreadyExists = offerErr.errors?.some((e: any) => e.errorId === 25002);
+          if (alreadyExists) {
+            const param = offerErr.errors[0]?.parameters?.find((p: any) => p.name === 'offerId');
+            existingOfferId = param?.value || null;
+          }
+        } catch { /* ignore parse error */ }
+
+        if (existingOfferId) {
+          // Update the existing offer then publish it
+          const updateRes = await fetch(`${apiBase}/sell/inventory/v1/offer/${existingOfferId}`, {
+            method: 'PUT',
+            headers: ebayHeaders,
+            body: JSON.stringify(offerBody),
+          });
+          if (!updateRes.ok) throw new Error(`eBay offer update failed: ${await updateRes.text()}`);
+          offerId = existingOfferId;
+        } else {
+          throw new Error(`eBay offer creation failed: ${offerErrText}`);
+        }
+      } else {
+        const offerData = await offerRes.json();
+        offerId = offerData.offerId;
+      }
 
       // Step 4: Publish offer
       const publishRes = await fetch(`${apiBase}/sell/inventory/v1/offer/${offerId}/publish`, {
@@ -2640,6 +2822,79 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const data = await res.json();
       if (data.code !== 0) throw new Error(`TikTok API error: ${data.message}`);
       return { message: `Updated TikTok Shop inventory for "${action.product_name || action.sku}" to ${action.quantity} units` };
+    }
+
+    case 'instagram_update_price': {
+      if (action.price == null) throw new Error('price is required for instagram_update_price.');
+      if (!action.product_id && !action.retailer_id) throw new Error('product_id or retailer_id is required for instagram_update_price.');
+
+      const { data: igPricePlatforms } = await supabaseClient
+        .from('platforms')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('platform_type', 'instagram')
+        .or('is_active.eq.true,status.eq.connected')
+        .limit(1);
+
+      if (!igPricePlatforms?.length) throw new Error('No connected Instagram platform found.');
+      const igPricePlat = igPricePlatforms[0];
+      const igPriceToken = igPricePlat.credentials?.access_token;
+      if (!igPriceToken) throw new Error('Instagram access token missing.');
+
+      // Price format required by Facebook Graph API: integer cents + space + currency code (e.g. "1999 USD")
+      const igPriceCents = Math.round(parseFloat(String(action.price)) * 100);
+      const igPriceStr = `${igPriceCents} USD`;
+      const igProductId = action.product_id;
+
+      const igPriceRes = await fetch(`https://graph.facebook.com/v19.0/${igProductId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ price: igPriceStr, access_token: igPriceToken }),
+      });
+      if (!igPriceRes.ok) {
+        const igPriceErr = await igPriceRes.json();
+        throw new Error(`Instagram price update failed: ${igPriceErr?.error?.message || igPriceRes.status}`);
+      }
+      return { message: `Updated Instagram Shopping price for "${action.product_name || igProductId}" to $${action.price}` };
+    }
+
+    case 'instagram_update_inventory': {
+      if (action.quantity == null) throw new Error('quantity is required for instagram_update_inventory.');
+      if (!action.retailer_id) throw new Error('retailer_id is required for instagram_update_inventory.');
+
+      const { data: igInvPlatforms } = await supabaseClient
+        .from('platforms')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('platform_type', 'instagram')
+        .or('is_active.eq.true,status.eq.connected')
+        .limit(1);
+
+      if (!igInvPlatforms?.length) throw new Error('No connected Instagram platform found.');
+      const igInvPlat = igInvPlatforms[0];
+      const igInvToken = igInvPlat.credentials?.access_token;
+      const igCatalogId = igInvPlat.metadata?.catalog_id;
+      if (!igInvToken || !igCatalogId) throw new Error('Instagram access token or catalog_id missing.');
+
+      const igAvailability = Number(action.quantity) > 0 ? 'in stock' : 'out of stock';
+      const igInvRes = await fetch(`https://graph.facebook.com/v19.0/${igCatalogId}/items_batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          access_token: igInvToken,
+          allow_upsert: true,
+          requests: [{
+            method: 'UPDATE',
+            retailer_id: action.retailer_id,
+            data: { availability: igAvailability, inventory: Number(action.quantity) },
+          }],
+        }),
+      });
+      if (!igInvRes.ok) {
+        const igInvErr = await igInvRes.json();
+        throw new Error(`Instagram inventory update failed: ${igInvErr?.error?.message || igInvRes.status}`);
+      }
+      return { message: `Updated Instagram Shopping inventory for "${action.product_name || action.retailer_id}" to ${action.quantity} units` };
     }
 
     case 'tiktok_update_title':
@@ -7246,28 +7501,38 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
         accessToken = await decrypt(accessToken);
       }
       const shopDomain = shopifyPlatform.shop_domain;
-      const ctxGqlData = await shopifyGraphQL(shopDomain, accessToken, `
-        query {
-          products(first: 250) {
-            edges {
-              node {
-                id title handle status vendor productType tags
-                descriptionHtml
-                images(first: 1) { edges { node { url altText } } }
-                variants(first: 100) {
-                  edges {
-                    node {
-                      id price sku inventoryQuantity
-                      inventoryItem { id }
+      let ctxHasNextPage = true;
+      let ctxCursor: string | null = null;
+      const ctxAllEdges: any[] = [];
+      while (ctxHasNextPage) {
+        const afterClause = ctxCursor ? `, after: "${ctxCursor}"` : '';
+        const ctxGqlData = await shopifyGraphQL(shopDomain, accessToken, `
+          query {
+            products(first: 250${afterClause}) {
+              pageInfo { hasNextPage endCursor }
+              edges {
+                node {
+                  id title handle status vendor productType tags
+                  descriptionHtml
+                  images(first: 1) { edges { node { url altText } } }
+                  variants(first: 100) {
+                    edges {
+                      node {
+                        id price sku inventoryQuantity
+                        inventoryItem { id }
+                      }
                     }
                   }
                 }
               }
             }
           }
-        }
-      `);
-      products = ctxGqlData.products.edges.map((e: any) => {
+        `);
+        ctxAllEdges.push(...ctxGqlData.products.edges);
+        ctxHasNextPage = ctxGqlData.products.pageInfo?.hasNextPage ?? false;
+        ctxCursor = ctxGqlData.products.pageInfo?.endCursor ?? null;
+      }
+      products = ctxAllEdges.map((e: any) => {
         const variants = e.node.variants.edges.map((v: any) => ({
           ...v.node,
           id: fromShopifyGid(v.node.id),
@@ -7832,6 +8097,8 @@ SYNC RULES: When a user asks "are my inventories in sync?", "when did my last sy
 
   const systemPrompt = workflowPrefix + `You are Orion, an AI business wingman for e-commerce sellers. You're sharp, direct, and genuinely invested in their success. You remember past conversations and build on what you've learned over time.
 
+⚠️ CRITICAL — ACTION CARD RULE: Every single time you are about to execute a store action, you MUST include the [ORION_ACTION:...] block in your response. No exceptions. If you say "let's go", "retrying now", "on it", "queuing up", "creating now", or any similar phrase indicating you are about to take action — the action block MUST be in that same response. NEVER say you are doing something without including the action block. If the action block is missing from your response, the user sees no confirmation card and nothing executes. Say it AND block it, every time.
+
 **CRITICAL - What you can and cannot do:**
 - You CAN: Read and analyze store data (products, orders, inventory, revenue) from the data provided below
 - You CAN: Give advice, spot trends, flag issues, answer questions about their business
@@ -7850,6 +8117,8 @@ SYNC RULES: When a user asks "are my inventories in sync?", "when did my last sy
 When the user explicitly asks you to DO something in the store (create a product, add inventory, change a price, rename a title, update SEO, add an image, etc.), respond conversationally AND append the appropriate action block(s) at the very end of your message. Only generate action blocks when the user is asking you to take an action — NEVER generate action blocks in response to questions, observations, analysis, or advice. If the user asks "what should I do about my pricing?" → text answer only, no action blocks. If the user says "update my pricing" → action blocks. When in doubt, ask "Want me to go ahead and update that?"
 
 NEVER wrap [ORION_ACTION:...] blocks in artifact tags, code blocks, XML tags, or any other wrapper. Action blocks must appear as raw plain text directly in your response — nothing surrounding them. Do not use artifact tags, triple-backtick blocks, or any enclosing tag around action blocks.
+
+⚠️ CRITICAL — ACTION CARD RULE: Every single time you are about to execute a store action, you MUST include the [ORION_ACTION:...] block in your response. No exceptions. If you say "let's go", "retrying now", "on it", "queuing up", "creating now", or any similar phrase indicating you are about to take action — the action block MUST be in that same response. NEVER say you are doing something without including the action block. If the action block is missing from your response, the user sees no confirmation card and nothing executes. Say it AND block it, every time.
 
 NEVER output XML tool-call syntax such as function_calls, invoke, or parameter tags in your responses. You are a conversational assistant — you do not use XML tool calls. If you need to look up data, use only what is already provided in the system prompt context above.
 
@@ -8184,8 +8453,73 @@ To set a Shopify product status (active = live, draft = hidden, archived = remov
 — eBay Actions —
 
 To create a new eBay listing (creates inventory item + offer + publishes in one step):
-[ORION_ACTION:{"type":"ebay_create_listing","title":"Vintage Wool Sweater - Size M","sku":"SWEATER-001","price":29.99,"quantity":1,"description":"Beautiful vintage wool sweater in excellent condition.","condition":"USED_EXCELLENT","category_id":"11484","image_urls":["https://your-image-url.jpg"]}]
+[ORION_ACTION:{"type":"ebay_create_listing","title":"Vintage Wool Sweater - Size M","sku":"SWEATER-001","price":29.99,"quantity":1,"description":"Beautiful vintage wool sweater in excellent condition.","condition":"USED_EXCELLENT","category_id":"11484","color":"Charcoal Grey","image_urls":["https://your-image-url.jpg"]}]
 Note: condition options: NEW, LIKE_NEW, NEW_OTHER, NEW_WITH_DEFECTS, MANUFACTURER_REFURBISHED, CERTIFIED_REFURBISHED, EXCELLENT_REFURBISHED, VERY_GOOD_REFURBISHED, GOOD_REFURBISHED, SELLER_REFURBISHED, USED_EXCELLENT, USED_VERY_GOOD, USED_GOOD, USED_ACCEPTABLE, FOR_PARTS_OR_NOT_WORKING. category_id is optional but recommended.
+⚠️ BEFORE generating an ebay_create_listing action, do a complete preflight check. Gather ALL of the following — if anything is missing, ask the user for everything that's missing IN ONE MESSAGE before creating the action. Never create the listing and then discover a missing field mid-flight.
+
+Required fields checklist:
+1. title — max 80 chars. Shorten if needed. Pull from Shopify product title.
+2. sku — use a specific variant SKU (with underscore, e.g. 1218588_9546), not the base product ID.
+3. price — pull from Shopify product data.
+4. quantity — pull from Shopify inventory.
+5. condition — default NEW for new products.
+6. category_id — look it up based on product type. Clothing = 11450. T-shirts = 15687. Use best match.
+7. color — extract from Shopify variant options. If not available in the data, ask the user.
+7b. brand — always ask: "Is this your own branded design, or should it list as Unbranded?" If branded, get the exact brand name from them (note: avoid apostrophes — eBay rejects them, so "OMama Hills" not "O'Mama Hill's"). Pass it as action.brand. Backend defaults to Unbranded if not provided.
+8. image_url — use the product's image_url from the store context. Must be a full public HTTPS URL ending in a file extension (.jpg, .png, .gif, .webp). If the URL has no filename/extension, or starts with a local path, it is invalid — ask the user for a valid public image URL instead. When a user uploads an image file, remind them it must be hosted at a public URL — they can upload it to Shopify first, then use the Shopify CDN URL.
+9. weight — backend defaults to 0.5 lbs for all listings. Only pass action.weight if the user specifies it. Never ask for it.
+10. description — pull from Shopify product description. If empty, WRITE ONE YOURSELF based on the product title, type, and tags. Never ask the user for a description — you are a copywriter, write it. Aim for 150-300 words, keyword-rich, conversational tone.
+
+Ask for EVERYTHING missing in one message. Then create the listing. Do not discover missing fields one at a time.
+
+⚠️ PLATFORM LISTING REQUIREMENTS — run this preflight for ANY platform before creating a listing. Gather all required fields from existing product data first. Ask the user only for what you genuinely cannot find. Ask for all missing fields in ONE message.
+
+EBAY:
+  Required: title (max 80 chars), sku (variant SKU with underscore), price, quantity, condition, category_id, color (aspects), image_url (public HTTPS)
+  Optional but recommended: description, size, department (Men/Women/Unisex — default Unisex if unknown)
+  Notes: title hard limit 80 chars — truncate. Always include color in the action. Use variant SKU not base product ID. The backend auto-fills Brand (Unbranded for POD — do NOT pass the store name as brand), MPN, Size Type, Sleeve Length, Neckline, Material, Department, and Size (defaults to XS-3XL range if not specified). Pass size explicitly if you know the exact sizes from variant data. Never pass store names or shop names as Brand.
+
+ETSY:
+  Required: title (max 140 chars), description (min ~40 words recommended), price, quantity, category (taxonomy_id), who_made (i_did/collective/someone_else), when_made (e.g. 2020_2024), is_supply (true/false), tags (max 13, each max 20 chars), shipping_profile_id
+  Optional: materials, images (max 10), variations (size/color)
+  Notes: tags must be single words or short phrases, no # symbols. Description should be keyword-rich.
+
+AMAZON:
+  Required: sku, title (max 200 chars), price, quantity, condition (New/Used), brand, category (browse_node_id), bullet_points (1-5, max 500 chars each), description (max 2000 chars)
+  Optional: images (main + 8 alternates), keywords (max 250 chars), manufacturer, model_number
+  Notes: main image must be pure white background. Title should include brand + key features.
+
+TIKTOK SHOP:
+  Required: title (max 255 chars), description (max 1000 chars), price, quantity, category_id, images (at least 1, min 600x600px), brand_id or brand_name
+  Optional: size_chart, weight, variations (color/size)
+  Notes: images must meet size requirements. Videos strongly recommended.
+
+WOOCOMMERCE:
+  Required: name (title), price, quantity, description (short_description optional)
+  Optional: sku, images, tags, categories, product_type (simple/variable)
+  Notes: No strict char limits but SEO best practice: title <70 chars, description keyword-rich.
+
+SHOPIFY (create_product):
+  Required: title, price, quantity
+  Optional: sku, description, vendor, product_type, tags, images, status (active/draft)
+  Notes: No hard char limits. Status defaults to draft — set active to publish immediately.
+
+WALMART:
+  Required: sku, product_name (max 200 chars), price, quantity, brand, category, short_description (max 4000 chars), key_features (bullet points)
+  Optional: images, model_number, manufacturer, shipping_weight
+  Notes: Changes submitted as feeds — may take 15-30 min to go live.
+
+FAIRE (wholesale):
+  Required: name, price (wholesale — typically 50% of retail), quantity, description, category
+  Optional: images, brand, tags
+  Notes: Faire prices are B2B wholesale, not retail. Always clarify this to the user.
+
+BIGCOMMERCE:
+  Required: name, price, quantity, type (physical/digital)
+  Optional: sku, description, images, categories, brand, weight
+  Notes: Weight required for physical products with calculated shipping.
+
+For ALL platforms: pull as much as possible from existing Shopify product data (title, description, price, inventory, images). Only ask the user for what you truly cannot find or infer.
 
 To update eBay listing quantity:
 [ORION_ACTION:{"type":"ebay_update_inventory","product_name":"Vintage Wool Sweater","sku":"SWEATER-001","quantity":2}]
@@ -8805,7 +9139,8 @@ ${mode === 'demo/test' ?
     }
   }
 
-  const currentContent: any[] = [{ type: 'text', text: message }];
+  const effectiveMessage = message || (uploadedFiles && uploadedFiles.length > 0 ? 'I uploaded a file. Please analyze it and tell me what you see.' : '');
+  const currentContent: any[] = [{ type: 'text', text: effectiveMessage }];
 
   for (const block of productImageBlocks) {
     currentContent.push(block);
@@ -8858,9 +9193,9 @@ ${mode === 'demo/test' ?
     const errorText = await response.text();
     let isOverloaded = false;
     try {
-        const errType = JSON.parse(errorText)?.error?.type;
-            isOverloaded = ['overloaded_error', 'rate_limit_error', 'api_error'].includes(errType) || [429, 500, 502, 503, 529].includes(response.status);}
-  }            catch { /* ignore */ }
+      const errType = JSON.parse(errorText)?.error?.type;
+      isOverloaded = ['overloaded_error', 'rate_limit_error', 'api_error'].includes(errType) || [429, 500, 502, 503, 529].includes(response.status);
+    } catch { /* ignore */ }
 
     lastError = new Error(`Claude API error: ${errorText}`);
     if (!isOverloaded) break; // Don't retry non-overload errors
