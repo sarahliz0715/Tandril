@@ -6,6 +6,32 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// --- Decryption helpers (mirrors shopify-auth-exchange encryption) ---
+const ALGORITHM = 'AES-GCM';
+const KEY_LENGTH = 256;
+const IV_LENGTH = 12;
+
+async function getEncryptionKey(): Promise<CryptoKey> {
+  const secret = Deno.env.get('ENCRYPTION_SECRET');
+  if (!secret) throw new Error('ENCRYPTION_SECRET not set');
+  const enc = new TextEncoder();
+  const km = await crypto.subtle.importKey('raw', enc.encode(secret), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: enc.encode('tandril-encryption-salt-v1'), iterations: 100000, hash: 'SHA-256' },
+    km, { name: ALGORITHM, length: KEY_LENGTH }, false, ['encrypt', 'decrypt']
+  );
+}
+
+async function decrypt(ciphertext: string): Promise<string> {
+  const key = await getEncryptionKey();
+  const combined = Uint8Array.from(atob(ciphertext), c => c.charCodeAt(0));
+  const iv = combined.slice(0, IV_LENGTH);
+  const ct = combined.slice(IV_LENGTH);
+  const plain = await crypto.subtle.decrypt({ name: ALGORITHM, iv }, key, ct);
+  return new TextDecoder().decode(plain);
+}
+// --- End decryption helpers ---
+
 const PLAN_CONFIG: Record<string, { name: string; amount: number }> = {
   starter:      { name: 'Tandril Starter',      amount: 39.99  },
   professional: { name: 'Tandril Professional', amount: 129.99 },
@@ -66,6 +92,14 @@ serve(async (req) => {
       shop_domain = platform.shop_domain;
       access_token = platform.access_token;
     }
+
+    // Decrypt the stored access token
+    try {
+      access_token = await decrypt(access_token);
+    } catch (_) {
+      // Token may not be encrypted (legacy rows) — use as-is
+    }
+
     const shopifyGraphQL = `https://${shop_domain}/admin/api/2025-10/graphql.json`;
 
     // =========================================================
