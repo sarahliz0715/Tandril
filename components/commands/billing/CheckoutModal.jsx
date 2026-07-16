@@ -1,110 +1,43 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { CreditCard, CheckCircle, Loader2, Shield } from "lucide-react";
-import { api } from '@/lib/apiClient';
+import { ExternalLink, Store } from "lucide-react";
 
-export default function CheckoutModal({ isOpen, onClose, plan, isAnnual, onSuccess }) {
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [error, setError] = useState('');
-
-  const price = isAnnual ? plan.annualPrice : plan.monthlyPrice;
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setIsProcessing(true);
-    setError('');
-
-    try {
-      const planId = plan.id; // starter, professional, or enterprise
-      const result = await api.functions.invoke('shopify-billing', {
-        action: 'create',
-        planId,
-      });
-
-      if (result?.confirmationUrl) {
-        // Redirect to Shopify billing confirmation page
-        window.location.href = result.confirmationUrl;
-      } else {
-        throw new Error('No confirmation URL received from Shopify');
-      }
-    } catch (err) {
-      console.error('Billing error:', err);
-      setError(err.message || 'Something went wrong. Please try again.');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
+export default function CheckoutModal({ isOpen, onClose, plan }) {
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
-            <CreditCard className="w-5 h-5" />
-            Subscribe to {plan?.name}
+            <Store className="w-5 h-5" />
+            Change Your Plan
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-6">
-          <Card className="bg-slate-50 border-slate-200">
-            <CardContent className="p-4">
-              <div className="flex justify-between items-center mb-2">
-                <span className="font-medium">{plan?.name} Plan</span>
-                <span className="font-bold">${price}/{isAnnual ? 'year' : 'month'}</span>
-              </div>
-              <div className="flex gap-2">
-                <Badge className="bg-green-100 text-green-700 text-xs">14-day free trial</Badge>
-                {isAnnual && (
-                  <Badge className="bg-blue-100 text-blue-700 text-xs">Save 20%</Badge>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+        <div className="space-y-4 py-2">
+          <p className="text-slate-600">
+            To upgrade to <strong>{plan?.name}</strong>, manage your subscription through your Shopify admin.
+          </p>
+          <ol className="text-sm text-slate-600 space-y-1 list-decimal list-inside">
+            <li>Go to your Shopify admin</li>
+            <li>Click <strong>Apps</strong> in the sidebar</li>
+            <li>Find <strong>Tandril</strong> and click it</li>
+            <li>Select your new plan under Billing</li>
+          </ol>
+          <p className="text-xs text-slate-400">Your plan will update in Tandril automatically after approval.</p>
+        </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                <p className="text-sm text-red-700">{error}</p>
-              </div>
-            )}
-
-            <div className="flex items-center gap-2 text-xs text-slate-500 p-2 bg-slate-50 rounded">
-              <Shield className="w-4 h-4" />
-              <span>Billed securely through Shopify</span>
-            </div>
-
-            <div className="flex gap-3">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={onClose}
-                className="flex-1"
-                disabled={isProcessing}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                className="flex-1 bg-emerald-600 hover:bg-emerald-700"
-                disabled={isProcessing}
-              >
-                {isProcessing ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Redirecting...
-                  </>
-                ) : (
-                  <>
-                    Start Trial
-                    <CheckCircle className="w-4 h-4 ml-2" />
-                  </>
-                )}
-              </Button>
-            </div>
-          </form>
+        <div className="flex gap-3 pt-2">
+          <Button variant="outline" onClick={onClose} className="flex-1">
+            Cancel
+          </Button>
+          <Button
+            className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+            onClick={() => { window.open('https://admin.shopify.com/apps', '_blank'); onClose(); }}
+          >
+            Open Shopify Admin
+            <ExternalLink className="w-4 h-4 ml-2" />
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
