@@ -164,7 +164,7 @@ export default function Pricing() {
                 setUser(currentUser);
                 // Sync real-time plan from Shopify
                 const shopifyTier = await syncShopifyPlan();
-                if (shopifyTier) setUser(prev => ({ ...prev, subscription_tier: shopifyTier }));
+                if (shopifyTier && shopifyTier !== 'free') setUser(prev => ({ ...prev, subscription_tier: shopifyTier }));
 
                 // Check if user has a Shopify store connected — if so, use
                 // Shopify Billing API instead of Stripe for paid plans
