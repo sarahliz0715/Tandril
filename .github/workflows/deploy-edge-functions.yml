@@ -36,3 +36,28 @@ jobs:
         run: supabase functions deploy smart-api --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy app-subscription-update without JWT verification
+        run: supabase functions deploy app-subscription-update --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy app-uninstalled without JWT verification
+        run: supabase functions deploy app-uninstalled --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy shop-redact without JWT verification
+        run: supabase functions deploy shop-redact --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy customers-redact without JWT verification
+        run: supabase functions deploy customers-redact --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy customers-data-request without JWT verification
+        run: supabase functions deploy customers-data-request --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
