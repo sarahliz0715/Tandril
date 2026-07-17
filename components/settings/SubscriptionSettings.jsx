@@ -28,7 +28,7 @@ export default function SubscriptionSettings() {
                 setUser(currentUser);
                 // Sync real-time plan from Shopify
                 const shopifyTier = await syncShopifyPlan();
-                if (shopifyTier) setUser(prev => ({ ...prev, subscription_tier: shopifyTier }));
+                if (shopifyTier && shopifyTier !== 'free') setUser(prev => ({ ...prev, subscription_tier: shopifyTier }));
             } catch (error) {
                 console.error('Error loading user:', error);
                 toast.error('Failed to load subscription data.');
