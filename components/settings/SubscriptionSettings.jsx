@@ -9,6 +9,7 @@ import { Loader2, ExternalLink } from 'lucide-react';
 import { createPageUrl } from '@/utils';
 import { useNavigate } from 'react-router-dom';
 import { User } from '@/lib/entities';
+import { syncShopifyPlan } from '@/lib/supabaseAuth';
 
 export default function SubscriptionSettings() {
     const [user, setUser] = useState(null);
@@ -25,6 +26,9 @@ export default function SubscriptionSettings() {
             try {
                 const currentUser = await User.me();
                 setUser(currentUser);
+                // Sync real-time plan from Shopify
+                const shopifyTier = await syncShopifyPlan();
+                if (shopifyTier) setUser(prev => ({ ...prev, subscription_tier: shopifyTier }));
             } catch (error) {
                 console.error('Error loading user:', error);
                 toast.error('Failed to load subscription data.');
