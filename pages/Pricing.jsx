@@ -9,6 +9,7 @@ import TandrilVineLogo from '../components/logos/TandrilVineLogo';
 import { toast } from 'sonner';
 import { createPageUrl } from '@/utils';
 import { api } from '@/lib/apiClient';
+import { syncShopifyPlan } from '@/lib/supabaseAuth';
 
 const plans = [
     {
@@ -161,6 +162,9 @@ export default function Pricing() {
                 const currentUser = await User.me();
                 console.log('Current user on pricing page:', currentUser);
                 setUser(currentUser);
+                // Sync real-time plan from Shopify
+                const shopifyTier = await syncShopifyPlan();
+                if (shopifyTier) setUser(prev => ({ ...prev, subscription_tier: shopifyTier }));
 
                 // Check if user has a Shopify store connected — if so, use
                 // Shopify Billing API instead of Stripe for paid plans
