@@ -53,8 +53,9 @@ serve(async (req) => {
     }
 
     const payload = JSON.parse(rawBody);
-    // Payload fields: id, name, status, admin_graphql_api_id, created_at, updated_at
-    const { name, status, admin_graphql_api_id } = payload;
+    // Shopify nests webhook data under app_subscription key
+    const sub = payload.app_subscription ?? payload;
+    const { name, status, admin_graphql_api_id } = sub;
     const domain = shopDomain ?? '';
 
     console.log(`[app-subscription-update] shop=${domain} name="${name}" status=${status}`);
@@ -98,6 +99,13 @@ serve(async (req) => {
       console.log(`[app-subscription-update] Upgraded user ${userId} to ${tier}`);
 
     } else if (['DECLINED', 'EXPIRED', 'CANCELLED', 'FROZEN'].includes(status)) {
+      // If the cancelled sub isn't the one we have on record, a plan switch
+      // is in progress — Shopify cancels the old sub then activates the new one.
+      // Ignore the cancellation so it doesn't overwrite the new plan with free.
+      if (meta.shopify_subscription_id && meta.shopify_subscription_id !== admin_graphql_api_id) {
+        console.log(`[app-subscription-update] Cancelled sub ${admin_graphql_api_id} is not the active one (${meta.shopify_subscription_id}) — ignoring`);
+        return new Response(JSON.stringify({ received: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
       const limits = TIER_LIMITS.free;
       await supabase.auth.admin.updateUserById(userId, {
         user_metadata: {
