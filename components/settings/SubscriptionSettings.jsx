@@ -8,18 +8,15 @@ import { toast } from 'sonner';
 import { Loader2, ExternalLink } from 'lucide-react';
 import { createPageUrl } from '@/utils';
 import { useNavigate } from 'react-router-dom';
-import { User } from '@/lib/entities';
+import { User, Platform } from '@/lib/entities';
 import { syncShopifyPlan } from '@/lib/supabaseAuth';
 
 export default function SubscriptionSettings() {
     const [user, setUser] = useState(null);
     const [isRedirecting, setIsRedirecting] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
+    const [shopifyDomain, setShopifyDomain] = useState(null);
     const navigate = useNavigate();
-
-    // Detect if user came through Shopify — set in ShopifyCallback.jsx
-    const shopifyShop = localStorage.getItem('tandril_shopify_shop');
-    const isShopifyUser = !!shopifyShop;
 
     useEffect(() => {
         const loadUser = async () => {
@@ -29,6 +26,13 @@ export default function SubscriptionSettings() {
                 // Sync real-time plan from Shopify
                 const shopifyTier = await syncShopifyPlan();
                 if (shopifyTier && shopifyTier !== 'free') setUser(prev => ({ ...prev, subscription_tier: shopifyTier }));
+
+                // Detect Shopify platform from database (reliable, not localStorage)
+                try {
+                    const platforms = await Platform.filter({ user_id: currentUser.id });
+                    const sp = platforms.find(p => p.platform_type === 'shopify');
+                    if (sp?.shop_domain) setShopifyDomain(sp.shop_domain);
+                } catch (_) {}
             } catch (error) {
                 console.error('Error loading user:', error);
                 toast.error('Failed to load subscription data.');
@@ -39,10 +43,14 @@ export default function SubscriptionSettings() {
         loadUser();
     }, []);
 
+    const shopifyPricingUrl = shopifyDomain
+        ? `https://admin.shopify.com/store/${shopifyDomain.replace('.myshopify.com', '')}/charges/tandril-beta/pricing_plans`
+        : null;
+
     const handleManageBilling = async () => {
-        // Shopify users manage billing through Shopify Admin, not Stripe
-        if (isShopifyUser) {
-            window.open(`https://${shopifyShop}/admin/charges`, '_blank');
+        // Shopify users manage billing through Shopify's managed pricing page
+        if (shopifyPricingUrl) {
+            window.open(shopifyPricingUrl, '_blank');
             return;
         }
 
@@ -99,7 +107,7 @@ export default function SubscriptionSettings() {
                          <Button variant="outline" onClick={() => navigate(createPageUrl('Pricing'))}>
                             Upgrade Plan
                         </Button>
-                        {isShopifyUser ? (
+                        {shopifyPricingUrl ? (
                             <div className="flex flex-col items-end gap-1">
                                 <p className="text-xs text-slate-500">Billing managed through Shopify</p>
                                 <Button variant="outline" onClick={handleManageBilling}>

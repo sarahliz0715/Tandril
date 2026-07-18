@@ -244,9 +244,13 @@ export default function Pricing() {
                 return;
             }
 
-            // Shopify merchants manage billing through Shopify admin (managed pricing).
-            // Direct them to Shopify admin to change their plan — the
-            // app_subscriptions/update webhook activates the new tier automatically.
+            // Shopify merchants manage billing through Shopify's managed pricing page.
+            // Open it directly — the app_subscriptions/update webhook activates the new tier automatically.
+            if (hasShopify && shopifyDomain) {
+                const handle = shopifyDomain.replace('.myshopify.com', '');
+                window.open(`https://admin.shopify.com/store/${handle}/charges/tandril-beta/pricing_plans`, '_blank');
+                return;
+            }
             if (hasShopify) {
                 toast.info('To change your Tandril plan, visit your Shopify admin → Apps → Tandril.', { duration: 6000 });
                 return;
