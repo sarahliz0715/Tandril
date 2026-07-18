@@ -6,8 +6,6 @@ import { Badge } from '@/components/ui/badge';
 import { createBillingPortalSession } from '@/lib/functions';
 import { toast } from 'sonner';
 import { Loader2, ExternalLink } from 'lucide-react';
-import { createPageUrl } from '@/utils';
-import { useNavigate } from 'react-router-dom';
 import { User, Platform } from '@/lib/entities';
 import { syncShopifyPlan } from '@/lib/supabaseAuth';
 
@@ -16,8 +14,6 @@ export default function SubscriptionSettings() {
     const [isRedirecting, setIsRedirecting] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [shopifyDomain, setShopifyDomain] = useState(null);
-    const navigate = useNavigate();
-
     useEffect(() => {
         const loadUser = async () => {
             try {
@@ -104,9 +100,6 @@ export default function SubscriptionSettings() {
                         <Badge className="capitalize text-base px-3 py-1">{user.subscription_tier || 'Free'}</Badge>
                     </div>
                     <div className="flex justify-between items-center">
-                         <Button variant="outline" onClick={() => navigate(createPageUrl('Pricing'))}>
-                            Upgrade Plan
-                        </Button>
                         {shopifyPricingUrl ? (
                             <div className="flex flex-col items-end gap-1">
                                 <p className="text-xs text-slate-500">Billing managed through Shopify</p>
