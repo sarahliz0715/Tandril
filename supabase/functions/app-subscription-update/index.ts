@@ -49,7 +49,13 @@ serve(async (req) => {
 
     const valid = await verifyHmac(rawBody, hmacHeader, secret);
     if (!valid) {
-      console.warn('[app-subscription-update] HMAC mismatch — processing anyway for review');
+      // Never trust an unverified payload — ack with 200 so Shopify doesn't
+      // retry-storm us, but do not touch any tier/entitlement state.
+      console.error('[app-subscription-update] HMAC verification failed — payload rejected, not processed');
+      return new Response(JSON.stringify({ received: true, error: 'invalid_hmac' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
     const payload = JSON.parse(rawBody);
@@ -65,14 +71,23 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Find the user who owns this shop
-    const { data: platform } = await supabase
+    // Find the user who owns this shop. A shop_domain can end up matched by
+    // more than one row (a Tandril account reconnecting, or a stale row left
+    // from an earlier install/review cycle that was never cleaned up), so
+    // this can't be .maybeSingle() — that throws on >1 row and the update
+    // is silently dropped, leaving the merchant's tier out of sync even
+    // though the webhook fired correctly. Prefer the active, most recently
+    // updated connection for this shop.
+    const { data: platformRows } = await supabase
       .from('platforms')
       .select('user_id')
       .eq('platform_type', 'shopify')
       .or(`shop_domain.eq.${domain},shop_domain.eq.${domain.replace('.myshopify.com', '')}`)
-      .maybeSingle();
+      .order('is_active', { ascending: false })
+      .order('updated_at', { ascending: false })
+      .limit(1);
 
+    const platform = platformRows?.[0];
     if (!platform?.user_id) {
       console.warn('[app-subscription-update] No platform found for shop:', domain);
       return new Response('ok', { status: 200 });
