@@ -34,6 +34,19 @@ async function decrypt(ciphertext) {
   return new TextDecoder().decode(plain);
 }
 
+// Name-based matching is a fallback only — Managed Pricing plan display
+// names are configured in the Partner Dashboard and can be anything
+// ("Tandril Professional", "Pro", "Growth", etc). An exact-string dictionary
+// silently fails (falls through to 'free'/'starter') the moment the
+// configured name doesn't match one of these keys exactly. Price is the
+// one thing that can't drift out of sync with what's actually being billed.
+const PLAN_PRICES = {
+  starter:      39.99,
+  professional: 129.99,
+  enterprise:   299.99,
+};
+const PRICE_TOLERANCE = 0.01;
+
 const NAME_TO_TIER = {
   'starter plan':      'starter',
   'professional plan': 'professional',
@@ -44,6 +57,25 @@ const NAME_TO_TIER = {
   'professional': 'professional',
   'enterprise':   'enterprise',
 };
+
+function tierFromName(name) {
+  const n = (name || '').toLowerCase();
+  if (NAME_TO_TIER[n]) return NAME_TO_TIER[n];
+  if (n.includes('enterprise')) return 'enterprise';
+  if (n.includes('professional') || n.includes('pro')) return 'professional';
+  if (n.includes('starter')) return 'starter';
+  return null;
+}
+
+function tierFromPrice(amount) {
+  if (amount == null) return null;
+  const numeric = Number(amount);
+  if (Number.isNaN(numeric)) return null;
+  for (const [tier, price] of Object.entries(PLAN_PRICES)) {
+    if (Math.abs(numeric - price) < PRICE_TOLERANCE) return tier;
+  }
+  return null;
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -82,12 +114,28 @@ export default async function handler(req, res) {
     let token = platform.access_token;
     try { token = await decrypt(token); } catch (_) { /* use as-is */ }
 
-    // Query Shopify for active app subscriptions
+    // Query Shopify for active app subscriptions, including line-item price
+    // so tier resolution doesn't depend solely on the plan's display name.
     const gqlRes = await fetch(`https://${platform.shop_domain}/admin/api/2025-10/graphql.json`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
       body: JSON.stringify({
-        query: `{ currentAppInstallation { activeSubscriptions { name status } } }`,
+        query: `{
+          currentAppInstallation {
+            activeSubscriptions {
+              name
+              status
+              lineItems {
+                plan {
+                  pricingDetails {
+                    __typename
+                    ... on AppRecurringPricing { price { amount } }
+                  }
+                }
+              }
+            }
+          }
+        }`,
       }),
     });
 
@@ -99,15 +147,18 @@ export default async function handler(req, res) {
     const gqlData = await gqlRes.json();
     const subs = gqlData?.data?.currentAppInstallation?.activeSubscriptions ?? [];
 
-    // Find the first ACTIVE paid subscription
+    // Find the first ACTIVE paid subscription — price first, name as fallback.
     let tier = null;
     for (const sub of subs) {
-      if (sub.status === 'ACTIVE') {
-        const mapped = NAME_TO_TIER[sub.name?.toLowerCase()];
-        if (mapped && mapped !== 'free') {
-          tier = mapped;
-          break;
-        }
+      if (sub.status !== 'ACTIVE') continue;
+      const amount = sub.lineItems?.[0]?.plan?.pricingDetails?.price?.amount;
+      const mapped = tierFromPrice(amount) || tierFromName(sub.name);
+      if (mapped && mapped !== 'free') {
+        tier = mapped;
+        break;
+      }
+      if (!mapped) {
+        console.error(`[shopify-sync-plan] Could not map active subscription to a known tier: name="${sub.name}" amount=${amount}`);
       }
     }
 

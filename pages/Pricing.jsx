@@ -162,9 +162,12 @@ export default function Pricing() {
                 const currentUser = await User.me();
                 console.log('Current user on pricing page:', currentUser);
                 setUser(currentUser);
-                // Sync real-time plan from Shopify
+                // Sync real-time plan from Shopify. Trust it unconditionally
+                // (including a downgrade to 'free') now that tier resolution
+                // is price-based rather than an exact-name match that could
+                // silently mismatch and previously made this guard necessary.
                 const shopifyTier = await syncShopifyPlan();
-                if (shopifyTier && shopifyTier !== 'free') setUser(prev => ({ ...prev, subscription_tier: shopifyTier }));
+                if (shopifyTier) setUser(prev => ({ ...prev, subscription_tier: shopifyTier }));
 
                 // Check if user has a Shopify store connected — if so, use
                 // Shopify Billing API instead of Stripe for paid plans.

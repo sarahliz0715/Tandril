@@ -19,9 +19,12 @@ export default function SubscriptionSettings() {
             try {
                 const currentUser = await User.me();
                 setUser(currentUser);
-                // Sync real-time plan from Shopify
+                // Sync real-time plan from Shopify. Trust it unconditionally
+                // (including a downgrade to 'free') now that tier resolution
+                // is price-based rather than an exact-name match that could
+                // silently mismatch and previously made this guard necessary.
                 const shopifyTier = await syncShopifyPlan();
-                if (shopifyTier && shopifyTier !== 'free') setUser(prev => ({ ...prev, subscription_tier: shopifyTier }));
+                if (shopifyTier) setUser(prev => ({ ...prev, subscription_tier: shopifyTier }));
 
                 // Detect Shopify platform from database (reliable, not localStorage).
                 // Order by -updated_at, not created_at: a reconnect updates the
