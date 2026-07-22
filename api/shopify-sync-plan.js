@@ -59,15 +59,22 @@ export default async function handler(req, res) {
     const { data: { user }, error: userError } = await supabase.auth.getUser(jwt);
     if (userError || !user) return res.status(401).json({ error: 'Unauthorized' });
 
-    // Find the user's Shopify platform
-    const { data: platform, error: platformError } = await supabase
+    // Find the user's Shopify platform. A user can accumulate more than one
+    // row here (reconnects to a different store, stale rows from an old
+    // review cycle that were never fully cleaned up), so this can't be
+    // .single()/.maybeSingle() — that throws on >1 row and silently reports
+    // "no store connected" even though one is clearly connected. Always take
+    // the most recently updated active row as the current one.
+    const { data: platforms, error: platformError } = await supabase
       .from('platforms')
       .select('shop_domain, access_token')
       .eq('user_id', user.id)
       .eq('platform_type', 'shopify')
       .eq('is_active', true)
-      .maybeSingle();
+      .order('updated_at', { ascending: false })
+      .limit(1);
 
+    const platform = platforms?.[0];
     if (platformError || !platform) {
       return res.status(200).json({ tier: null, reason: 'no_shopify_store' });
     }

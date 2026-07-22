@@ -59,39 +59,32 @@ serve(async (req) => {
     if (userError || !user) throw new Error('Unauthorized');
 
     // --- Get Shopify connection ---
-    const { data: platform, error: platformError } = await supabaseClient
+    // Shop identity is always resolved from THIS user's own platforms rows —
+    // never from an unverified caller-supplied value alone. A user can end up
+    // with more than one row here (reconnected to a different store, stale
+    // rows left over from an earlier review cycle), so this can't be
+    // .single() — that throws on >1 row and the whole request fails as if
+    // nothing were connected. Always take the most recently updated active
+    // connection, optionally narrowed to a specific shop the caller asked for.
+    let lookupQuery = supabaseClient
       .from('platforms')
       .select('shop_domain, access_token')
       .eq('user_id', user.id)
       .eq('platform_type', 'shopify')
-      .single();
+      .eq('is_active', true);
+    if (shopParam) lookupQuery = lookupQuery.eq('shop_domain', shopParam);
 
-    // If not found in platforms table but embedded shop param provided, try service-role lookup
-    let shop_domain: string;
-    let access_token: string;
+    const { data: platforms, error: platformError } = await lookupQuery
+      .order('updated_at', { ascending: false })
+      .limit(1);
 
+    const platform = platforms?.[0];
     if (platformError || !platform) {
-      if (shopParam) {
-        const serviceClient = createClient(
-          Deno.env.get('SUPABASE_URL') ?? '',
-          Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-        );
-        const { data: svcPlatform, error: svcError } = await serviceClient
-          .from('platforms')
-          .select('shop_domain, access_token')
-          .eq('shop_domain', shopParam)
-          .eq('platform_type', 'shopify')
-          .single();
-        if (svcError || !svcPlatform) throw new Error('No Shopify store connected');
-        shop_domain = svcPlatform.shop_domain;
-        access_token = svcPlatform.access_token;
-      } else {
-        throw new Error('No Shopify store connected');
-      }
-    } else {
-      shop_domain = platform.shop_domain;
-      access_token = platform.access_token;
+      throw new Error('No Shopify store connected');
     }
+
+    const shop_domain: string = platform.shop_domain;
+    let access_token: string = platform.access_token;
 
     // Decrypt the stored access token
     try {

@@ -1,5 +1,5 @@
 # Tandril — Project Context for Claude
-**Last updated:** June 6, 2026 | **Repo:** private | **Owner:** Sarah Evenson
+**Last updated:** July 21, 2026 | **Repo:** private | **Owner:** Sarah Evenson
 
 ---
 
@@ -136,6 +136,10 @@ Outbound email is sent via Resend (resend.com). The `RESEND_FROM_EMAIL` Supabase
 - **GDPR webhooks deployed:** `customers-data-request`, `customers-redact`, `shop-redact` — clears Shopify App Store blocker (May 30, 2026)
 - **hello@tandril.org email:** GoDaddy alias → security@tandril.org → forwards to omamahills@gmail.com; beta invites now send from this address (May 30, 2026)
 - **Orion action cards logged in History:** smart-api now captures previous variant prices on update_price; History page shows Orion actions by default with undo support; `restore_variant_prices` action type added for price restoration (May 30, 2026)
+- **Shopify Billing — confirmed non-embedded, pivoted to Managed Pricing:** `shopify.app.toml` has `embedded = false`, so the app is never rendered in an iframe — the classic "confirmationUrl navigated inside the iframe" bug does not apply here. `Pricing.jsx` / `SubscriptionSettings.jsx` already open Shopify's own Managed Pricing page (`admin.shopify.com/store/{handle}/charges/tandril-beta/pricing_plans`) in a new tab via `window.open` (not `window.location.href`) — this was done July 18, 2026.
+- **Shopify Billing — shop-identity audit (July 21, 2026):** the real cause of repeated "doesn't recognize the store we're connected to" rejections was `.single()`/`.maybeSingle()` calls against the `platforms` table with no deterministic ordering. A user/shop can have more than one row (reconnect to a different store, stale rows left from earlier review cycles), so these calls either threw (silently reported as "no store connected") or picked an arbitrary/stale row. Fixed in `api/shopify-sync-plan.js`, `supabase/functions/shopify-billing/index.ts`, `supabase/functions/app-subscription-update/index.ts`, `supabase/functions/app-uninstalled/index.ts` to always resolve to the most recently updated **active** row (`order by is_active desc, updated_at desc, limit 1`) instead. Also fixed frontend `Platform.filter()` calls in `Pricing.jsx`/`SubscriptionSettings.jsx` — they were relying on the default `-created_at` ordering, which does NOT reflect reconnects (a reconnect updates `updated_at` on the existing row, not `created_at`), so a stale store could outrank the actually-connected one; now explicitly ordered by `-updated_at`.
+- **Shopify Billing — closed an auth hole:** `shopify-billing`'s fallback path previously trusted a client-supplied `shop` param and queried it via the service-role client with **no ownership check** — any authenticated Tandril user could pass an arbitrary shop domain and read/act on another merchant's billing connection. Now the `shop` param only narrows the lookup within the caller's own `user_id`-scoped rows.
+- **`app-subscription-update` webhook now fails closed on bad HMAC:** previously logged a warning and processed the payload anyway ("processing anyway for review") — now rejects (still returns 200 so Shopify doesn't retry-storm, but does not touch tier/entitlement state) if the HMAC signature doesn't verify against `SHOPIFY_API_SECRET`. **If tier upgrades stop syncing after this deploys, check Supabase logs for `HMAC verification failed` — it likely means the signing secret Shopify uses no longer matches `SHOPIFY_API_SECRET`, which is what the old code was silently working around.**
 
 ---
 

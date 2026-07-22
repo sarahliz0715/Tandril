@@ -167,10 +167,17 @@ export default function Pricing() {
                 if (shopifyTier && shopifyTier !== 'free') setUser(prev => ({ ...prev, subscription_tier: shopifyTier }));
 
                 // Check if user has a Shopify store connected — if so, use
-                // Shopify Billing API instead of Stripe for paid plans
+                // Shopify Billing API instead of Stripe for paid plans.
+                // Order by -updated_at (not the default -created_at): a
+                // reconnect updates the existing row's updated_at without
+                // changing created_at, so created_at can point at a stale
+                // store if the user has connected more than one over time.
                 try {
-                    const platforms = await Platform.filter({ user_id: currentUser.id });
-                    const shopifyPlatform = platforms.find(p => p.platform_type === 'shopify');
+                    const platforms = await Platform.filter(
+                        { user_id: currentUser.id, platform_type: 'shopify' },
+                        '-updated_at'
+                    );
+                    const shopifyPlatform = platforms.find(p => p.is_active !== false) || platforms[0];
                     setHasShopify(!!shopifyPlatform);
                     if (shopifyPlatform?.shop_domain) setShopifyDomain(shopifyPlatform.shop_domain);
 

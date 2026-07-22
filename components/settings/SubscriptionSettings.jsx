@@ -23,10 +23,16 @@ export default function SubscriptionSettings() {
                 const shopifyTier = await syncShopifyPlan();
                 if (shopifyTier && shopifyTier !== 'free') setUser(prev => ({ ...prev, subscription_tier: shopifyTier }));
 
-                // Detect Shopify platform from database (reliable, not localStorage)
+                // Detect Shopify platform from database (reliable, not localStorage).
+                // Order by -updated_at, not created_at: a reconnect updates the
+                // existing row without changing created_at, so created_at can
+                // point at a stale store if more than one was ever connected.
                 try {
-                    const platforms = await Platform.filter({ user_id: currentUser.id });
-                    const sp = platforms.find(p => p.platform_type === 'shopify');
+                    const platforms = await Platform.filter(
+                        { user_id: currentUser.id, platform_type: 'shopify' },
+                        '-updated_at'
+                    );
+                    const sp = platforms.find(p => p.is_active !== false) || platforms[0];
                     if (sp?.shop_domain) setShopifyDomain(sp.shop_domain);
                 } catch (_) {}
             } catch (error) {

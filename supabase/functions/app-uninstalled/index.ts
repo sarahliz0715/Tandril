@@ -100,13 +100,15 @@ serve(async (req) => {
     // 2. Cancel active Shopify billing subscription in user metadata
     //    (the actual Shopify-side cancellation happens automatically on uninstall)
     try {
-      const { data: platform } = await supabase
+      const { data: platformRows } = await supabase
         .from('platforms')
         .select('user_id')
         .eq('platform_type', 'shopify')
         .or(`shop_domain.eq.${domain},shop_domain.eq.${domain?.replace('.myshopify.com', '')}`)
-        .maybeSingle();
+        .order('updated_at', { ascending: false })
+        .limit(1);
 
+      const platform = platformRows?.[0];
       if (platform?.user_id) {
         // Look up the user and clear shopify_subscription_id if they had a Shopify billing plan
         const { data: userData } = await supabase.auth.admin.getUserById(platform.user_id);
