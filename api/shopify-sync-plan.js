@@ -112,7 +112,8 @@ export default async function handler(req, res) {
     }
 
     let token = platform.access_token;
-    try { token = await decrypt(token); } catch (_) { /* use as-is */ }
+    let decryptOk = true;
+    try { token = await decrypt(token); } catch (_) { decryptOk = false; /* use as-is */ }
 
     // Query Shopify for active app subscriptions, including line-item price
     // so tier resolution doesn't depend solely on the plan's display name.
@@ -140,8 +141,22 @@ export default async function handler(req, res) {
     });
 
     if (!gqlRes.ok) {
-      console.error('[shopify-sync-plan] Shopify API error:', gqlRes.status);
-      return res.status(200).json({ tier: null, reason: 'shopify_api_error' });
+      // TEMPORARY DIAGNOSTIC: surface the actual Shopify response instead of
+      // just logging it server-side, so the failure is visible directly in
+      // the browser's Network tab without needing Vercel log access.
+      // Remove this expanded detail once the real cause is confirmed.
+      const bodyText = await gqlRes.text().catch(() => '<could not read body>');
+      console.error('[shopify-sync-plan] Shopify API error:', gqlRes.status, bodyText);
+      return res.status(200).json({
+        tier: null,
+        reason: 'shopify_api_error',
+        debug: {
+          shop_domain: platform.shop_domain,
+          decrypt_ok: decryptOk,
+          shopify_status: gqlRes.status,
+          shopify_body: bodyText.slice(0, 1000),
+        },
+      });
     }
 
     const gqlData = await gqlRes.json();
