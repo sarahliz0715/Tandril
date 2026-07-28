@@ -86,9 +86,21 @@ serve(async (req) => {
     // to warn and continue on a validation failure, which meant the
     // platform row below would still get written to `user.id` even when
     // the state that was supposed to authorize that write didn't match.
-    // Match on state + user_id only (both exact, safe filters); compare
-    // shop_domain case-insensitively afterward since Shopify always
-    // returns `shop` lowercase but the stored value may not be.
+    // Match on state + user_id only (both exact, safe filters). That's the
+    // actual security property: state is an unguessable, single-use token
+    // tied to a user_id at creation time, so a match proves this OAuth
+    // completion belongs to the specific logged-in user who started it.
+    //
+    // Deliberately NOT also gated on shop_domain matching what was stored:
+    // Shopify stores can be renamed, and the OLD .myshopify.com handle
+    // keeps working as an alias that still resolves to the same store — a
+    // merchant can type the old handle, get correctly routed through
+    // approval for the right store, and have Shopify report the NEW
+    // canonical handle here. Comparing those as strings produced a
+    // false-positive rejection of a real, legitimate connection (confirmed
+    // in testing, July 2026). `shop` from Shopify's own callback is the
+    // authoritative identity — it's what gets written to the platforms row
+    // below, regardless of what was originally typed to start the flow.
     const { data: oauthState, error: stateError } = await adminClient
       .from('oauth_states')
       .select('*')
@@ -101,9 +113,6 @@ serve(async (req) => {
     }
     if (new Date(oauthState.expires_at) <= new Date()) {
       throw new Error('This connection attempt expired. Please restart the Shopify connect flow.');
-    }
-    if (oauthState.shop_domain?.toLowerCase() !== String(shop).toLowerCase()) {
-      throw new Error('This connection does not match the expected store. Please restart the Shopify connect flow.');
     }
 
     const shopifyApiKey = Deno.env.get('SHOPIFY_API_KEY');
