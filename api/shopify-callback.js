@@ -47,15 +47,45 @@ export default async function handler(req, res) {
     return res.redirect(302, url.toString());
   }
 
-  // --- Flow A check: does an oauth_states row exist for this state + shop? ---
+  // --- Flow A check: was this connect attempt initiated by a logged-in
+  //     Tandril session? The only signal available here (a raw browser
+  //     redirect from Shopify, carrying no Authorization header) is whether
+  //     our own shopify-auth-init ever created an oauth_states row for this
+  //     `state`. `state` is a random, single-use UUID, so it alone is
+  //     sufficient to look this up — do NOT also require an exact
+  //     shop_domain match at the query level: Shopify always returns `shop`
+  //     lowercase, but a store name typed with different casing at connect
+  //     time would store a differently-cased shop_domain, silently fail
+  //     that filter, and fall through to Flow B below — which force-signs
+  //     the browser into whatever Tandril account owns the Shopify store's
+  //     contact email. That can be a DIFFERENT account than the one that
+  //     was actually connecting (confirmed bug, July 2026).
+  //
+  //     If a row exists at all, this WAS initiated by a logged-in session,
+  //     even if it's since expired or the shop doesn't match — in which
+  //     case we fail closed and ask them to restart, rather than falling
+  //     through to the anonymous Flow B. Flow B is reserved strictly for
+  //     the case where no oauth_states row was ever created for this state
+  //     — i.e. a genuine App Store "Install" click with no Tandril session
+  //     involved at all.
   try {
     const stateRes = await supabaseFetch(
-      `/rest/v1/oauth_states?state=eq.${encodeURIComponent(state)}&shop_domain=eq.${encodeURIComponent(shop)}&expires_at=gt.${encodeURIComponent(new Date().toISOString())}&select=user_id&limit=1`
+      `/rest/v1/oauth_states?state=eq.${encodeURIComponent(state)}&select=user_id,shop_domain,expires_at&limit=1`
     );
-    if (stateRes.ok) {
-      const rows = await stateRes.json();
-      if (rows?.length > 0 && rows[0].user_id) {
-        // Flow A: logged-in user initiated the connect
+
+    if (!stateRes.ok) {
+      throw new Error(`oauth_states lookup returned ${stateRes.status}`);
+    }
+
+    const rows = await stateRes.json();
+
+    if (rows?.length > 0 && rows[0].user_id) {
+      const oauthState = rows[0];
+      const isExpired = new Date(oauthState.expires_at) <= new Date();
+      const shopMatches = oauthState.shop_domain?.toLowerCase() === String(shop).toLowerCase();
+
+      if (!isExpired && shopMatches) {
+        // Flow A: a logged-in user initiated this connect
         const redirectUrl = new URL('/Platforms', origin);
         redirectUrl.searchParams.set('shopify_code', code);
         redirectUrl.searchParams.set('shopify_state', state);
@@ -63,12 +93,28 @@ export default async function handler(req, res) {
         if (hmac) redirectUrl.searchParams.set('shopify_hmac', hmac);
         return res.redirect(302, redirectUrl.toString());
       }
+
+      // A row exists — a logged-in session initiated this — but it's
+      // expired or doesn't match the approving shop. Fail closed instead
+      // of falling through to the anonymous Flow B.
+      const url = new URL('/Platforms', origin);
+      url.searchParams.set('error', isExpired
+        ? 'Your connection attempt expired. Please try connecting again.'
+        : 'Shopify returned a different store than expected. Please try connecting again.');
+      return res.redirect(302, url.toString());
     }
+    // rows.length === 0: no oauth_states row was ever created for this
+    // state — genuinely no Tandril session involved. Fall through to Flow B.
   } catch (e) {
     console.error('[shopify-callback] oauth_states lookup error:', e.message);
+    // A lookup error is NOT proof that no session exists — fail closed
+    // rather than falling through to the anonymous install flow.
+    const url = new URL('/Platforms', origin);
+    url.searchParams.set('error', 'Could not verify your connection session. Please try connecting again.');
+    return res.redirect(302, url.toString());
   }
 
-  // --- Flow B: App Store install ---
+  // --- Flow B: App Store install (no oauth_states row exists for this state) ---
   try {
     const shopifyApiKey    = process.env.SHOPIFY_API_KEY;
     const shopifyApiSecret = process.env.SHOPIFY_API_SECRET;
