@@ -97,10 +97,20 @@ export default async function handler(req, res) {
       // A row exists — a logged-in session initiated this — but it's
       // expired or doesn't match the approving shop. Fail closed instead
       // of falling through to the anonymous Flow B.
+      // TEMPORARY DIAGNOSTIC: include the actual compared values in the
+      // error message so the mismatch is visible without DB/log access.
+      // Remove once the cause is confirmed.
+      console.error('[shopify-callback] Flow A mismatch:', {
+        state,
+        stored_shop_domain: oauthState.shop_domain,
+        shopify_shop: shop,
+        expires_at: oauthState.expires_at,
+        is_expired: isExpired,
+      });
       const url = new URL('/Platforms', origin);
       url.searchParams.set('error', isExpired
-        ? 'Your connection attempt expired. Please try connecting again.'
-        : 'Shopify returned a different store than expected. Please try connecting again.');
+        ? `Your connection attempt expired (state expired at ${oauthState.expires_at}). Please try connecting again.`
+        : `Shopify returned a different store than expected. Tandril had this connect attempt recorded for "${oauthState.shop_domain}", but Shopify says you approved it on "${shop}". Please try connecting again.`);
       return res.redirect(302, url.toString());
     }
     // rows.length === 0: no oauth_states row was ever created for this
