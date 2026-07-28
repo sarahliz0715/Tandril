@@ -165,42 +165,59 @@ Be specific with your actions and parameters. If you're unsure about something, 
 
   const dynamicContext = `Platform targets: ${platformTargets.join(', ')}${fileUrls.length > 0 ? `\nAttached files: ${fileUrls.join(', ')}` : ''}`;
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-beta': 'prompt-caching-2024-07-31',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 2048,
-      system: [
-        { type: 'text', text: staticSystemPrompt, cache_control: { type: 'ephemeral' } },
-        { type: 'text', text: dynamicContext },
-      ],
-      messages: [
-        {
-          role: 'user',
-          content: commandText,
-        },
-      ],
-    }),
-  });
+  // Retry up to 3 times on overloaded errors with exponential backoff
+  // (same pattern as smart-api's Claude call)
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
+    }
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'prompt-caching-2024-07-31',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2048,
+        system: [
+          { type: 'text', text: staticSystemPrompt, cache_control: { type: 'ephemeral' } },
+          { type: 'text', text: dynamicContext },
+        ],
+        messages: [
+          {
+            role: 'user',
+            content: commandText,
+          },
+        ],
+      }),
+    });
 
-  if (!response.ok) {
-    throw new Error(`Claude API error: ${await response.text()}`);
+    if (response.ok) {
+      const result = await response.json();
+      const contentText = result.content[0].text;
+
+      // Extract JSON from the response (it might be wrapped in markdown code blocks)
+      const jsonMatch = contentText.match(/```json\n([\s\S]*?)\n```/) || contentText.match(/({[\s\S]*})/);
+      const jsonText = jsonMatch ? jsonMatch[1] : contentText;
+
+      return JSON.parse(jsonText);
+    }
+
+    const errorText = await response.text();
+    let isOverloaded = false;
+    try {
+      const errType = JSON.parse(errorText)?.error?.type;
+      isOverloaded = ['overloaded_error', 'rate_limit_error', 'api_error'].includes(errType) || [429, 500, 502, 503, 529].includes(response.status);
+    } catch { /* ignore */ }
+
+    lastError = new Error(`Claude API error: ${errorText}`);
+    if (!isOverloaded) break; // Don't retry non-overload errors
   }
-
-  const result = await response.json();
-  const contentText = result.content[0].text;
-
-  // Extract JSON from the response (it might be wrapped in markdown code blocks)
-  const jsonMatch = contentText.match(/```json\n([\s\S]*?)\n```/) || contentText.match(/({[\s\S]*})/);
-  const jsonText = jsonMatch ? jsonMatch[1] : contentText;
-
-  return JSON.parse(jsonText);
+  throw lastError!;
 }
 
 function ruleBasedInterpretation(commandText: string, platformTargets: string[]): any {
