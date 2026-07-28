@@ -82,18 +82,28 @@ serve(async (req) => {
       serviceRoleKey
     );
 
-    // Validate the OAuth state (CSRF protection)
+    // Validate the OAuth state (CSRF protection). Fail closed — this used
+    // to warn and continue on a validation failure, which meant the
+    // platform row below would still get written to `user.id` even when
+    // the state that was supposed to authorize that write didn't match.
+    // Match on state + user_id only (both exact, safe filters); compare
+    // shop_domain case-insensitively afterward since Shopify always
+    // returns `shop` lowercase but the stored value may not be.
     const { data: oauthState, error: stateError } = await adminClient
       .from('oauth_states')
       .select('*')
       .eq('state', state)
-      .eq('shop_domain', shop)
       .eq('user_id', user.id)
-      .gt('expires_at', new Date().toISOString())
       .single();
 
     if (stateError || !oauthState) {
-      console.warn('[Shopify Exchange] State validation failed (continuing anyway):', stateError?.message);
+      throw new Error('This connection could not be verified. Please restart the Shopify connect flow.');
+    }
+    if (new Date(oauthState.expires_at) <= new Date()) {
+      throw new Error('This connection attempt expired. Please restart the Shopify connect flow.');
+    }
+    if (oauthState.shop_domain?.toLowerCase() !== String(shop).toLowerCase()) {
+      throw new Error('This connection does not match the expected store. Please restart the Shopify connect flow.');
     }
 
     const shopifyApiKey = Deno.env.get('SHOPIFY_API_KEY');

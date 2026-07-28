@@ -52,8 +52,14 @@ serve(async (req) => {
       throw new Error('Missing store_name parameter');
     }
 
-    // Clean up store name (remove .myshopify.com if present)
-    const cleanStoreName = store_name.replace('.myshopify.com', '').trim();
+    // Clean up store name (remove .myshopify.com if present). Lowercase
+    // before stripping the suffix, not after — otherwise a differently-cased
+    // ".MyShopify.Com" in the input wouldn't match the (case-sensitive)
+    // replace and would survive into the final domain. Shopify always
+    // returns the shop domain lowercase in the OAuth callback, so storing
+    // it as-typed here risks a case mismatch that makes the callback's
+    // oauth_states lookup silently miss.
+    const cleanStoreName = store_name.trim().toLowerCase().replace('.myshopify.com', '');
     const shopDomain = cleanStoreName + '.myshopify.com';
 
     // Shopify OAuth configuration
