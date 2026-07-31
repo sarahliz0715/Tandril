@@ -406,22 +406,42 @@ export default function AIBusinessCoach() {
     }
   };
 
-  // Safety net: Orion sometimes describes a batch and asks the user to "confirm"
-  // without actually emitting the [ORION_ACTION:...] block, leaving no card to
-  // approve and the conversation stuck. Detect that pattern (a "confirm"-style
-  // response with zero pending actions) and automatically ask Orion, once, to
-  // generate the real action block for exactly what it just described — this is
-  // the same nudge that worked when typed manually, just automatic now.
+  // Safety net: Orion sometimes describes — or even flatly claims to have
+  // completed — a batch of changes without actually emitting the
+  // [ORION_ACTION:...] block, leaving no card to approve and nothing actually
+  // applied to the store. Confirmed real occurrence (July 2026): Orion
+  // narrated archiving 10 products, SEO-optimizing 10 tees, and launching a
+  // 20% flash sale across three chat turns, ending with "✅ DONE... LIVE
+  // ✓... Archived ✓" — none of it was real; nothing was archived, no SEO
+  // changed, no flash sale existed. The previous version of this check only
+  // matched the exact phrase "confirm all/this/these/that", which none of
+  // that conversation's phrasing ("pending your confirmation", "Sound
+  // good?", "✅ DONE") ever hit, so the nudge never fired.
+  //
+  // Broadened to catch both the soft "asking to confirm" phrasing and the
+  // harder "claiming it's already done" phrasing, since Orion did both in
+  // the real failure. This is still text-pattern matching on natural
+  // language, not a structural guarantee — it reduces the failure rate, it
+  // doesn't eliminate it. That's why there's also a final fallback below
+  // that warns the user explicitly if the nudge exhausts its retries
+  // without producing a real action block, rather than silently showing a
+  // false completion claim with no card and no explanation.
+  const ACTION_CLAIM_PATTERN = new RegExp([
+    'confirm (all|this|these|that)\\b',                              // "please confirm all/this/these/that"
+    'pending your confirmation',                                     // soft ask, seen in the real failure
+    'ready for me to (generate|apply|create|queue|run)',              // soft ask
+    '(✅|✓).{0,60}(archiv|queued|live|done|optimi[sz]|schedul|updat|publish|complet)', // checkmark + completion word
+    'no (more|further) action (is )?needed',                         // false completion claim
+    "you'?re live\\b",                                                // false completion claim, seen in the real failure
+    '\\bDONE\\.',                                                     // explicit "DONE."
+  ].join('|'), 'i');
+
   const ensureActionBlock = async (response) => {
     let pendingActions = response.pending_actions?.length > 0
       ? response.pending_actions
       : response.pending_action ? [response.pending_action] : [];
 
-    // Only treat this as a "described a batch but forgot the action block" case
-    // when the phrasing actually matches Orion's batch-confirmation pattern
-    // ("confirm all/this/these/that") — a bare "confirm" can show up in plain
-    // conversational replies that have nothing to do with a product batch.
-    if (pendingActions.length > 0 || !/confirm (all|this|these|that)\b/i.test(response.response || '')) {
+    if (pendingActions.length > 0 || !ACTION_CLAIM_PATTERN.test(response.response || '')) {
       return { response, pendingActions };
     }
 
@@ -432,7 +452,7 @@ export default function AIBusinessCoach() {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const retry = await api.functions.chatWithCoach({
-          message: 'You just described a batch of changes and asked the user to confirm, but no actual action block was included in that message, so no card was created and nothing can be approved yet. Please generate the real action block now for exactly the batch you just described, in this response — do not just repeat the description.',
+          message: 'You just described or claimed to complete a batch of changes, but no actual action block was included in that message — nothing was actually applied to the store. Please generate the real action block now for exactly the batch you described, in this response. Do not just repeat the description or claim it is done again.',
           conversation_id: current.conversation_id || conversationId,
         });
         if (retry?.success) {
@@ -450,7 +470,17 @@ export default function AIBusinessCoach() {
       }
     }
 
-    return { response: current, pendingActions: [] };
+    // Both nudge attempts failed to produce a real action block. Rather than
+    // silently showing Orion's (possibly false) completion claim as-is,
+    // append an explicit warning so the user isn't misled into thinking
+    // something happened when it didn't.
+    return {
+      response: {
+        ...current,
+        response: `${current.response || ''}\n\n⚠️ Tandril: this message described or claimed to complete store changes, but no action card was generated — nothing was actually applied. Please try rephrasing your request.`,
+      },
+      pendingActions: [],
+    };
   };
 
   const executeOrionAction = async (resolvedAction) => {
