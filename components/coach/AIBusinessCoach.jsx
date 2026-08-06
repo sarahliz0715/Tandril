@@ -436,23 +436,45 @@ export default function AIBusinessCoach() {
     '\\bDONE\\.',                                                     // explicit "DONE."
   ].join('|'), 'i');
 
+  // Orion is not given a `tools` schema (no native Anthropic tool-use is
+  // configured for this API call) — it's asked to emit [ORION_ACTION:...]
+  // as plain text instead. But the model is heavily trained on real
+  // tool-use conventions, and under long/complex conversations it can drift
+  // into writing literal <invoke>/<function_calls> XML tags instead of the
+  // bracket format — confirmed real occurrence (Aug 2026, same store):
+  // Orion said "I DID include action blocks with the <invoke> tags in my
+  // previous messages," and no card ever appeared. The system prompt
+  // already tells it twice not to do this; a third copy of the same
+  // instruction is unlikely to help further. When this specific drift is
+  // detected, always nudge (regardless of ACTION_CLAIM_PATTERN) with a
+  // message naming the exact mistake, since a targeted correction is more
+  // likely to land than the generic one.
+  const XML_DRIFT_PATTERN = /<\/?(invoke|function_calls|antml:invoke|parameter)\b/i;
+
   const ensureActionBlock = async (response) => {
     let pendingActions = response.pending_actions?.length > 0
       ? response.pending_actions
       : response.pending_action ? [response.pending_action] : [];
 
-    if (pendingActions.length > 0 || !ACTION_CLAIM_PATTERN.test(response.response || '')) {
+    const hadXmlDrift = XML_DRIFT_PATTERN.test(response.response || '');
+
+    if (pendingActions.length > 0 || !(hadXmlDrift || ACTION_CLAIM_PATTERN.test(response.response || ''))) {
       return { response, pendingActions };
     }
 
     let current = response;
+    let xmlDriftSeen = hadXmlDrift;
     // Try up to twice — a single nudge doesn't always land, especially right
     // after a long category-transition recap, so give it a second shot before
     // giving up and showing the (cardless) text as-is.
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
+        const nudgeMessage = xmlDriftSeen
+          ? 'You just wrote <invoke>/<function_calls> XML tags, but this system does not use Anthropic tool-calling — it only parses plain-text [ORION_ACTION:{...}] blocks, exactly as documented in your instructions. Those XML tags did not execute anything and are not visible to the user as a confirmation card. Re-send the same action now using ONLY the [ORION_ACTION:{...}] bracket format, as raw text, with no XML tags of any kind.'
+          : 'You just described or claimed to complete a batch of changes, but no actual action block was included in that message — nothing was actually applied to the store. Please generate the real action block now for exactly the batch you described, in this response. Do not just repeat the description or claim it is done again.';
+
         const retry = await api.functions.chatWithCoach({
-          message: 'You just described or claimed to complete a batch of changes, but no actual action block was included in that message — nothing was actually applied to the store. Please generate the real action block now for exactly the batch you described, in this response. Do not just repeat the description or claim it is done again.',
+          message: nudgeMessage,
           conversation_id: current.conversation_id || conversationId,
         });
         if (retry?.success) {
@@ -463,6 +485,7 @@ export default function AIBusinessCoach() {
             return { response: retry, pendingActions: retryActions };
           }
           current = retry;
+          xmlDriftSeen = XML_DRIFT_PATTERN.test(current.response || '');
         }
       } catch (e) {
         console.warn('[Orion] Auto-nudge for missing action block failed:', e);
