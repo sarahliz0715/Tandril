@@ -395,7 +395,11 @@ export default function AIBusinessCoach() {
         conversation_id: conversationId,
       });
       if (response?.success) {
-        const { response: finalResponse, pendingActions } = await ensureActionBlock(response);
+        // suspectFalseCompletion: false — real actions already executed by
+        // the time this call happens, so a "done" summary here is truthful,
+        // not a hallucination to nudge against. See ensureActionBlock's
+        // comment for the full explanation.
+        const { response: finalResponse, pendingActions } = await ensureActionBlock(response, { suspectFalseCompletion: false });
         setChatMessages(prev => [...prev, { role: 'assistant', content: finalResponse.response, pendingActions, queueIdx: 0 }]);
         if (finalResponse.conversation_id) setConversationId(finalResponse.conversation_id);
       }
@@ -451,14 +455,30 @@ export default function AIBusinessCoach() {
   // likely to land than the generic one.
   const XML_DRIFT_PATTERN = /<\/?(invoke|function_calls|antml:invoke|parameter)\b/i;
 
-  const ensureActionBlock = async (response) => {
+  // `suspectFalseCompletion` gates the "claims it's done" half of the check
+  // (ACTION_CLAIM_PATTERN's checkmark/DONE/"you're live" patterns). It must
+  // be false when called from reportToOrion: at that point real actions
+  // have already genuinely executed via the actual platform API calls, so
+  // a response saying "✅ Archived, all done!" is a truthful summary, not a
+  // hallucination — reportToOrion's own prompt explicitly tells Orion to
+  // say exactly that when the whole request is complete. Treating it as
+  // suspicious there fired an unnecessary nudge round-trip on every normal
+  // successful execution (confirmed real occurrence, Aug 2026: a card
+  // executed successfully, then the chat hung on a spinner because the
+  // truthful "done" summary that followed got nudged anyway, and the
+  // nudge's own Claude call has no request timeout). The XML-drift and
+  // soft "asks to confirm" checks still apply either way, since Orion can
+  // still forget the block when reportToOrion's prompt asks it to continue
+  // to the next batch.
+  const ensureActionBlock = async (response, { suspectFalseCompletion = true } = {}) => {
     let pendingActions = response.pending_actions?.length > 0
       ? response.pending_actions
       : response.pending_action ? [response.pending_action] : [];
 
     const hadXmlDrift = XML_DRIFT_PATTERN.test(response.response || '');
+    const claimsCompletion = suspectFalseCompletion && ACTION_CLAIM_PATTERN.test(response.response || '');
 
-    if (pendingActions.length > 0 || !(hadXmlDrift || ACTION_CLAIM_PATTERN.test(response.response || ''))) {
+    if (pendingActions.length > 0 || !(hadXmlDrift || claimsCompletion)) {
       return { response, pendingActions };
     }
 
