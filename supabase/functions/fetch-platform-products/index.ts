@@ -79,7 +79,7 @@ serve(async (req) => {
 
     if (platErr || !platform) throw new Error('Platform not found');
 
-    const products = await fetchProducts(platform, search, page);
+    const products = await fetchProducts(supabase, platform, search, page);
 
     // For Instagram, also upsert products to the products table so inventory page sees them
     if (platform.platform_type === 'instagram' && products.length > 0) {
@@ -118,12 +118,12 @@ serve(async (req) => {
 });
 
 // Normalised product shape: { id, title, sku, quantity, image_url, variants: [{id, label}] }
-async function fetchProducts(platform: any, search: string, page: number): Promise<any[]> {
+async function fetchProducts(supabase: any, platform: any, search: string, page: number): Promise<any[]> {
   switch (platform.platform_type) {
     case 'shopify': return fetchShopifyProducts(platform, search, page);
     case 'woocommerce': return fetchWooProducts(platform, search, page);
     case 'etsy': return fetchEtsyProducts(platform, search, page);
-    case 'ebay': return fetchEbayProducts(platform, search, page);
+    case 'ebay': return fetchEbayProducts(supabase, platform, search, page);
     case 'instagram': return fetchInstagramProducts(platform, search, page);
     default: return [];
   }
@@ -228,7 +228,7 @@ async function fetchEtsyProducts(platform: any, search: string, page: number) {
   }));
 }
 
-async function fetchEbayProducts(platform: any, search: string, page: number) {
+async function fetchEbayProducts(supabase: any, platform: any, search: string, page: number) {
   const creds = platform.credentials ?? {};
   const meta = platform.metadata ?? {};
   const isSandbox = meta.environment === 'sandbox';
@@ -245,7 +245,25 @@ async function fetchEbayProducts(platform: any, search: string, page: number) {
         { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: `Basic ${btoa(`${ck}:${cs}`)}` },
           body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: creds.refresh_token }).toString() }
       );
-      if (r.ok) token = (await r.json()).access_token;
+      if (r.ok) {
+        const refreshData = await r.json();
+        token = refreshData.access_token;
+        const { error: tokenSaveErr } = await supabase
+          .from('platforms')
+          .update({
+            credentials: {
+              ...creds,
+              access_token: refreshData.access_token,
+              refresh_token: refreshData.refresh_token || creds.refresh_token,
+            },
+            metadata: {
+              ...meta,
+              token_expires_at: new Date(Date.now() + (refreshData.expires_in * 1000)).toISOString(),
+            },
+          })
+          .eq('id', platform.id);
+        if (tokenSaveErr) console.warn('[fetch-platform-products] eBay refreshed token may not have persisted to DB:', tokenSaveErr.message);
+      }
     }
   }
   if (!token) throw new Error('eBay token missing');
