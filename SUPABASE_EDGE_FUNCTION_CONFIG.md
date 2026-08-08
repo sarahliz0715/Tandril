@@ -113,6 +113,7 @@ Make sure these are set in your Supabase Edge Functions environment:
 - `EBAY_CLIENT_ID`
 - `EBAY_CLIENT_SECRET`
 - `EBAY_ENVIRONMENT` (production or sandbox)
+- `EBAY_RU_NAME` — the RuName from eBay Developer Portal → Application Keys → User Tokens (NOT a URL; eBay's OAuth `redirect_uri` param takes this name, which maps to your registered accepted/declined/privacy-policy URLs there)
 
 #### For AI Coach (smart-api):
 - `ANTHROPIC_API_KEY`
