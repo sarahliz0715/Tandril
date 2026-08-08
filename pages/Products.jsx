@@ -75,7 +75,7 @@ export default function Products() {
       // Platform types handled by the live inventory fetch — pre-seed so that even if a
       // connected platform returns 0 active items (e.g. only listing was just ended), we
       // still exclude stale DB rows for that platform from the fallback list.
-      const LIVE_FETCH_PLATFORMS = new Set(['shopify', 'ebay', 'tiktok_shop', 'amazon']);
+      const LIVE_FETCH_PLATFORMS = new Set(['shopify', 'ebay', 'tiktok_shop', 'amazon', 'woocommerce']);
       const livePlatformTypes = new Set(
         (platformData || []).map(p => p.platform_type).filter(pt => LIVE_FETCH_PLATFORMS.has(pt))
       );

@@ -1460,6 +1460,59 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         console.warn('[smart-api] eBay inventory fetch failed:', e.message);
       }
 
+      // Fetch WooCommerce products for any connected WooCommerce platforms
+      try {
+        const { data: wooPlatforms } = await supabaseClient
+          .from('platforms')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('platform_type', 'woocommerce')
+          .or('is_active.eq.true,status.eq.connected');
+
+        for (const wooPlatform of (wooPlatforms || [])) {
+          const creds = wooPlatform.credentials || {};
+          const storeUrl = wooPlatform.store_url;
+          if (!creds.consumer_key || !creds.consumer_secret || !storeUrl) continue;
+
+          const wooAuth = `Basic ${btoa(`${creds.consumer_key}:${creds.consumer_secret}`)}`;
+          let wooPage = 1;
+          let hasMore = true;
+          while (hasMore && wooPage <= 20) { // safety cap: 2000 products
+            const wooRes = await fetch(
+              `${storeUrl}/wp-json/wc/v3/products?per_page=100&page=${wooPage}`,
+              { headers: { 'Authorization': wooAuth, 'Content-Type': 'application/json' } }
+            );
+            if (!wooRes.ok) break;
+            const wooProducts = await wooRes.json();
+            for (const p of wooProducts) {
+              const totalStock = p.stock_quantity ?? 0;
+              let status = 'active';
+              if (p.status !== 'publish') status = 'discontinued';
+              else if (totalStock === 0) status = 'out_of_stock';
+              else if (totalStock <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+              inventory.push({
+                id: `woo-${p.id}`,
+                product_name: p.name,
+                sku: p.sku || 'N/A',
+                category: p.categories?.[0]?.name || '',
+                status,
+                total_stock: totalStock,
+                base_price: parseFloat(p.price || p.regular_price || '0') || 0,
+                image_url: p.images?.[0]?.src || null,
+                vendor: '',
+                tags: (p.tags || []).map((t: any) => t.name).join(', '),
+                platform_listings: [{ listing_id: String(p.id), platform: 'WooCommerce' }],
+                source: 'woocommerce',
+              });
+            }
+            hasMore = wooProducts.length === 100;
+            wooPage++;
+          }
+        }
+      } catch (e: any) {
+        console.warn('[smart-api] WooCommerce inventory fetch failed:', e.message);
+      }
+
       // Fetch TikTok Shop products
       try {
         const { data: ttPlatforms } = await supabaseClient
@@ -7581,12 +7634,38 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     productCount = count || 0;
   }
 
-  // Fetch live products from Ecwid, Magento, PrestaShop, Wish, Walmart, Etsy
+  // Fetch live products from WooCommerce, Ecwid, Magento, PrestaShop, Wish, Walmart, Etsy
   for (const platform of (platforms || [])) {
     const pt = platform.platform_type;
-    if (!['ecwid', 'magento', 'prestashop', 'wish', 'walmart', 'etsy'].includes(pt)) continue;
+    if (!['woocommerce', 'ecwid', 'magento', 'prestashop', 'wish', 'walmart', 'etsy'].includes(pt)) continue;
     try {
-      if (pt === 'ecwid') {
+      if (pt === 'woocommerce') {
+        const creds = platform.credentials || {};
+        const storeUrl = platform.store_url;
+        if (!creds.consumer_key || !creds.consumer_secret || !storeUrl) continue;
+        const wooAuth = `Basic ${btoa(`${creds.consumer_key}:${creds.consumer_secret}`)}`;
+        const res = await fetch(`${storeUrl}/wp-json/wc/v3/products?per_page=100`, {
+          headers: { 'Authorization': wooAuth, 'Content-Type': 'application/json' },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          for (const p of (data || [])) {
+            products.push({
+              id: `woo-${p.id}`,
+              title: p.name || 'Unnamed',
+              sku: p.sku || 'N/A',
+              price: parseFloat(p.price || p.regular_price || '0') || 0,
+              inventory_quantity: p.stock_quantity ?? 0,
+              status: p.status === 'publish' ? 'active' : 'draft',
+              vendor: '',
+              product_type: p.categories?.[0]?.name || '',
+              tags: (p.tags || []).map((t: any) => t.name).join(', '),
+              platform_type: 'woocommerce',
+            });
+            productCount++;
+          }
+        }
+      } else if (pt === 'ecwid') {
         const { store_id, access_token: tok } = platform.credentials;
         const res = await fetch(`https://app.ecwid.com/api/v3/${store_id}/products?limit=100`, {
           headers: { 'Authorization': `Bearer ${tok}` },
