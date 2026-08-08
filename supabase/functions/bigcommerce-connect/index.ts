@@ -102,7 +102,9 @@ serve(async (req) => {
     const platformData = {
       user_id: user.id,
       platform_type: 'bigcommerce',
-      name: storeInfo.name || `BigCommerce Store ${cleanStoreHash}`,
+      name: `BigCommerce - ${storeInfo.name || cleanStoreHash}`,
+      shop_name: storeInfo.name || cleanStoreHash,
+      shop_domain: storeInfo.domain || cleanStoreHash,
       store_url: storeInfo.domain || storeInfo.secure_url || `https://store-${cleanStoreHash}.mybigcommerce.com`,
       credentials: {
         store_hash: cleanStoreHash,
