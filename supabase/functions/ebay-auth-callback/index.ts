@@ -5,290 +5,293 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-  'Access-Control-Max-Age': '86400',
+'Access-Control-Allow-Origin': '*',
+'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+'Access-Control-Max-Age': '86400',
 };
 
 serve(async (req) => {
-  // Handle CORS preflight requests
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders, status: 200 });
-  }
+// Handle CORS preflight requests
+if (req.method === 'OPTIONS') {
+return new Response('ok', { headers: corsHeaders, status: 200 });
+}
 
-  let isPostFromFrontend = false;
+let isPostFromFrontend = false;
 
-  try {
-    console.log('[eBay Callback] Request received:', req.method, req.url);
+try {
+console.log('[eBay Callback] Request received:', req.method, req.url);
 
-    // Parse code/state from URL params (direct eBay GET redirect) or POST body (frontend invoke)
-    const url = new URL(req.url);
-    let code = url.searchParams.get('code');
-    let state = url.searchParams.get('state');
+// Parse code/state from URL params (direct eBay GET redirect) or POST body (frontend invoke)
+const url = new URL(req.url);
+let code = url.searchParams.get('code');
+let state = url.searchParams.get('state');
 
-    if (!code || !state) {
-      try {
-        const body = await req.json();
-        code = code || body.code;
-        state = state || body.state;
-        isPostFromFrontend = true;
-      } catch {
-        // not a JSON body, ignore
-      }
-    }
+if (!code || !state) {
+try {
+const body = await req.json();
+code = code || body.code;
+state = state || body.state;
+isPostFromFrontend = true;
+} catch {
+// not a JSON body, ignore
+}
+}
 
-    console.log('[eBay Callback] Parameters:', { code: code?.substring(0, 10) + '...', state: state?.substring(0, 10) + '...' });
+console.log('[eBay Callback] Parameters:', { code: code?.substring(0, 10) + '...', state: state?.substring(0, 10) + '...' });
 
-    if (!code || !state) {
-      throw new Error('Missing authorization code or state');
-    }
+if (!code || !state) {
+throw new Error('Missing authorization code or state');
+}
 
-    // Create Supabase admin client (no user auth required for callback)
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    if (!serviceRoleKey) {
-      console.error('[eBay Callback] SUPABASE_SERVICE_ROLE_KEY not configured!');
-      throw new Error('Server configuration error - missing service role key');
-    }
+// Create Supabase admin client (no user auth required for callback)
+const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+if (!serviceRoleKey) {
+console.error('[eBay Callback] SUPABASE_SERVICE_ROLE_KEY not configured!');
+throw new Error('Server configuration error - missing service role key');
+}
 
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      serviceRoleKey
-    );
+const supabaseClient = createClient(
+Deno.env.get('SUPABASE_URL') ?? '',
+serviceRoleKey
+);
 
-    // Verify state token to get user_id
-    const { data: stateData, error: stateError } = await supabaseClient
-      .from('oauth_states')
-      .select('*')
-      .eq('state', state)
-      .eq('platform', 'ebay')
-      .gt('expires_at', new Date().toISOString())
-      .single();
+// Verify state token to get user_id
+const { data: stateData, error: stateError } = await supabaseClient
+.from('oauth_states')
+.select('*')
+.eq('state', state)
+.eq('platform', 'ebay')
+.gt('expires_at', new Date().toISOString())
+.single();
 
-    if (stateError || !stateData) {
-      console.warn('[eBay Callback] State verification failed:', stateError?.message);
-      throw new Error('Invalid or expired state token');
-    }
+if (stateError || !stateData) {
+console.warn('[eBay Callback] State verification failed:', stateError?.message);
+throw new Error('Invalid or expired state token');
+}
 
-    const userId = stateData.user_id;
-    console.log(`[eBay Callback] Processing callback for user ${userId}`);
+const userId = stateData.user_id;
+console.log(`[eBay Callback] Processing callback for user ${userId}`);
 
-    // Delete used state token
-    await supabaseClient
-      .from('oauth_states')
-      .delete()
-      .eq('id', stateData.id);
+// Delete used state token
+await supabaseClient
+.from('oauth_states')
+.delete()
+.eq('id', stateData.id);
 
-    // Get eBay credentials from environment
-    const ebayClientId = Deno.env.get('EBAY_CLIENT_ID');
-    const ebayClientSecret = Deno.env.get('EBAY_CLIENT_SECRET');
-    const ebayEnvironment = Deno.env.get('EBAY_ENVIRONMENT') || 'production';
+// Get eBay credentials from environment
+const ebayClientId = Deno.env.get('EBAY_CLIENT_ID');
+const ebayClientSecret = Deno.env.get('EBAY_CLIENT_SECRET');
+const ebayEnvironment = Deno.env.get('EBAY_ENVIRONMENT') || 'production';
+const ebayRuName = Deno.env.get('EBAY_RU_NAME');
 
-    if (!ebayClientId || !ebayClientSecret) {
-      throw new Error('eBay credentials not configured');
-    }
+if (!ebayClientId || !ebayClientSecret) {
+throw new Error('eBay credentials not configured');
+}
 
-    // Determine token URL based on environment
-    const tokenUrl = ebayEnvironment === 'sandbox'
-      ? 'https://api.sandbox.ebay.com/identity/v1/oauth2/token'
-      : 'https://api.ebay.com/identity/v1/oauth2/token';
+if (!ebayRuName) {
+throw new Error('eBay RuName not configured');
+}
 
-    const apiBaseUrl = ebayEnvironment === 'sandbox'
-      ? 'https://api.sandbox.ebay.com'
-      : 'https://api.ebay.com';
+// Determine token URL based on environment
+const tokenUrl = ebayEnvironment === 'sandbox'
+? 'https://api.sandbox.ebay.com/identity/v1/oauth2/token'
+: 'https://api.ebay.com/identity/v1/oauth2/token';
 
-    // Construct callback URL
-    const callbackUrl = `${Deno.env.get('APP_URL') || 'http://localhost:5173'}/ebay-callback`;
+const apiBaseUrl = ebayEnvironment === 'sandbox'
+? 'https://api.sandbox.ebay.com'
+: 'https://api.ebay.com';
 
-    // Exchange authorization code for access token
-    const credentials = btoa(`${ebayClientId}:${ebayClientSecret}`);
+// Exchange authorization code for access token
+// redirect_uri must be the RuName (same value used in the auth initiation step)
+const credentials = btoa(`${ebayClientId}:${ebayClientSecret}`);
 
-    const tokenResponse = await fetch(tokenUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Basic ${credentials}`,
-      },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code: code,
-        redirect_uri: callbackUrl,
-      }).toString(),
-    });
+const tokenResponse = await fetch(tokenUrl, {
+method: 'POST',
+headers: {
+'Content-Type': 'application/x-www-form-urlencoded',
+'Authorization': `Basic ${credentials}`,
+},
+body: new URLSearchParams({
+grant_type: 'authorization_code',
+code: code,
+redirect_uri: ebayRuName,
+}).toString(),
+});
 
-    if (!tokenResponse.ok) {
-      const errorText = await tokenResponse.text();
-      throw new Error(`Token exchange failed: ${tokenResponse.status} - ${errorText}`);
-    }
+if (!tokenResponse.ok) {
+const errorText = await tokenResponse.text();
+throw new Error(`Token exchange failed: ${tokenResponse.status} - ${errorText}`);
+}
 
-    const tokenData = await tokenResponse.json();
+const tokenData = await tokenResponse.json();
 
-    console.log(`[eBay Callback] Token exchange successful`);
+console.log(`[eBay Callback] Token exchange successful`);
 
-    // Test the connection by fetching user info
-    const userInfoResponse = await fetch(`${apiBaseUrl}/commerce/identity/v1/user/`, {
-      headers: {
-        'Authorization': `Bearer ${tokenData.access_token}`,
-        'Content-Type': 'application/json',
-      },
-    });
+// Test the connection by fetching user info
+const userInfoResponse = await fetch(`${apiBaseUrl}/commerce/identity/v1/user/`, {
+headers: {
+'Authorization': `Bearer ${tokenData.access_token}`,
+'Content-Type': 'application/json',
+},
+});
 
-    let ebayUsername = 'eBay User';
-    if (userInfoResponse.ok) {
-      const userInfo = await userInfoResponse.json();
-      console.log('[eBay Callback] User info response:', JSON.stringify(userInfo));
-      ebayUsername = userInfo.username || userInfo.userId || 'eBay User';
-    } else {
-      const errorText = await userInfoResponse.text();
-      console.error(`[eBay Callback] User info fetch failed: ${userInfoResponse.status} - ${errorText}`);
-    }
+let ebayUsername = 'eBay User';
+if (userInfoResponse.ok) {
+const userInfo = await userInfoResponse.json();
+console.log('[eBay Callback] User info response:', JSON.stringify(userInfo));
+ebayUsername = userInfo.username || userInfo.userId || 'eBay User';
+} else {
+const errorText = await userInfoResponse.text();
+console.error(`[eBay Callback] User info fetch failed: ${userInfoResponse.status} - ${errorText}`);
+}
 
-    console.log(`[eBay Callback] Connected to eBay user: ${ebayUsername}`);
+console.log(`[eBay Callback] Connected to eBay user: ${ebayUsername}`);
 
-    // Store the platform connection in database
-    const platformData = {
-      user_id: userId,
-      platform_type: 'ebay',
-      name: `eBay - ${ebayUsername}`,
-      store_url: ebayEnvironment === 'sandbox'
-        ? `https://www.sandbox.ebay.com/usr/${ebayUsername}`
-        : `https://www.ebay.com/usr/${ebayUsername}`,
-      credentials: {
-        access_token: tokenData.access_token,
-        refresh_token: tokenData.refresh_token,
-        expires_in: tokenData.expires_in,
-        token_type: tokenData.token_type,
-        marketplace_id: 'EBAY_US', // Default, can be configured
-      },
-      status: 'connected',
-      last_synced_at: new Date().toISOString(),
-      metadata: {
-        username: ebayUsername,
-        environment: ebayEnvironment,
-        scopes: tokenData.scope,
-        token_expires_at: new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString(),
-      },
-    };
+// Store the platform connection in database
+const platformData = {
+user_id: userId,
+platform_type: 'ebay',
+name: `eBay - ${ebayUsername}`,
+store_url: ebayEnvironment === 'sandbox'
+? `https://www.sandbox.ebay.com/usr/${ebayUsername}`
+: `https://www.ebay.com/usr/${ebayUsername}`,
+credentials: {
+access_token: tokenData.access_token,
+refresh_token: tokenData.refresh_token,
+expires_in: tokenData.expires_in,
+token_type: tokenData.token_type,
+marketplace_id: 'EBAY_US', // Default, can be configured
+},
+status: 'connected',
+last_synced_at: new Date().toISOString(),
+metadata: {
+username: ebayUsername,
+environment: ebayEnvironment,
+scopes: tokenData.scope,
+token_expires_at: new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString(),
+},
+};
 
-    // Check if platform already exists
-    const { data: existingPlatform } = await supabaseClient
-      .from('platforms')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('platform_type', 'ebay')
-      .eq('metadata->>username', ebayUsername)
-      .single();
+// Check if platform already exists
+const { data: existingPlatform } = await supabaseClient
+.from('platforms')
+.select('id')
+.eq('user_id', userId)
+.eq('platform_type', 'ebay')
+.eq('metadata->>username', ebayUsername)
+.single();
 
-    let platform;
-    if (existingPlatform) {
-      // Update existing platform
-      const { data, error } = await supabaseClient
-        .from('platforms')
-        .update(platformData)
-        .eq('id', existingPlatform.id)
-        .select()
-        .single();
+let platform;
+if (existingPlatform) {
+// Update existing platform
+const { data, error } = await supabaseClient
+.from('platforms')
+.update(platformData)
+.eq('id', existingPlatform.id)
+.select()
+.single();
 
-      if (error) throw error;
-      platform = data;
-      console.log(`[eBay Callback] Updated existing platform ${existingPlatform.id}`);
-    } else {
-      // Create new platform
-      const { data, error } = await supabaseClient
-        .from('platforms')
-        .insert(platformData)
-        .select()
-        .single();
+if (error) throw error;
+platform = data;
+console.log(`[eBay Callback] Updated existing platform ${existingPlatform.id}`);
+} else {
+// Create new platform
+const { data, error } = await supabaseClient
+.from('platforms')
+.insert(platformData)
+.select()
+.single();
 
-      if (error) throw error;
-      platform = data;
-      console.log(`[eBay Callback] Created new platform ${data.id}`);
-    }
+if (error) throw error;
+platform = data;
+console.log(`[eBay Callback] Created new platform ${data.id}`);
+}
 
-    console.log(`[eBay Callback] Successfully connected eBay account for user ${userId}`);
+console.log(`[eBay Callback] Successfully connected eBay account for user ${userId}`);
 
-    // Register eBay Commerce Notification subscription for order events
-    try {
-      const isSandbox = ebayEnvironment === 'sandbox';
-      const apiBase = isSandbox ? 'https://api.sandbox.ebay.com' : 'https://api.ebay.com';
-      const accessToken = platformData.credentials.access_token;
-      const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-      const endpointUrl = `${supabaseUrl}/functions/v1/ebay-notification-webhook`;
-      const verificationToken = Deno.env.get('EBAY_NOTIFICATION_VERIFICATION_TOKEN');
+// Register eBay Commerce Notification subscription for order events
+try {
+const isSandbox = ebayEnvironment === 'sandbox';
+const apiBase = isSandbox ? 'https://api.sandbox.ebay.com' : 'https://api.ebay.com';
+const accessToken = platformData.credentials.access_token;
+const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+const endpointUrl = `${supabaseUrl}/functions/v1/ebay-notification-webhook`;
+const verificationToken = Deno.env.get('EBAY_NOTIFICATION_VERIFICATION_TOKEN');
 
-      if (verificationToken) {
-        const notifHeaders = {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-          'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US',
-        };
+if (verificationToken) {
+const notifHeaders = {
+'Authorization': `Bearer ${accessToken}`,
+'Content-Type': 'application/json',
+'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US',
+};
 
-        // Register destination endpoint (idempotent — eBay ignores duplicates)
-        await fetch(`${apiBase}/commerce/notification/v1/destination`, {
-          method: 'POST',
-          headers: notifHeaders,
-          body: JSON.stringify({
-            deliveryConfig: {
-              endpoint: endpointUrl,
-              verificationToken,
-            },
-          }),
-        });
+// Register destination endpoint (idempotent — eBay ignores duplicates)
+await fetch(`${apiBase}/commerce/notification/v1/destination`, {
+method: 'POST',
+headers: notifHeaders,
+body: JSON.stringify({
+deliveryConfig: {
+endpoint: endpointUrl,
+verificationToken,
+},
+}),
+});
 
-        // Subscribe to marketplace ORDER topic
-        await fetch(`${apiBase}/commerce/notification/v1/subscription`, {
-          method: 'POST',
-          headers: notifHeaders,
-          body: JSON.stringify({
-            topicId: 'marketplace.ORDER',
-            deliveryConfig: { endpoint: endpointUrl, verificationToken },
-          }),
-        });
+// Subscribe to marketplace ORDER topic
+await fetch(`${apiBase}/commerce/notification/v1/subscription`, {
+method: 'POST',
+headers: notifHeaders,
+body: JSON.stringify({
+topicId: 'marketplace.ORDER',
+deliveryConfig: { endpoint: endpointUrl, verificationToken },
+}),
+});
 
-        console.log('[eBay Callback] Registered Commerce Notification subscription for ORDER events');
-      } else {
-        console.warn('[eBay Callback] EBAY_NOTIFICATION_VERIFICATION_TOKEN not set — skipping notification subscription');
-      }
-    } catch (notifErr: any) {
-      console.warn('[eBay Callback] Notification subscription failed (non-critical):', notifErr.message);
-    }
+console.log('[eBay Callback] Registered Commerce Notification subscription for ORDER events');
+} else {
+console.warn('[eBay Callback] EBAY_NOTIFICATION_VERIFICATION_TOKEN not set — skipping notification subscription');
+}
+} catch (notifErr: any) {
+console.warn('[eBay Callback] Notification subscription failed (non-critical):', notifErr.message);
+}
 
-    if (isPostFromFrontend) {
-      return new Response(
-        JSON.stringify({ success: true, username: ebayUsername, platform_id: platform.id }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
-      );
-    }
+if (isPostFromFrontend) {
+return new Response(
+JSON.stringify({ success: true, username: ebayUsername, platform_id: platform.id }),
+{ headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+);
+}
 
-    // Redirect back to the app with success (direct eBay GET redirect)
-    const appUrl = Deno.env.get('APP_URL') || 'http://localhost:5173';
-    const redirectUrl = `${appUrl}/Platforms?connected=true&platform=ebay&username=${encodeURIComponent(ebayUsername)}`;
+// Redirect back to the app with success (direct eBay GET redirect)
+const appUrl = Deno.env.get('APP_URL') || 'http://localhost:5173';
+const redirectUrl = `${appUrl}/Platforms?connected=true&platform=ebay&username=${encodeURIComponent(ebayUsername)}`;
 
-    return new Response(null, {
-      status: 302,
-      headers: {
-        'Location': redirectUrl,
-      },
-    });
-  } catch (error) {
-    console.error('[eBay Callback] Error:', error);
+return new Response(null, {
+status: 302,
+headers: {
+'Location': redirectUrl,
+},
+});
+} catch (error) {
+console.error('[eBay Callback] Error:', error);
 
-    if (isPostFromFrontend) {
-      return new Response(
-        JSON.stringify({ success: false, error: error.message }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
-      );
-    }
+if (isPostFromFrontend) {
+return new Response(
+JSON.stringify({ success: false, error: error.message }),
+{ headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+);
+}
 
-    // Redirect back to app with error (direct eBay GET redirect)
-    const appUrl = Deno.env.get('APP_URL') || 'http://localhost:5173';
-    const redirectUrl = `${appUrl}/Platforms?error=${encodeURIComponent(error.message)}`;
+// Redirect back to app with error (direct eBay GET redirect)
+const appUrl = Deno.env.get('APP_URL') || 'http://localhost:5173';
+const redirectUrl = `${appUrl}/Platforms?error=${encodeURIComponent(error.message)}`;
 
-    return new Response(null, {
-      status: 302,
-      headers: {
-        'Location': redirectUrl,
-      },
-    });
-  }
+return new Response(null, {
+status: 302,
+headers: {
+'Location': redirectUrl,
+},
+});
+}
 });
