@@ -1513,6 +1513,59 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         console.warn('[smart-api] WooCommerce inventory fetch failed:', e.message);
       }
 
+      // Fetch BigCommerce products for any connected BigCommerce platforms
+      try {
+        const { data: bcPlatforms } = await supabaseClient
+          .from('platforms')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('platform_type', 'bigcommerce')
+          .or('is_active.eq.true,status.eq.connected');
+
+        for (const bcPlatform of (bcPlatforms || [])) {
+          const creds = bcPlatform.credentials || {};
+          if (!creds.store_hash || !creds.access_token) continue;
+
+          const bcHeaders = { 'X-Auth-Token': creds.access_token, 'Accept': 'application/json' };
+          let bcPage = 1;
+          let bcHasMore = true;
+          while (bcHasMore && bcPage <= 20) { // safety cap: 2000 products
+            const bcRes = await fetch(
+              `https://api.bigcommerce.com/stores/${creds.store_hash}/v3/catalog/products?limit=100&page=${bcPage}&include=images`,
+              { headers: bcHeaders }
+            );
+            if (!bcRes.ok) break;
+            const bcData = await bcRes.json();
+            const bcProducts = bcData.data || [];
+            for (const p of bcProducts) {
+              const totalStock = p.inventory_level ?? 0;
+              let status = 'active';
+              if (!p.is_visible) status = 'discontinued';
+              else if (totalStock === 0) status = 'out_of_stock';
+              else if (totalStock <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+              inventory.push({
+                id: `bc-${p.id}`,
+                product_name: p.name,
+                sku: p.sku || 'N/A',
+                category: p.type || '',
+                status,
+                total_stock: totalStock,
+                base_price: parseFloat(p.price || '0') || 0,
+                image_url: p.images?.[0]?.url_standard || null,
+                vendor: '',
+                tags: '',
+                platform_listings: [{ listing_id: String(p.id), platform: 'BigCommerce' }],
+                source: 'bigcommerce',
+              });
+            }
+            bcHasMore = bcProducts.length === 100;
+            bcPage++;
+          }
+        }
+      } catch (e: any) {
+        console.warn('[smart-api] BigCommerce inventory fetch failed:', e.message);
+      }
+
       // Fetch TikTok Shop products
       try {
         const { data: ttPlatforms } = await supabaseClient
@@ -7634,12 +7687,36 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     productCount = count || 0;
   }
 
-  // Fetch live products from WooCommerce, Ecwid, Magento, PrestaShop, Wish, Walmart, Etsy
+  // Fetch live products from WooCommerce, BigCommerce, Ecwid, Magento, PrestaShop, Wish, Walmart, Etsy
   for (const platform of (platforms || [])) {
     const pt = platform.platform_type;
-    if (!['woocommerce', 'ecwid', 'magento', 'prestashop', 'wish', 'walmart', 'etsy'].includes(pt)) continue;
+    if (!['woocommerce', 'bigcommerce', 'ecwid', 'magento', 'prestashop', 'wish', 'walmart', 'etsy'].includes(pt)) continue;
     try {
-      if (pt === 'woocommerce') {
+      if (pt === 'bigcommerce') {
+        const creds = platform.credentials || {};
+        if (!creds.store_hash || !creds.access_token) continue;
+        const res = await fetch(`https://api.bigcommerce.com/stores/${creds.store_hash}/v3/catalog/products?limit=100`, {
+          headers: { 'X-Auth-Token': creds.access_token, 'Accept': 'application/json' },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          for (const p of (data.data || [])) {
+            products.push({
+              id: `bc-${p.id}`,
+              title: p.name || 'Unnamed',
+              sku: p.sku || 'N/A',
+              price: parseFloat(p.price || '0') || 0,
+              inventory_quantity: p.inventory_level ?? 0,
+              status: p.is_visible ? 'active' : 'draft',
+              vendor: '',
+              product_type: p.type || '',
+              tags: '',
+              platform_type: 'bigcommerce',
+            });
+            productCount++;
+          }
+        }
+      } else if (pt === 'woocommerce') {
         const creds = platform.credentials || {};
         const storeUrl = platform.store_url;
         if (!creds.consumer_key || !creds.consumer_secret || !storeUrl) continue;
