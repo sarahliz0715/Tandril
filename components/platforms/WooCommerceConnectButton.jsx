@@ -42,11 +42,11 @@ export default function WooCommerceConnectButton({ onConnectionSuccess, disabled
 
             if (response.data.success) {
                 toast.success("Successfully connected to WooCommerce!", {
-                    description: `Connected to ${response.data.store_info.name}`
+                    description: `Connected to ${response.data.data.store_info.name}`
                 });
 
                 if (onConnectionSuccess) {
-                    onConnectionSuccess(response.data.platform);
+                    onConnectionSuccess(response.data.data.platform);
                 }
 
                 setIsModalOpen(false);
