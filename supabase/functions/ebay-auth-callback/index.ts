@@ -153,6 +153,8 @@ const platformData = {
 user_id: userId,
 platform_type: 'ebay',
 name: `eBay - ${ebayUsername}`,
+shop_name: ebayUsername,
+shop_domain: ebayUsername,
 store_url: ebayEnvironment === 'sandbox'
 ? `https://www.sandbox.ebay.com/usr/${ebayUsername}`
 : `https://www.ebay.com/usr/${ebayUsername}`,
