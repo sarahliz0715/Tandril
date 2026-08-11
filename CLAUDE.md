@@ -1,5 +1,5 @@
 # Tandril — Project Context for Claude
-**Last updated:** August 8, 2026 | **Repo:** private | **Owner:** Sarah Evenson
+**Last updated:** August 11, 2026 | **Repo:** private | **Owner:** Sarah Evenson
 
 ---
 
@@ -164,6 +164,7 @@ Outbound email is sent via Resend (resend.com). The `RESEND_FROM_EMAIL` Supabase
   2. **No platform-identifying name, and missing `shop_name`/`shop_domain` (PR #160).** `bigcommerce-connect` stored the raw BigCommerce store name (e.g. "Tandrilteststore") with nothing indicating it was a BigCommerce connection, unlike eBay's "eBay - username" pattern — and never set `shop_name`/`shop_domain` either, the same gap eBay had (PR #151). Fixed to store `BigCommerce - {store name}` and set both fields. Only takes effect on disconnect/reconnect.
   - Note: a fresh BigCommerce trial store comes pre-seeded with ~15 sample demo products (shown as ~30 after the connect flow's dedup-by-SKU quirk) — this is BigCommerce's own default catalog, not a Tandril bug. Bulk-delete them in BigCommerce admin if a cleaner test catalog is wanted, not required.
   - **The "Built — pending approval" label in the parity table should not be trusted at face value for any platform without checking what the connect flow actually requires** — BigCommerce and WooCommerce both turned out to need zero platform approval for functional testing; only true OAuth-app-review platforms (Amazon SP-API, TikTok Shop Partner Center) are genuinely blocked.
+- **CLAUDE.md correction — Meta/Facebook section was stale, not just incomplete (Aug 11, 2026):** the "Ad Campaign Feature — Roadmap (Not Yet Built)" framing implied zero Meta/Facebook work existed. In reality the Meta OAuth connect flow (`FacebookConnectButton.jsx`, `oauth-init`/`oauth-callback` edge functions, `meta_ads` platform type) and Instagram catalog sync are real, live, and reachable from the Platforms page today — only the actual ad-campaign creation/launch feature (`Ads.jsx` and its modals) is still mock-only. Rewritten into "Meta / Facebook Integration — What's Actually Built vs. Not" below. Nothing was fixed here — this was a documentation-only correction; the `Ads.jsx` modal prop-mismatch bug it surfaced is still open.
 
 ---
 
@@ -250,6 +251,7 @@ Click **Workflows** in the sidebar. Open any existing workflow and review its tr
 | TikTok Shop | Built — pending approval |
 | BigCommerce | Full parity confirmed — self-service `store_hash`+`access_token`, no platform approval needed (see Key Fixes) |
 | Faire | Built — pending approval |
+| Facebook / Meta | OAuth connect + Instagram catalog sync built and live — NOT full parity (no product/inventory/price write-back like the commerce platforms above; see "Meta / Facebook Integration" below) |
 
 ---
 
@@ -344,17 +346,35 @@ Investor framing: *"The same AI that prevents your stockouts will eventually lau
 
 ---
 
-## Ad Campaign Feature — Roadmap (Not Yet Built)
+## Meta / Facebook Integration — What's Actually Built vs. Not (corrected Aug 11, 2026)
 
+This section used to claim Meta/Facebook work hadn't started at all. That was wrong for the OAuth/catalog piece — only the ad-campaign-launch piece is actually not-yet-built. Split below; don't re-merge these into one "not built" claim again.
+
+### Built and live — Meta OAuth connect + Instagram catalog sync
+- `components/platforms/FacebookConnectButton.jsx` calls the `oauth-init` edge function with `platform: 'meta_ads'` — reachable from the Platforms page today via `components/platforms/PlatformCard.jsx` (renders `<FacebookConnectButton>` for `platform_type === 'meta_ads'`), not dead code.
+- `supabase/functions/oauth-init/index.ts` builds a real `https://www.facebook.com/v19.0/dialog/oauth` URL using the `META_APP_ID` secret, with scopes including `ads_management`, `business_management`.
+- `supabase/functions/oauth-callback/index.ts` (`exchangeMeta`) does a genuine token exchange against `https://graph.facebook.com/v19.0/oauth/access_token` using `META_APP_ID`/`META_APP_SECRET`, fetches `/me`, and upserts a real row into the `platforms` table.
+- `meta_ads` is a live, active row in `platform_types` (`supabase/migrations/006_add_extended_platforms.sql`, `requires_oauth: true`).
+- Instagram (`exchangeInstagram` in the same `oauth-callback/index.ts` file) shares this same Meta app and does real Graph API calls for **product catalog / inventory sync** (pages, IG business account, product catalogs) — this is a Shopify/WooCommerce-style catalog sync, separate from ads. Real `graph.facebook.com` calls for this also exist in `smart-api/index.ts` for Instagram product catalog price/inventory sync.
+- **Unconfirmed:** whether `META_APP_ID`/`META_APP_SECRET` are actually set in Supabase secrets — verify before assuming a merchant can complete the OAuth handshake end-to-end.
+- Not comparable to Shopify/WooCommerce/BigCommerce "full parity" — there's no product/inventory/price write-back through this connection, only catalog read/sync for Instagram. See Platform Integration Parity table above.
+
+### Not built — ad campaign creation/launch (mock only, has a known bug)
 **Why it's parked:** Agentic AI and mature image generation didn't exist when Tandril was started. Deliberately waited rather than building a half-baked version. The timing is now right.
 
 **The vision:** Seller types "Orion, move this inventory." Orion picks underperforming SKUs, writes ad creative, assembles image, launches coordinated ads across Meta and TikTok, monitors ROAS, reports back in plain language.
 
-### What's Already Built (Stage 1 foundation)
+- `pages/Ads.jsx` and its modals (`components/ads/CreateCampaignModal.jsx`, `components/ads/CreateAdModal.jsx`, `components/ads/CampaignCard.jsx`, `components/ads/GeneratedAdPreview.jsx`) run entirely on mock/local data via `lib/mockData.js`'s generic `MockEntity` class. No `ad_campaigns`/`ad_creatives`/`ad_templates` table exists in any Supabase migration.
+- **Known bug, not fixed:** `CreateCampaignModal.jsx` and `CreateAdModal.jsx` expect props `isOpen`/`onSave`, but `pages/Ads.jsx` never passes `isOpen` and passes no `onSave` — using this UI today will likely throw (`onSave is not a function`) rather than do anything. Whoever picks this feature up next should fix this wiring, not assume the modals work because they exist.
+- `smart-api/index.ts` has zero action handlers for ad campaigns (`draft_ad`, `launch_ad`, or any `meta_ads` campaign actions) — none of the Stage 2/3 backend work below exists yet.
+- `supabase/migrations/003_add_platform_types.sql` has a commented-out `'facebook'` seed row that was never applied — an earlier abandoned attempt, superseded by the live `meta_ads` row in migration 006. Ignore it.
+
+### What's Already Built (Stage 1 foundation, reusable for the ads feature)
 - Orion surfaces slow movers, low stock, growth opportunities, risk alerts
 - AI content generator writes product copy — ad copy is a small extension
 - Product images already pulled from stores
 - TikTok Shop already connected
+- Meta OAuth connect + Instagram catalog sync (see above) — the app-level Meta auth plumbing already exists, ad-launch work can build on it rather than starting OAuth from scratch
 
 ### Stage 2 — Creative Generation (to build)
 | What | Where | Effort |
@@ -363,24 +383,25 @@ Investor framing: *"The same AI that prevents your stockouts will eventually lau
 | Image generation (product photo + DALL-E/Stability AI) | `supabase/functions/ad-image-generator/index.ts` | M |
 | Ad preview UI component | `components/ads/AdPreviewCard.jsx` | M |
 | `ad_creatives` table + Supabase Storage bucket | SQL migration + dashboard | S |
+| Fix `isOpen`/`onSave` prop mismatch in `CreateCampaignModal.jsx`/`CreateAdModal.jsx` (see above) | `pages/Ads.jsx` + those two modals | S |
 
 ### Stage 3 — Launch, Reporting, Learning (to build)
 | What | Where | Effort |
 |---|---|---|
 | Meta Ads launch edge function | `supabase/functions/meta-ads-launch/index.ts` | L |
 | TikTok Ads launch edge function | `supabase/functions/tiktok-ads-launch/index.ts` | L |
-| Meta + TikTok Ads OAuth flows | Extend `Platforms.jsx` + new auth edge functions | M each |
+| TikTok Ads OAuth flow (Meta OAuth already exists — see above) | Extend `Platforms.jsx` + new auth edge function | M |
 | Ad performance sync cron | `supabase/functions/sync-ad-performance/index.ts` | M |
 | Campaigns UI page | `pages/Campaigns.jsx` | L |
 | Orion action types: `draft_ad`, `launch_ad`, `get_ad_performance` | Extend `smart-api/index.ts` | M |
 | Learning loop — performance back into Orion context | `orion_ad_learnings` table + system prompt injection | M |
 
-**New secrets needed when building:** `META_APP_ID`, `META_APP_SECRET`, `META_ACCESS_TOKEN`, `TIKTOK_ADS_APP_ID`, `TIKTOK_ADS_SECRET`, image generation API key
+**New secrets needed when building:** `META_ACCESS_TOKEN` (long-lived, ads-specific — `META_APP_ID`/`META_APP_SECRET` already exist for OAuth connect), `TIKTOK_ADS_APP_ID`, `TIKTOK_ADS_SECRET`, image generation API key
 
 ---
 
 ## Important Habits for Claude Code Sessions
 - Always type at least a few words when attaching a file — blank attachment + no text breaks the API and loops every message after it in that session
-- At the end of any significant session, ask Claude to update this CLAUDE.md with what changed
+- **Mandatory:** at the end of every session that changes code, Claude MUST update this CLAUDE.md itself with what changed — not wait to be asked, not defer it. This file is read at the start of every session and other people/sessions trust it as ground truth; if it goes stale, the next session inherits wrong assumptions and makes real mistakes (this happened with the Meta/Facebook section — see Key Fixes). Do this update before ending the session, every time, even for changes that feel minor.
 - Credentials never go in this file — they live in Supabase secrets or .env
 - This repo is PRIVATE — do not change visibility
