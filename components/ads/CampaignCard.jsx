@@ -19,7 +19,7 @@ const statusColors = {
     completed: 'bg-blue-100 text-blue-800 border-blue-200',
 };
 
-export default function CampaignCard({ campaign }) {
+export default function CampaignCard({ campaign, onPause }) {
     const { name, platform, status, budget, performance_metrics: metrics } = campaign;
     
     const budgetProgress = budget?.type === 'total' && metrics?.spend 
@@ -82,11 +82,11 @@ export default function CampaignCard({ campaign }) {
                     <Edit className="w-4 h-4" />
                 </Button>
                 {status === 'active' ? (
-                    <Button variant="ghost" size="icon">
+                    <Button variant="ghost" size="icon" onClick={() => onPause?.(campaign)}>
                         <Pause className="w-4 h-4" />
                     </Button>
                 ) : (
-                    <Button variant="ghost" size="icon">
+                    <Button variant="ghost" size="icon" disabled title="Resuming a paused campaign isn't supported yet">
                         <Play className="w-4 h-4" />
                     </Button>
                 )}

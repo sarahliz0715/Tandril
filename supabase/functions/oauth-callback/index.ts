@@ -156,15 +156,56 @@ async function exchangeMeta(code: string): Promise<any> {
   const tokens = await res.json();
   if (tokens.error) throw new Error(tokens.error.message);
 
+  // Exchange the short-lived user token for a long-lived one (~60 days) — Meta has no
+  // refresh_token grant, so this is the only way ad campaign calls survive past ~1-2 hours.
+  let accessToken: string = tokens.access_token;
+  let expiresInSeconds: number = tokens.expires_in || 3600;
+  try {
+    const longLivedUrl = new URL('https://graph.facebook.com/v19.0/oauth/access_token');
+    longLivedUrl.searchParams.set('grant_type', 'fb_exchange_token');
+    longLivedUrl.searchParams.set('client_id', appId);
+    longLivedUrl.searchParams.set('client_secret', appSecret);
+    longLivedUrl.searchParams.set('fb_exchange_token', accessToken);
+    const longLivedRes = await fetch(longLivedUrl.toString());
+    if (longLivedRes.ok) {
+      const longLivedTokens = await longLivedRes.json();
+      if (longLivedTokens.access_token) {
+        accessToken = longLivedTokens.access_token;
+        expiresInSeconds = longLivedTokens.expires_in || (60 * 24 * 60 * 60);
+      }
+    }
+  } catch (_) { /* fall back to the short-lived token below */ }
+
   // Fetch user info
-  const userRes = await fetch(`https://graph.facebook.com/me?access_token=${tokens.access_token}&fields=name,id`);
+  const userRes = await fetch(`https://graph.facebook.com/me?access_token=${accessToken}&fields=name,id`);
   const userData = userRes.ok ? await userRes.json() : {};
   const displayName = userData.name || userData.id || 'Meta Account';
 
+  // Ad creatives require a Facebook Page (object_story_spec.page_id) — discover the
+  // merchant's first manageable Page the same way exchangeInstagram discovers catalogs.
+  let pageId = '';
+  let pageName = '';
+  try {
+    const pagesRes = await fetch(
+      `https://graph.facebook.com/v19.0/me/accounts?fields=id,name&access_token=${accessToken}`
+    );
+    if (pagesRes.ok) {
+      const pagesData = await pagesRes.json();
+      const firstPage = pagesData.data?.[0];
+      if (firstPage) { pageId = firstPage.id || ''; pageName = firstPage.name || ''; }
+    }
+  } catch (_) { /* non-fatal — launch_ad will surface a clear error if page_id is missing */ }
+
   return {
-    credentials: { access_token: tokens.access_token, token_type: tokens.token_type },
+    credentials: { access_token: accessToken, token_type: tokens.token_type },
     name: `Facebook/Meta - ${displayName}`,
-    metadata: { fb_user_id: userData.id, fb_name: userData.name },
+    metadata: {
+      fb_user_id: userData.id,
+      fb_name: userData.name,
+      page_id: pageId,
+      page_name: pageName,
+      token_expires_at: new Date(Date.now() + expiresInSeconds * 1000).toISOString(),
+    },
   };
 }
 

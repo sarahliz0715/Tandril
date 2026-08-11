@@ -21,7 +21,8 @@ export default function CreateCampaignModal({ isOpen, onClose, onSave }) {
         },
         creatives: {
             headline: '',
-            primary_text: ''
+            primary_text: '',
+            link: ''
         }
     });
     const [adAccountId, setAdAccountId] = useState('');
@@ -129,6 +130,11 @@ export default function CreateCampaignModal({ isOpen, onClose, onSave }) {
                             <div className="space-y-2">
                                 <Label htmlFor="primary_text">Primary Text</Label>
                                 <Textarea id="primary_text" value={campaignData.creatives.primary_text} onChange={(e) => handleChange('creatives.primary_text', e.target.value)} placeholder="Describe your offer and product..." />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="link">Destination URL</Label>
+                                <Input id="link" value={campaignData.creatives.link} onChange={(e) => handleChange('creatives.link', e.target.value)} placeholder="https://yourstore.com/products/..." />
+                                <p className="text-xs text-slate-500">Where people land after clicking the ad — required by Facebook.</p>
                             </div>
                         </div>
                     </div>

@@ -8,7 +8,7 @@ import { Wand2, Loader2, Send } from 'lucide-react';
 import { AdCreative } from '@/lib/entities';
 import GeneratedAdPreview from './GeneratedAdPreview';
 
-export default function ProductAdGenerator({ isOpen, onClose, products = [], campaigns = [] }) {
+export default function ProductAdGenerator({ isOpen, onClose, onSuccess, products = [], campaigns = [] }) {
     const [selectedProduct, setSelectedProduct] = useState(null);
     const [selectedCampaign, setSelectedCampaign] = useState(null);
     const [isGenerating, setIsGenerating] = useState(false);
@@ -78,6 +78,7 @@ export default function ProductAdGenerator({ isOpen, onClose, products = [], cam
             toast.success(`Ad "${adData.name}" saved successfully!`);
             // Optionally remove it from the list
             setGeneratedAds(prev => prev.filter(ad => ad.name !== adData.name));
+            onSuccess?.();
         } catch (error) {
             toast.error("Failed to save ad.");
         }

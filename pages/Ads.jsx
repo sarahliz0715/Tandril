@@ -22,6 +22,7 @@ import {
   Wand2
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { invokeEdgeFunction } from '@/lib/supabaseFunctions';
 import CampaignCard from '../components/ads/CampaignCard';
 import AdCreativeCard from '../components/ads/AdCreativeCard';
 import AdTemplateCard from '../components/ads/AdTemplateCard';
@@ -126,26 +127,56 @@ export default function Ads() {
     };
   }, [campaigns]);
 
-  // Handle campaign creation success
-  const handleCampaignCreated = useCallback((newCampaign) => {
-    setCampaigns(prev => [newCampaign, ...prev]);
-    setShowCampaignModal(false);
-    toast.success("Campaign created successfully!");
+  // Launches a real Meta ad campaign via smart-api, then reflects the result locally
+  const handleLaunchCampaign = useCallback(async (campaignData) => {
+    const { adAccountId, creatives, ...rest } = campaignData;
+    try {
+      const response = await invokeEdgeFunction('smart-api', {
+        execute_action: {
+          type: 'launch_ad',
+          name: rest.name,
+          objective: rest.objective,
+          ad_account_id: adAccountId,
+          budget: rest.budget,
+          targeting: rest.targeting,
+          creative: creatives,
+        },
+      });
+      const launched = response?.execution_result?.campaign;
+      if (launched) {
+        setCampaigns(prev => [launched, ...prev]);
+      }
+      setShowCampaignModal(false);
+      toast.success(response?.execution_result?.message || "Campaign launched!");
+    } catch (error) {
+      toast.error("Failed to launch campaign", { description: error.message });
+    }
   }, []);
 
-  // Handle creative creation success
-  const handleCreativeCreated = useCallback((newCreative) => {
-    setCreatives(prev => [newCreative, ...prev]);
+  const handlePauseCampaign = useCallback(async (campaign) => {
+    try {
+      const response = await invokeEdgeFunction('smart-api', {
+        execute_action: { type: 'pause_ad', campaign_id: campaign.id },
+      });
+      setCampaigns(prev => prev.map(c => c.id === campaign.id ? { ...c, status: 'paused' } : c));
+      toast.success(response?.execution_result?.message || `Paused "${campaign.name}"`);
+    } catch (error) {
+      toast.error("Failed to pause campaign", { description: error.message });
+    }
+  }, []);
+
+  // Handle creative creation success — CreateAdModal already wrote the record, just refresh
+  const handleCreativeSaved = useCallback(() => {
     setShowCreativeModal(false);
     toast.success("Ad creative created successfully!");
-  }, []);
+    loadData();
+  }, [loadData]);
 
-  // Handle AI-generated ad success
-  const handleAdGenerated = useCallback((generatedAd) => {
-    setCreatives(prev => [generatedAd, ...prev]);
-    setShowGeneratorModal(false);
-    toast.success("AI-generated ad created successfully!");
-  }, []);
+  // Called after ProductAdGenerator saves a generated ad creative — refresh in place,
+  // the generator dialog stays open so the user can save more of the generated variations.
+  const handleAdGenerated = useCallback(() => {
+    loadData();
+  }, [loadData]);
 
   if (isLoading) {
     return (
@@ -263,7 +294,7 @@ export default function Ads() {
           {campaigns.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {campaigns.map((campaign) => (
-                <CampaignCard key={campaign.id} campaign={campaign} />
+                <CampaignCard key={campaign.id} campaign={campaign} onPause={handlePauseCampaign} />
               ))}
             </div>
           ) : (
@@ -318,20 +349,25 @@ export default function Ads() {
       {/* Modals */}
       {showCampaignModal && (
         <CreateCampaignModal
+          isOpen={showCampaignModal}
           onClose={() => setShowCampaignModal(false)}
-          onSuccess={handleCampaignCreated}
+          onSave={handleLaunchCampaign}
         />
       )}
 
       {showCreativeModal && (
         <CreateAdModal
+          isOpen={showCreativeModal}
           onClose={() => setShowCreativeModal(false)}
-          onSuccess={handleCreativeCreated}
+          onSave={handleCreativeSaved}
+          campaigns={campaigns}
+          products={[]}
         />
       )}
 
       {showGeneratorModal && (
         <ProductAdGenerator
+          isOpen={showGeneratorModal}
           onClose={() => setShowGeneratorModal(false)}
           onSuccess={handleAdGenerated}
           campaigns={campaigns}

@@ -185,6 +185,10 @@ function summarizeOrionAction(action: any): string {
     case 'tiktok_update_inventory':     return `Updated TikTok Shop inventory for "${name}" → ${action.quantity} units`;
     case 'instagram_update_price':      return `Updated Instagram Shopping price for "${name}" → $${action.price}`;
     case 'instagram_update_inventory':  return `Updated Instagram Shopping inventory for "${name}" → ${action.quantity} units`;
+    case 'draft_ad':            return `Drafted ad campaign: "${action.name}"`;
+    case 'launch_ad':           return `Launched Meta ad campaign "${action.name}" ($${action.budget?.daily_amount || '?'}/day)`;
+    case 'pause_ad':            return `Paused ad campaign ${action.campaign_id}`;
+    case 'get_ad_performance':  return `Retrieved ad performance for ${action.campaign_id ? 'campaign ' + action.campaign_id : 'all campaigns'}`;
     case 'tiktok_update_title':         return `Updated TikTok Shop title for "${name}"`;
     case 'tiktok_update_description':   return `Updated TikTok Shop description for "${name}"`;
     case 'tiktok_end_listing':          return `Deactivated TikTok Shop listing "${name}"`;
@@ -463,7 +467,7 @@ serve(async (req) => {
 
       // Log to ai_commands so it appears in the dashboard Activity Log
       // Skip read-only actions that don't change store data
-      const READ_ONLY_ACTIONS = new Set(['get_inventory', 'get_products', 'get_orders', 'get_analytics']);
+      const READ_ONLY_ACTIONS = new Set(['get_inventory', 'get_products', 'get_orders', 'get_analytics', 'get_ad_performance']);
       if (!READ_ONLY_ACTIONS.has(execute_action.type)) {
         supabaseClient
           .from('ai_commands')
@@ -1106,6 +1110,140 @@ async function getTikTokClientForActions(supabaseClient: any, userId: string) {
   return { platform, apiBase, headers, shopId };
 }
 
+// Looks up the connected meta_ads platform row. Meta has no refresh_token grant — the
+// long-lived token minted at connect time (see exchangeMeta in oauth-callback) just
+// expires after ~60 days, so an expired token means "reconnect", not "refresh".
+async function getMetaAdsPlatform(supabaseClient: any, userId: string) {
+  const { data: metaPlatforms } = await supabaseClient
+    .from('platforms')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('platform_type', 'meta_ads')
+    .or('is_active.eq.true,status.eq.connected')
+    .limit(1);
+
+  if (!metaPlatforms || metaPlatforms.length === 0) {
+    throw new Error('No connected Facebook/Meta Ads account found. Connect one in the Platforms tab first.');
+  }
+
+  const platform = metaPlatforms[0];
+  const accessToken = platform.credentials?.access_token;
+  if (!accessToken) throw new Error('Facebook/Meta access token missing. Try disconnecting and reconnecting.');
+
+  const tokenExpiresAt = platform.metadata?.token_expires_at ? new Date(platform.metadata.token_expires_at).getTime() : 0;
+  if (tokenExpiresAt && Date.now() > tokenExpiresAt) {
+    throw new Error('Your Facebook/Meta connection has expired. Reconnect it in the Platforms tab.');
+  }
+
+  return { platform, accessToken, pageId: platform.metadata?.page_id || '' };
+}
+
+// Creates a real Meta Marketing API campaign → ad set → ad creative → ad, in that order.
+// If a later step fails, best-effort pauses whatever was already created so a partial
+// failure doesn't leave a live, unmanaged campaign spending money.
+async function launchMetaCampaign(supabaseClient: any, userId: string, campaignRow: any) {
+  const { accessToken, pageId } = await getMetaAdsPlatform(supabaseClient, userId);
+
+  const adAccountId = String(campaignRow.ad_account_id || '').replace(/^act_/, '');
+  if (!adAccountId) throw new Error('ad_account_id is required to launch a Meta ad campaign.');
+  if (!pageId) throw new Error('No Facebook Page found on your Meta connection. A Page is required to run ads — reconnect Facebook/Meta after creating or claiming a Page.');
+
+  const objective = campaignRow.objective || 'LINK_CLICKS';
+  if (objective === 'CONVERSIONS') {
+    throw new Error('The Conversions objective requires a Meta Pixel, which Tandril does not yet integrate. Use Traffic (LINK_CLICKS) or Reach instead.');
+  }
+
+  const dailyAmount = Number(campaignRow.budget?.daily_amount);
+  if (!dailyAmount || dailyAmount <= 0) throw new Error('A positive daily budget is required to launch a Meta ad campaign.');
+
+  const headline = campaignRow.creative?.headline;
+  const primaryText = campaignRow.creative?.primary_text;
+  const link = campaignRow.creative?.link;
+  if (!headline || !primaryText) throw new Error('Ad headline and primary text are required to launch a campaign.');
+  if (!link) throw new Error('A destination URL is required to launch a campaign.');
+
+  const base = `https://graph.facebook.com/v19.0`;
+  const postJson = async (path: string, body: Record<string, any>) => {
+    const res = await fetch(`${base}/${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...body, access_token: accessToken }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error?.message || `Meta API request to ${path} failed`);
+    return data;
+  };
+
+  let metaCampaignId = '';
+  let metaAdSetId = '';
+  let metaCreativeId = '';
+  let metaAdId = '';
+
+  try {
+    const campaignRes = await postJson(`act_${adAccountId}/campaigns`, {
+      name: campaignRow.name,
+      objective,
+      status: 'ACTIVE',
+      special_ad_categories: [],
+    });
+    metaCampaignId = campaignRes.id;
+
+    const optimizationGoal = objective === 'REACH' ? 'REACH' : 'LINK_CLICKS';
+    const adSetRes = await postJson(`act_${adAccountId}/adsets`, {
+      name: `${campaignRow.name} - Ad Set`,
+      campaign_id: metaCampaignId,
+      daily_budget: Math.round(dailyAmount * 100),
+      billing_event: 'IMPRESSIONS',
+      optimization_goal: optimizationGoal,
+      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+      targeting: {
+        geo_locations: { countries: campaignRow.targeting?.locations?.countries?.length ? campaignRow.targeting.locations.countries : ['US'] },
+        age_min: campaignRow.targeting?.age_min || 18,
+        age_max: campaignRow.targeting?.age_max || 65,
+      },
+      status: 'ACTIVE',
+    });
+    metaAdSetId = adSetRes.id;
+
+    const creativeRes = await postJson(`act_${adAccountId}/adcreatives`, {
+      name: `${campaignRow.name} - Creative`,
+      object_story_spec: {
+        page_id: pageId,
+        link_data: {
+          message: primaryText,
+          link,
+          name: headline,
+          ...(campaignRow.creative?.media_urls?.[0] ? { picture: campaignRow.creative.media_urls[0] } : {}),
+        },
+      },
+    });
+    metaCreativeId = creativeRes.id;
+
+    const adRes = await postJson(`act_${adAccountId}/ads`, {
+      name: campaignRow.name,
+      adset_id: metaAdSetId,
+      creative: { creative_id: metaCreativeId },
+      status: 'ACTIVE',
+    });
+    metaAdId = adRes.id;
+  } catch (err: any) {
+    // Best-effort cleanup: pause whatever Meta object we managed to create so a partial
+    // failure doesn't leave an unmanaged campaign accruing spend.
+    if (metaCampaignId) {
+      try {
+        await fetch(`${base}/${metaCampaignId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'PAUSED', access_token: accessToken }),
+        });
+      } catch (_) { /* best-effort only */ }
+    }
+    throw err;
+  }
+
+  return { metaCampaignId, metaAdSetId, metaCreativeId, metaAdId };
+}
+
 // Looks up a TikTok product by keyword (SKU first, then product name) and returns
 // the first match with its product_id and first sku details.
 async function findTikTokProduct(apiBase: string, headers: Record<string, string>, shopId: string, productName: string, sku: string) {
@@ -1253,9 +1391,13 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     .or('is_active.eq.true,status.eq.connected')
     .limit(1);
 
-  // flash_sale, smart_restock, get_inventory, and Instagram actions operate across all platforms — Shopify not required
-  const shopifyRequired = action.type !== 'flash_sale' && action.type !== 'smart_restock' && action.type !== 'get_inventory'
-    && action.type !== 'instagram_update_price' && action.type !== 'instagram_update_inventory';
+  // flash_sale, smart_restock, get_inventory, Instagram, and Meta Ads actions operate independently of Shopify
+  const NON_SHOPIFY_ACTIONS = new Set([
+    'flash_sale', 'smart_restock', 'get_inventory',
+    'instagram_update_price', 'instagram_update_inventory',
+    'draft_ad', 'launch_ad', 'pause_ad', 'get_ad_performance',
+  ]);
+  const shopifyRequired = !NON_SHOPIFY_ACTIONS.has(action.type);
   if (shopifyRequired && (!platforms || platforms.length === 0)) {
     throw new Error('No connected Shopify store found. Connect one in the Platforms tab first.');
   }
@@ -7331,6 +7473,192 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       }
 
       return { message: lines.join('\n'), report };
+    }
+
+    case 'draft_ad': {
+      if (!action.name) throw new Error('name is required for draft_ad.');
+      const { data: draftRow, error: draftErr } = await supabaseClient
+        .from('ad_campaigns')
+        .insert({
+          user_id: userId,
+          platform: 'meta_ads',
+          name: action.name,
+          status: 'draft',
+          objective: action.objective || 'LINK_CLICKS',
+          ad_account_id: action.ad_account_id || null,
+          budget: action.budget || {},
+          targeting: action.targeting || {},
+          creative: action.creative || {},
+          linked_product_id: action.linked_product_id || null,
+        })
+        .select()
+        .single();
+      if (draftErr) throw new Error(`Could not save ad draft: ${draftErr.message}`);
+      return { message: `Drafted ad campaign "${action.name}". Review it on the Ads page, then launch when ready.`, campaign: draftRow };
+    }
+
+    case 'launch_ad': {
+      let campaignRow: any;
+
+      if (action.campaign_id) {
+        const { data: existing, error: fetchErr } = await supabaseClient
+          .from('ad_campaigns')
+          .select('*')
+          .eq('id', action.campaign_id)
+          .eq('user_id', userId)
+          .single();
+        if (fetchErr || !existing) throw new Error('Ad campaign draft not found.');
+        campaignRow = {
+          ...existing,
+          ad_account_id: action.ad_account_id || existing.ad_account_id,
+          objective: action.objective || existing.objective,
+          budget: action.budget || existing.budget,
+          targeting: action.targeting || existing.targeting,
+          creative: action.creative ? { ...existing.creative, ...action.creative } : existing.creative,
+        };
+      } else {
+        if (!action.name) throw new Error('name is required for launch_ad.');
+        campaignRow = {
+          name: action.name,
+          objective: action.objective || 'LINK_CLICKS',
+          ad_account_id: action.ad_account_id,
+          budget: action.budget || {},
+          targeting: action.targeting || {},
+          creative: action.creative || {},
+          linked_product_id: action.linked_product_id || null,
+        };
+      }
+
+      let launchResult;
+      try {
+        launchResult = await launchMetaCampaign(supabaseClient, userId, campaignRow);
+      } catch (err: any) {
+        if (campaignRow.id) {
+          await supabaseClient.from('ad_campaigns').update({
+            status: 'failed',
+            error_message: err.message,
+          }).eq('id', campaignRow.id);
+        }
+        throw err;
+      }
+
+      const upsertPayload = {
+        user_id: userId,
+        platform: 'meta_ads',
+        name: campaignRow.name,
+        status: 'active',
+        objective: campaignRow.objective,
+        ad_account_id: campaignRow.ad_account_id,
+        platform_campaign_id: launchResult.metaCampaignId,
+        platform_adset_id: launchResult.metaAdSetId,
+        platform_ad_id: launchResult.metaAdId,
+        budget: campaignRow.budget,
+        targeting: campaignRow.targeting,
+        creative: campaignRow.creative,
+        linked_product_id: campaignRow.linked_product_id,
+        launched_at: new Date().toISOString(),
+        error_message: null,
+      };
+
+      let savedCampaign;
+      if (campaignRow.id) {
+        const { data, error } = await supabaseClient
+          .from('ad_campaigns')
+          .update(upsertPayload)
+          .eq('id', campaignRow.id)
+          .select()
+          .single();
+        if (error) throw new Error(`Campaign launched on Meta but failed to save locally: ${error.message}`);
+        savedCampaign = data;
+      } else {
+        const { data, error } = await supabaseClient
+          .from('ad_campaigns')
+          .insert(upsertPayload)
+          .select()
+          .single();
+        if (error) throw new Error(`Campaign launched on Meta but failed to save locally: ${error.message}`);
+        savedCampaign = data;
+      }
+
+      if (launchResult.metaCreativeId) {
+        await supabaseClient.from('ad_creatives').insert({
+          user_id: userId,
+          campaign_id: savedCampaign.id,
+          name: `${campaignRow.name} - Creative`,
+          format: 'image',
+          platform: 'facebook',
+          inventory_item_id: campaignRow.linked_product_id || null,
+          content: campaignRow.creative,
+          platform_creative_id: launchResult.metaCreativeId,
+        });
+      }
+
+      return { message: `Launched Meta ad campaign "${campaignRow.name}" at $${campaignRow.budget?.daily_amount}/day.`, campaign: savedCampaign };
+    }
+
+    case 'pause_ad': {
+      if (!action.campaign_id) throw new Error('campaign_id is required for pause_ad.');
+      const { data: pauseRow, error: pauseFetchErr } = await supabaseClient
+        .from('ad_campaigns')
+        .select('*')
+        .eq('id', action.campaign_id)
+        .eq('user_id', userId)
+        .single();
+      if (pauseFetchErr || !pauseRow) throw new Error('Ad campaign not found.');
+      if (!pauseRow.platform_campaign_id) throw new Error('This campaign was never launched on Meta, so there is nothing to pause.');
+
+      const { accessToken: pauseToken } = await getMetaAdsPlatform(supabaseClient, userId);
+      const pauseRes = await fetch(`https://graph.facebook.com/v19.0/${pauseRow.platform_campaign_id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'PAUSED', access_token: pauseToken }),
+      });
+      if (!pauseRes.ok) {
+        const pauseErr = await pauseRes.json();
+        throw new Error(`Meta pause request failed: ${pauseErr?.error?.message || pauseRes.status}`);
+      }
+
+      await supabaseClient.from('ad_campaigns').update({ status: 'paused' }).eq('id', pauseRow.id);
+      return { message: `Paused ad campaign "${pauseRow.name}".` };
+    }
+
+    case 'get_ad_performance': {
+      const { data: perfRows, error: perfErr } = action.campaign_id
+        ? await supabaseClient.from('ad_campaigns').select('*').eq('id', action.campaign_id).eq('user_id', userId).limit(1)
+        : await supabaseClient.from('ad_campaigns').select('*').eq('user_id', userId).not('platform_campaign_id', 'is', null);
+      if (perfErr) throw new Error(perfErr.message);
+      if (!perfRows?.length) return { message: 'No launched ad campaigns found.', campaigns: [] };
+
+      const { accessToken: perfToken } = await getMetaAdsPlatform(supabaseClient, userId);
+      const results: any[] = [];
+
+      for (const row of perfRows) {
+        if (!row.platform_campaign_id) continue;
+        try {
+          const insightsRes = await fetch(
+            `https://graph.facebook.com/v19.0/${row.platform_campaign_id}/insights?fields=spend,impressions,clicks,reach&access_token=${perfToken}`
+          );
+          const insightsData = await insightsRes.json();
+          const metrics = insightsData.data?.[0] || { spend: '0', impressions: '0', clicks: '0', reach: '0' };
+          const performance_metrics = {
+            spend: parseFloat(metrics.spend || '0'),
+            impressions: parseInt(metrics.impressions || '0', 10),
+            clicks: parseInt(metrics.clicks || '0', 10),
+            reach: parseInt(metrics.reach || '0', 10),
+            conversions: row.performance_metrics?.conversions || 0,
+            roas: row.performance_metrics?.roas || 0,
+          };
+          await supabaseClient.from('ad_campaigns').update({
+            performance_metrics,
+            last_synced_at: new Date().toISOString(),
+          }).eq('id', row.id);
+          results.push({ campaign_id: row.id, name: row.name, ...performance_metrics });
+        } catch (err: any) {
+          results.push({ campaign_id: row.id, name: row.name, error: err.message });
+        }
+      }
+
+      return { message: `Retrieved performance for ${results.length} campaign(s).`, campaigns: results };
     }
 
     default:
