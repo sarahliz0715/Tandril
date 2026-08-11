@@ -7690,7 +7690,7 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
   // Fetch live products from WooCommerce, BigCommerce, Ecwid, Magento, PrestaShop, Wish, Walmart, Etsy
   for (const platform of (platforms || [])) {
     const pt = platform.platform_type;
-    if (!['woocommerce', 'bigcommerce', 'ecwid', 'magento', 'prestashop', 'wish', 'walmart', 'etsy'].includes(pt)) continue;
+    if (!['woocommerce', 'bigcommerce', 'ecwid', 'magento', 'prestashop', 'wish', 'walmart', 'etsy', 'instagram'].includes(pt)) continue;
     try {
       if (pt === 'bigcommerce') {
         const creds = platform.credentials || {};
@@ -7916,6 +7916,34 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
                 image_url: imageUrl,
                 platform_type: 'etsy',
                 listing_id: l.listing_id,
+              });
+              productCount++;
+            }
+          }
+        }
+      } else if (pt === 'instagram') {
+        const tok = platform.credentials?.access_token;
+        const catalogId = platform.metadata?.catalog_id;
+        if (tok && catalogId) {
+          const res = await fetch(
+            `https://graph.facebook.com/v19.0/${catalogId}/products?fields=id,name,price,sale_price,availability,inventory,retailer_id&limit=100&access_token=${tok}`
+          );
+          if (res.ok) {
+            const data = await res.json();
+            for (const p of (data.data || [])) {
+              const priceRaw = p.sale_price || p.price || '0 USD';
+              const price = (parseInt(String(priceRaw).split(' ')[0]) || 0) / 100;
+              products.push({
+                id: `instagram-${p.id}`,
+                title: p.name || 'Unnamed',
+                sku: p.retailer_id || String(p.id),
+                price,
+                inventory_quantity: parseInt(p.inventory || '0') || 0,
+                status: (p.availability || 'in stock').toLowerCase() === 'in stock' ? 'active' : 'draft',
+                vendor: '',
+                product_type: '',
+                tags: '',
+                platform_type: 'instagram',
               });
               productCount++;
             }
