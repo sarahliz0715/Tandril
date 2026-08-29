@@ -278,9 +278,13 @@ async function fetchEbayProducts(supabase: any, platform: any, search: string, p
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
-      // eBay's Sell Inventory API rejects calls (including GETs) missing Content-Language
-      // with a 400, and expects the marketplace to be identified explicitly.
+      // eBay's Sell Inventory API rejects calls missing these with a 400/25709.
+      // This is a GET with no request body, so eBay validates Accept-Language
+      // (the header that actually matters here — Content-Language is for calls
+      // that carry a body, but eBay's own error message calls out Accept-Language
+      // by name, so send both to be safe across endpoints).
       'Content-Language': 'en-US',
+      'Accept-Language': 'en-US',
       'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
     },
   });

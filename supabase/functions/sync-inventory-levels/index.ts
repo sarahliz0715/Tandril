@@ -434,8 +434,12 @@ async function resolveEbayToken(platform: any): Promise<{ accessToken: string; a
   const headers = {
     'Authorization': `Bearer ${accessToken}`,
     'Content-Type': 'application/json',
-    // eBay's Sell Inventory API rejects calls missing Content-Language with a 400.
+    // eBay's Sell Inventory API rejects calls missing these with a 400/25709.
+    // This shared header set covers both the GET (no body — eBay validates
+    // Accept-Language) and the PUT (has a body — validates Content-Language)
+    // call sites that reuse it, so send both rather than trying to split them.
     'Content-Language': 'en-US',
+    'Accept-Language': 'en-US',
     'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
   };
 

@@ -118,8 +118,11 @@ async function fetchEbay(platform: any): Promise<Map<string, { productId: string
       { headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
-          // eBay's Sell Inventory API rejects calls missing Content-Language with a 400.
+          // eBay's Sell Inventory API rejects calls missing these with a 400/25709.
+          // This is a GET (no body) — eBay's own error names Accept-Language, not
+          // Content-Language, so send both to cover GET and body-carrying calls alike.
           'Content-Language': 'en-US',
+          'Accept-Language': 'en-US',
           'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
         } }
     );
