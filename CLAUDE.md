@@ -1,5 +1,5 @@
 # Tandril — Project Context for Claude
-**Last updated:** August 11, 2026 | **Repo:** private | **Owner:** Sarah Evenson
+**Last updated:** August 29, 2026 | **Repo:** private | **Owner:** Sarah Evenson
 
 ---
 
@@ -267,6 +267,22 @@ Click **Workflows** in the sidebar. Open any existing workflow and review its tr
 - [ ] Add `EBAY_APP_ID` secret to Supabase if not already present
 - [ ] Wait for Shivangi (Etsy) approval before any resubmission
 - [ ] Fix mock data in QuickInsights, InventoryOverview, ProfitLossAnalysis (deferred — intentional until user connects store)
+
+---
+
+## Cross-Platform Inventory Sync — Known Gaps (audited Aug 29, 2026, ahead of Sept 8 investor demo)
+
+Audited for a live demo (shirt linked across Shopify + eBay, change inventory on one, show it reflected in Tandril). Logic lives in `/home/user/Tandril/supabase/functions/link-products/index.ts` (SKU-matching linker) and `/home/user/Tandril/supabase/functions/sync-inventory-levels/index.ts` (propagates a quantity to all linked platforms). Deployed Supabase code was confirmed byte-identical to these repo files at audit time.
+
+**It is not a polling system and it is not fully automatic either — know the actual trigger paths before promising "real-time" live:**
+- **Real order/refund on Shopify** (`orders/paid`, `orders/cancelled`, `refunds/create`) → `shopify-order-webhook` auto-fires `sync-inventory-levels` → pushes to every linked platform. Genuinely webhook-driven, ~1–5 seconds.
+- **Manual inventory edit in Shopify admin** (typing a new stock number) → **triggers nothing automatically.** No `inventory_levels/update` webhook is registered anywhere (`shopify-auth-callback` only subscribes to the three order/refund topics above). The only way to push a manual edit to linked platforms is clicking **Sync Now** (per-SKU) or **Reconcile All** in the Inventory page's "Cross-Platform Sync Links" panel (`/home/user/Tandril/components/inventory/SyncLinksPanel.jsx`, rendered directly on `pages/Inventory.jsx`). The 15-min `pg_cron` retry job (`process-sync-retries`) only retries previously *failed* syncs — it does not detect new manual changes, so there is no passive fallback that eventually catches a manual edit.
+- **No realtime push to the frontend** — no Supabase realtime subscription on inventory data anywhere in the app. After any sync (webhook or manual), the Inventory/Products page must be reloaded to show the new number; it won't update live in an open tab.
+- **eBay connections do not auto-link products.** Instagram/Meta connections go through `oauth-callback`, which fire-and-forgets a call to `link-products` after connecting (index.ts:800-805). eBay connects through the separate `ebay-auth-init`/`ebay-auth-callback` functions, which do **not** call `link-products` — confirmed live Aug 29, 2026 (eBay connected in production for `omamahills@gmail.com` at 19:27 UTC, `platform_product_links` still had 0 rows afterward, no `link-products` invocation in the edge logs). Any SKU linking across Shopify↔eBay must be done manually via "Quick Link" or "Browse & Link" in the Sync Links panel after connecting eBay.
+- **`shopify-order-webhook` has no active HMAC verification** — `platforms.metadata.webhook_secret` is never set by the connect flow (`shopify-auth-callback`), so the signature-check branch is always skipped. Not demo-relevant, but a real gap worth closing separately.
+- Linking is an **exact, trimmed SKU string match** across platforms (`link-products`) — no fuzzy matching. A case difference, stray space, or platform-specific prefix on the SKU will silently fail to link with no per-product error, just `linked: 0`.
+
+**Status as of Aug 29, 2026:** eBay is now connected in production for `omamahills@gmail.com`, correctly hitting the production (non-sandbox) eBay API (`metadata.environment: 'production'`, `credentials.is_sandbox` unset/falsy so `link-products`' eBay fetch also defaults to prod — no environment mismatch). `platform_product_links` still has 0 rows — the demo shirt is not linked yet and must be linked manually (Quick Link or Browse & Link) before Sept 8, rehearsed in advance, not done live.
 
 ---
 
