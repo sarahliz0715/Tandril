@@ -273,10 +273,21 @@ async function fetchEbayProducts(supabase: any, platform: any, search: string, p
   const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   if (search) params.set('q', search);
 
+  const marketplaceId = creds.marketplace_id || 'EBAY_US';
   const res = await fetch(`${apiBase}/sell/inventory/v1/inventory_item?${params}`, {
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      // eBay's Sell Inventory API rejects calls (including GETs) missing Content-Language
+      // with a 400, and expects the marketplace to be identified explicitly.
+      'Content-Language': 'en-US',
+      'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
+    },
   });
-  if (!res.ok) throw new Error(`eBay inventory fetch failed: ${res.status}`);
+  if (!res.ok) {
+    const errorBody = await res.text().catch(() => '');
+    throw new Error(`eBay inventory fetch failed: ${res.status}${errorBody ? ` - ${errorBody}` : ''}`);
+  }
   const data = await res.json();
 
   return (data.inventoryItems ?? []).map((item: any) => ({

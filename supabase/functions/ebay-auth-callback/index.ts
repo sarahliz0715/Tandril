@@ -102,6 +102,14 @@ const apiBaseUrl = ebayEnvironment === 'sandbox'
 ? 'https://api.sandbox.ebay.com'
 : 'https://api.ebay.com';
 
+// eBay's Commerce Identity API is hosted on a different subdomain (apiz, not api)
+// from every other Sell/Commerce API this file talks to. Hitting api.ebay.com for
+// this call 404s with an empty body — that's why every eBay connection has been
+// showing shop_name "eBay User" instead of the real username.
+const identityApiBaseUrl = ebayEnvironment === 'sandbox'
+? 'https://apiz.sandbox.ebay.com'
+: 'https://apiz.ebay.com';
+
 // Exchange authorization code for access token
 // redirect_uri must be the RuName (same value used in the auth initiation step)
 const credentials = btoa(`${ebayClientId}:${ebayClientSecret}`);
@@ -129,7 +137,7 @@ const tokenData = await tokenResponse.json();
 console.log(`[eBay Callback] Token exchange successful`);
 
 // Test the connection by fetching user info
-const userInfoResponse = await fetch(`${apiBaseUrl}/commerce/identity/v1/user/`, {
+const userInfoResponse = await fetch(`${identityApiBaseUrl}/commerce/identity/v1/user/`, {
 headers: {
 'Authorization': `Bearer ${tokenData.access_token}`,
 'Content-Type': 'application/json',

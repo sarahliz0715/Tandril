@@ -169,6 +169,7 @@ export default function ProductLinkerModal({ open, onClose, platforms, onLinked 
   const [rightLinkedMap, setRightLinkedMap] = useState(new Map());
 
   const [skuOverride, setSkuOverride] = useState('');
+  const [skuAutoFilled, setSkuAutoFilled] = useState(true);
   const [isLinking, setIsLinking] = useState(false);
 
   const fetchProducts = useCallback(async (platformId, search, page, setSide, setLoading) => {
@@ -252,13 +253,24 @@ export default function ProductLinkerModal({ open, onClose, platforms, onLinked 
     }
   }, [rightSelected, rightPlatformId, fetchVariants]);
 
-  // Auto-fill SKU from whichever side has one
+  // Auto-fill SKU from the selected variant (falling back to the product-level SKU
+  // when no specific variant is chosen), preferring whichever side has one. Re-runs
+  // whenever the variant selection changes — not just on product selection — so
+  // picking a different size/variant updates the SKU instead of leaving it pinned
+  // to whichever variant happened to auto-fill it first. Skipped once the user has
+  // typed their own value, until a new product/variant pick clears that override.
+  const leftVariantSku = leftVariantId && leftVariantId !== '__none__'
+    ? leftVariants.find(v => v.id === leftVariantId)?.sku
+    : null;
+  const rightVariantSku = rightVariantId && rightVariantId !== '__none__'
+    ? rightVariants.find(v => v.id === rightVariantId)?.sku
+    : null;
+
   useEffect(() => {
-    if (!skuOverride) {
-      const sku = leftSelected?.sku || rightSelected?.sku || '';
-      setSkuOverride(sku);
-    }
-  }, [leftSelected, rightSelected]);
+    if (!skuAutoFilled) return;
+    const sku = leftVariantSku || leftSelected?.sku || rightVariantSku || rightSelected?.sku || '';
+    setSkuOverride(sku);
+  }, [leftSelected, rightSelected, leftVariantSku, rightVariantSku, skuAutoFilled]);
 
   const handleLink = async () => {
     if (!leftSelected || !rightSelected) {
@@ -316,6 +328,7 @@ export default function ProductLinkerModal({ open, onClose, platforms, onLinked 
       setLeftVariantId('');
       setRightVariantId('');
       setSkuOverride('');
+      setSkuAutoFilled(true);
     } catch (err) {
       toast.error(`Link failed: ${err.message}`);
     } finally {
@@ -330,6 +343,7 @@ export default function ProductLinkerModal({ open, onClose, platforms, onLinked 
     setLeftSelected(null); setRightSelected(null);
     setLeftLinkedMap(new Map()); setRightLinkedMap(new Map());
     setSkuOverride('');
+    setSkuAutoFilled(true);
     onClose();
   };
 
@@ -408,7 +422,7 @@ export default function ProductLinkerModal({ open, onClose, platforms, onLinked 
               <Input
                 placeholder="e.g. SHIRT-BLK-M"
                 value={skuOverride}
-                onChange={e => setSkuOverride(e.target.value)}
+                onChange={e => { setSkuOverride(e.target.value); setSkuAutoFilled(false); }}
               />
             </div>
             <Button

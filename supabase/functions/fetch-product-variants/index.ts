@@ -102,7 +102,7 @@ serve(async (req) => {
   }
 });
 
-async function fetchVariants(platform: any, productId: string): Promise<{ id: string; label: string }[]> {
+async function fetchVariants(platform: any, productId: string): Promise<{ id: string; label: string; sku: string }[]> {
   switch (platform.platform_type) {
     case 'shopify':
       return fetchShopifyVariants(platform, productId);
@@ -118,7 +118,7 @@ async function fetchVariants(platform: any, productId: string): Promise<{ id: st
   }
 }
 
-async function fetchShopifyVariants(platform: any, productId: string): Promise<{ id: string; label: string }[]> {
+async function fetchShopifyVariants(platform: any, productId: string): Promise<{ id: string; label: string; sku: string }[]> {
   let token = platform.access_token;
   if (token && isEncrypted(token)) token = await decrypt(token);
   if (!token) throw new Error('Shopify access token missing');
@@ -140,10 +140,11 @@ async function fetchShopifyVariants(platform: any, productId: string): Promise<{
   return (data.product?.variants?.edges ?? []).map((e: any) => ({
     id: fromShopifyGid(e.node.id),
     label: e.node.title === 'Default Title' ? 'Default (no variants)' : `${e.node.title}${e.node.sku ? ` — SKU: ${e.node.sku}` : ''}`,
+    sku: e.node.sku || '',
   }));
 }
 
-async function fetchWooVariants(platform: any, productId: string): Promise<{ id: string; label: string }[]> {
+async function fetchWooVariants(platform: any, productId: string): Promise<{ id: string; label: string; sku: string }[]> {
   let token = platform.access_token;
   if (token && isEncrypted(token)) token = await decrypt(token);
   if (!token) throw new Error('WooCommerce access token missing');
@@ -166,10 +167,11 @@ async function fetchWooVariants(platform: any, productId: string): Promise<{ id:
   return variations.map((v: any) => ({
     id: String(v.id),
     label: (v.attributes ?? []).map((a: any) => a.option).join(' / ') || `Variation #${v.id}`,
+    sku: v.sku || '',
   }));
 }
 
-async function fetchEtsyOfferings(platform: any, listingId: string): Promise<{ id: string; label: string }[]> {
+async function fetchEtsyOfferings(platform: any, listingId: string): Promise<{ id: string; label: string; sku: string }[]> {
   const token = platform.credentials?.access_token;
   const clientId = Deno.env.get('ETSY_CLIENT_ID');
   if (!token || !clientId) throw new Error('Etsy credentials missing');
@@ -181,13 +183,13 @@ async function fetchEtsyOfferings(platform: any, listingId: string): Promise<{ i
   if (!res.ok) throw new Error(`Etsy inventory fetch failed: ${res.status}`);
   const inv = await res.json();
 
-  const variants: { id: string; label: string }[] = [];
+  const variants: { id: string; label: string; sku: string }[] = [];
   for (const product of (inv.products ?? [])) {
     for (const offering of (product.offerings ?? [])) {
       const label = (product.property_values ?? [])
         .map((pv: any) => `${pv.property_name}: ${(pv.values ?? []).join(', ')}`)
         .join(' / ') || `Offering #${offering.offering_id}`;
-      variants.push({ id: String(offering.offering_id), label });
+      variants.push({ id: String(offering.offering_id), label, sku: product.sku || '' });
     }
   }
   return variants;
