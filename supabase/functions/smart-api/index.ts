@@ -227,6 +227,7 @@ function summarizeOrionAction(action: any): string {
     case 'create_purchase_order': return `Created draft PO for ${(action.items || []).length} item(s) from ${action.supplier_name || 'supplier'}`;
     case 'get_purchase_orders': return `Retrieved purchase orders${action.status ? ` (${action.status})` : ''}`;
     case 'update_purchase_order_status': return `Updated PO ${action.po_number || ''} status → ${action.status}`;
+    case 'undo_action':                return `Undid previous action for "${action.target?.product_name || action.target?.sku || name}"`;
     case 'update_price':              return `Updated price for "${name}" → $${action.price}`;
     case 'broadcast_price_change':    return `Broadcast price change for SKU "${action.sku}" → $${action.price} across all platforms`;
     case 'update_title':        return `Updated title of "${name}" → "${action.new_title}"`;
@@ -2106,7 +2107,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           }],
         },
       });
-      return { message: `Updated inventory for "${action.sku || action.product_name}" to ${action.quantity} units` };
+      return {
+        message: `Updated inventory for "${action.sku || action.product_name}" to ${action.quantity} units`,
+        previous_state: { quantity: targetVariant.inventory_quantity },
+        target: { sku: action.sku, product_name: action.product_name },
+      };
     }
 
     case 'update_price': {
@@ -2227,6 +2232,22 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       }
       if (restoreErrors.length > 0) throw new Error(`Price restore failed: ${restoreErrors.join('; ')}`);
       return { message: 'Prices restored successfully', restored_count: variant_prices.length };
+    }
+
+    case 'undo_action': {
+      // Generic undo: every write handler above returns { previous_state, target }
+      // alongside its result. Undoing it means replaying the SAME handler with the
+      // old value swapped back in for the new one — no per-action reverse logic needed.
+      const { original_type, target, previous_state } = action;
+      if (!original_type || !previous_state) {
+        throw new Error('undo_action requires original_type and previous_state.');
+      }
+      const syntheticAction = { ...(target || {}), type: original_type, ...previous_state };
+      const undone = await executeStoreAction(supabaseClient, userId, syntheticAction);
+      // The replayed handler captures its own previous_state (i.e. the value we're
+      // undoing FROM) — strip it so the undo itself doesn't show as further undoable.
+      const { previous_state: _droppedState, target: _droppedTarget, ...rest } = undone || {};
+      return rest;
     }
 
     case 'broadcast_price_change': {
@@ -2372,7 +2393,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         }
       `, { input: { id: targetProduct._gid, title: action.new_title } });
       if (titleUpdateData.productUpdate.userErrors?.length) throw new Error(`Shopify title update failed: ${JSON.stringify(titleUpdateData.productUpdate.userErrors)}`);
-      return { message: `Updated title from "${targetProduct.title}" to "${titleUpdateData.productUpdate.product.title}"` };
+      return {
+        message: `Updated title from "${targetProduct.title}" to "${titleUpdateData.productUpdate.product.title}"`,
+        previous_state: { new_title: targetProduct.title },
+        target: { sku: action.sku, product_name: action.product_name },
+      };
     }
 
     case 'update_tags':
@@ -2399,7 +2424,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         }
       `, { input: { id: targetProduct._gid, tags: newTags } });
       if (tagsUpdateData.productUpdate.userErrors?.length) throw new Error(`Shopify tags update failed: ${JSON.stringify(tagsUpdateData.productUpdate.userErrors)}`);
-      return { message: `Updated tags on "${targetProduct.title}" to: ${newTags.join(', ')}` };
+      return {
+        message: `Updated tags on "${targetProduct.title}" to: ${newTags.join(', ')}`,
+        previous_state: { tags: targetProduct.tags },
+        target: { sku: action.sku, product_name: action.product_name },
+      };
     }
     case 'add_image':
     case 'set_image':
@@ -2466,7 +2495,15 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         });
         if (!createRes.ok) throw new Error(`Shopify metafield create failed: ${await createRes.text()}`);
       }
-      return { message: `Set "${namespace}.${key}" metafield on "${targetProduct.title}" to "${value}"` };
+      return {
+        message: `Set "${namespace}.${key}" metafield on "${targetProduct.title}" to "${value}"`,
+        // Only offer undo when a prior value actually existed — setting a freshly
+        // created metafield "back" to nothing isn't a clean restore.
+        ...(existing ? {
+          previous_state: { metafield_value: existing.value },
+          target: { sku: action.sku, product_name: action.product_name, metafield_namespace: namespace, metafield_key: key, metafield_type: type },
+        } : {}),
+      };
     }
 
     case 'update_image_alt_text':
@@ -2492,7 +2529,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         body: JSON.stringify({ image: { id: firstImage.id, alt: action.alt_text } }),
       });
       if (!updateRes.ok) throw new Error(`Shopify image alt update failed: ${await updateRes.text()}`);
-      return { message: `Updated image alt text for "${targetProduct.title}" to "${action.alt_text}"` };
+      return {
+        message: `Updated image alt text for "${targetProduct.title}" to "${action.alt_text}"`,
+        previous_state: { alt_text: firstImage.alt || '' },
+        target: { sku: action.sku, product_name: action.product_name },
+      };
     }
 
     case 'update_description': {
@@ -2506,6 +2547,13 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const body_html = action.body_html || action.description;
       if (!body_html) throw new Error('description is required for update_description.');
 
+      // The product list query above doesn't include descriptionHtml — fetch it
+      // separately so the old value can be restored later via undo.
+      const currentDescData = await shopifyGraphQL(shopDomain, accessToken, `
+        query($id: ID!) { product(id: $id) { descriptionHtml } }
+      `, { id: targetProduct._gid });
+      const previousDescription = currentDescData.product?.descriptionHtml || '';
+
       const descUpdateData = await shopifyGraphQL(shopDomain, accessToken, `
         mutation productUpdate($input: ProductInput!) {
           productUpdate(input: $input) {
@@ -2515,7 +2563,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         }
       `, { input: { id: targetProduct._gid, descriptionHtml: body_html } });
       if (descUpdateData.productUpdate.userErrors?.length) throw new Error(`Shopify description update failed: ${JSON.stringify(descUpdateData.productUpdate.userErrors)}`);
-      return { message: `Updated product description for "${targetProduct.title}"` };
+      return {
+        message: `Updated product description for "${targetProduct.title}"`,
+        previous_state: { body_html: previousDescription },
+        target: { sku: action.sku, product_name: action.product_name },
+      };
     }
 
     case 'update_seo_listing': {
@@ -2529,7 +2581,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       if (!action.seo_title && !action.seo_description) throw new Error('At least one of seo_title or seo_description is required.');
       const seoRestHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
 
-      const metafieldUpsert = async (key: string, value: string) => {
+      const metafieldUpsert = async (key: string, value: string): Promise<string | null> => {
         const listRes = await fetch(
           `https://${shopDomain}/admin/api/2025-01/products/${targetProduct.id}/metafields.json?namespace=global&key=${key}`,
           { headers: seoRestHeaders }
@@ -2551,18 +2603,24 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           });
           if (!r.ok) throw new Error(`SEO metafield create failed: ${await r.text()}`);
         }
+        return existing?.value ?? null;
       };
 
       const parts: string[] = [];
+      const previousState: Record<string, string | null> = {};
       if (action.seo_title) {
-        await metafieldUpsert('title_tag', action.seo_title);
+        previousState.seo_title = await metafieldUpsert('title_tag', action.seo_title);
         parts.push(`meta title: "${action.seo_title}"`);
       }
       if (action.seo_description) {
-        await metafieldUpsert('description_tag', action.seo_description);
+        previousState.seo_description = await metafieldUpsert('description_tag', action.seo_description);
         parts.push('meta description updated');
       }
-      return { message: `Updated SEO listing for "${targetProduct.title}": ${parts.join(', ')}` };
+      return {
+        message: `Updated SEO listing for "${targetProduct.title}": ${parts.join(', ')}`,
+        previous_state: previousState,
+        target: { sku: action.sku, product_name: action.product_name },
+      };
     }
 
     case 'update_url_handle': {
@@ -2585,7 +2643,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         }
       `, { input: { id: targetProduct._gid, handle } });
       if (handleUpdateData.productUpdate.userErrors?.length) throw new Error(`Shopify handle update failed: ${JSON.stringify(handleUpdateData.productUpdate.userErrors)}`);
-      return { message: `Updated URL handle for "${targetProduct.title}" to "/products/${handle}"` };
+      return {
+        message: `Updated URL handle for "${targetProduct.title}" to "/products/${handle}"`,
+        previous_state: { new_handle: targetProduct.handle },
+        target: { sku: action.sku, product_name: action.product_name },
+      };
     }
 
     case 'update_status': {
@@ -2613,7 +2675,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       `, { input: { id: targetProduct._gid, status: newStatus.toUpperCase() } });
       if (statusUpdateData.productUpdate.userErrors?.length) throw new Error(`Shopify status update failed: ${JSON.stringify(statusUpdateData.productUpdate.userErrors)}`);
       const labels: Record<string, string> = { active: 'Active (live)', draft: 'Draft (hidden)', archived: 'Archived (removed)' };
-      return { message: `Set "${targetProduct.title}" status to ${labels[newStatus] || newStatus}` };
+      return {
+        message: `Set "${targetProduct.title}" status to ${labels[newStatus] || newStatus}`,
+        previous_state: { status: String(targetProduct.status || '').toLowerCase() },
+        target: { sku: action.sku, product_name: action.product_name },
+      };
     }
 
     // ── eBay write actions ────────────────────────────────────────────────────

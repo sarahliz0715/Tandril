@@ -208,14 +208,34 @@ export default function History() {
     });
   }, [confirm, navigate, loadData]);
 
-  // Handle undoing a completed price adjustment command
+  // Whether a completed row has enough captured "before" state to offer undo.
+  // Orion actions carry either the generic previous_state snapshot (any write
+  // action) or the older previous_prices snapshot (price-only actions from
+  // before the generic path existed). Plain Commands-page rows always show the
+  // button — handleUndo below does the real check at click time.
+  const canUndo = useCallback((command) => {
+    if (command.status !== 'completed') return false;
+    if (command.source === 'orion') {
+      const result = command.execution_results?.result;
+      if (result?.previous_prices?.length > 0) return true;
+      const ps = result?.previous_state;
+      return !!(ps && typeof ps === 'object' && Object.values(ps).some(v => v !== null && v !== undefined));
+    }
+    return (command.source || 'command') === 'command';
+  }, []);
+
+  // Handle undoing a completed command that changed store data
   const handleUndo = useCallback(async (command) => {
     const isOrion = command.source === 'orion';
 
-    // Orion action undo — restore previous variant prices captured at execution time
     if (isOrion) {
-      const previousPrices = command.execution_results?.result?.previous_prices;
-      if (!previousPrices?.length) {
+      const result = command.execution_results?.result;
+      const previousState = result?.previous_state;
+      const hasPreviousState = previousState && typeof previousState === 'object' &&
+        Object.values(previousState).some(v => v !== null && v !== undefined);
+      const previousPrices = result?.previous_prices;
+
+      if (!hasPreviousState && !previousPrices?.length) {
         toast.error("Cannot undo this action", {
           description: "This action was executed before undo history was supported."
         });
@@ -224,6 +244,54 @@ export default function History() {
 
       const confirmed = await confirm({
         title: 'Undo Orion Action?',
+        description: `This will reverse "${command.command_text?.substring(0, 60)}". Continue?`,
+        confirmText: 'Undo',
+        variant: 'destructive',
+      });
+      if (!confirmed) return;
+
+      setUndoingCommand(command.id);
+      try {
+        if (hasPreviousState) {
+          // Generic path — replay the same action type with the old value.
+          await api.functions.invoke('smart-api', {
+            execute_action: {
+              type: 'undo_action',
+              original_type: command.execution_results.action_type,
+              target: result.target,
+              previous_state: previousState,
+            }
+          });
+        } else {
+          // Older price-only rows.
+          await api.functions.invoke('smart-api', {
+            execute_action: {
+              type: 'restore_variant_prices',
+              variant_prices: previousPrices.map(p => ({ variant_id: p.variant_id, price: p.previous_price })),
+            }
+          });
+        }
+        await AICommand.update(command.id, { status: 'undone' });
+        toast.success("Action undone");
+        loadData();
+      } catch (error) {
+        toast.error("Failed to undo action", { description: error.message });
+      } finally {
+        setUndoingCommand(null);
+      }
+      return;
+    }
+
+    // Regular command undo (Commands page) — prefer the exact previous prices
+    // captured at execution time (works for price_adjustment AND new_price).
+    const resultsArr = command.execution_results?.results;
+    const flattenedPrevPrices = Array.isArray(resultsArr)
+      ? resultsArr.flatMap(r => r?.result?.previous_prices || [])
+      : [];
+
+    if (flattenedPrevPrices.length > 0) {
+      const confirmed = await confirm({
+        title: 'Undo Command?',
         description: `This will restore the previous prices from "${command.command_text?.substring(0, 60)}". Continue?`,
         confirmText: 'Undo',
         variant: 'destructive',
@@ -235,21 +303,22 @@ export default function History() {
         await api.functions.invoke('smart-api', {
           execute_action: {
             type: 'restore_variant_prices',
-            variant_prices: previousPrices.map(p => ({ variant_id: p.variant_id, price: p.previous_price })),
+            variant_prices: flattenedPrevPrices.map(p => ({ variant_id: p.variant_id, price: p.previous_price })),
           }
         });
         await AICommand.update(command.id, { status: 'undone' });
-        toast.success("Action undone — prices restored");
+        toast.success("Command undone successfully");
         loadData();
       } catch (error) {
-        toast.error("Failed to undo action", { description: error.message });
+        toast.error("Failed to undo command", { description: error.message });
       } finally {
         setUndoingCommand(null);
       }
       return;
     }
 
-    // Regular command undo — invert price_adjustment
+    // Fallback for rows created before previous_prices capture existed —
+    // invert price_adjustment on price-only commands.
     const actions = command.actions_planned;
     const priceActions = (actions || []).filter(
       a => a.type === 'update_products' && a.parameters?.price_adjustment !== undefined
@@ -654,10 +723,7 @@ export default function History() {
                     >
                       <FileText className="w-4 h-4" />
                     </Button>
-                    {command.status === 'completed' && (
-                      (command.source || 'command') === 'command' ||
-                      (command.source === 'orion' && command.execution_results?.result?.previous_prices?.length > 0)
-                    ) && (
+                    {canUndo(command) && (
                       <Button
                         variant="ghost"
                         size="sm"
