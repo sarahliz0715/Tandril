@@ -321,6 +321,7 @@ async function updateProducts(platform: any, parameters: any): Promise<any> {
   }
 
   const results = [];
+  const previousPrices: Array<{ variant_id: string; previous_price: string; sku: string }> = [];
 
   for (const product of products) {
     for (const variant of product.variants || []) {
@@ -354,6 +355,7 @@ async function updateProducts(platform: any, parameters: any): Promise<any> {
           variants: [{ id: toShopifyGid('ProductVariant', variant.id), price: newVariantPrice }],
         });
 
+        previousPrices.push({ variant_id: variant.id, previous_price: variant.price, sku: variant.sku || '' });
         results.push({ product_id: product.id, variant_id: variant.id, success: true });
       } catch (error) {
         results.push({ product_id: product.id, variant_id: variant.id, success: false, error: error.message });
@@ -365,6 +367,10 @@ async function updateProducts(platform: any, parameters: any): Promise<any> {
     updated: results.filter(r => r.success).length,
     failed: results.filter(r => !r.success).length,
     results,
+    // Exact pre-change prices for every variant actually written — lets History's
+    // undo restore precisely, regardless of whether this ran via price_adjustment
+    // or an absolute new_price/updates.price.
+    previous_prices: previousPrices,
   };
 }
 

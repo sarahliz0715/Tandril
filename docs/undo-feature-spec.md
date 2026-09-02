@@ -1,8 +1,30 @@
 # Universal Undo — Implementation Spec
 
-**Status:** Not started. This is a spec to hand to a Claude Code session (this repo's `CLAUDE.md`
-conventions apply — edge functions must be manually pasted into the Supabase dashboard to deploy,
-nothing here auto-deploys).
+**Status:** Phase 1 (Shopify core + generic dispatcher) built in code, **not yet deployed**. This is a
+spec to hand to a Claude Code session (this repo's `CLAUDE.md` conventions apply — edge functions
+must be manually pasted into the Supabase dashboard to deploy, nothing here auto-deploys).
+
+### Phase 1 — done in code, pending manual deploy
+- `smart-api/index.ts`: `update_title`, `update_description`, `update_tags`/`add_tags`,
+  `update_inventory`, `update_status`, `update_seo_listing`, `update_metafield`,
+  `update_image_alt_text`/`update_image_alt`, `update_url_handle` now all capture `previous_state` +
+  `target` on their return value. Added the generic `case 'undo_action'` dispatcher (replays the
+  original handler with the old value) and a `summarizeOrionAction` label for it.
+- `execute-command/index.ts`: `updateProducts` now captures exact `previous_prices` per variant
+  (works for `price_adjustment` AND absolute `new_price`/`updates.price` — the old invert-based undo
+  only handled `price_adjustment`).
+- `pages/History.jsx`: `handleUndo` generalized — Orion rows use the new `previous_state` path when
+  present, fall back to the old `previous_prices` path for older rows; Commands-page rows now prefer
+  the exact captured prices over recomputing an inverse, with the old invert logic kept as a last
+  resort for rows from before this change. Button visibility now goes through a single `canUndo()`
+  check instead of a hardcoded price-only condition.
+- **Before this is live:** manually paste the updated `smart-api` and `execute-command` into the
+  Supabase dashboard (Edge Functions → deploy), then test each of the 9 Shopify actions above against
+  a real connected store — undo, and confirm the value actually goes back to the real original, not
+  just that the call succeeds.
+- **Not done yet:** eBay/Etsy/TikTok/Amazon/WooCommerce/etc. (cross-platform actions), create/end/renew
+  listing pairs, `execute-command`'s `apply_discount`/`update_inventory`/`update_seo` (still undo-less),
+  and the excluded categories below (by design).
 
 **Goal:** Every action that changes something in a connected store gets an undo option in History —
 not just price changes. This is a trust/security requirement (per Sarah), not just a demo need.
