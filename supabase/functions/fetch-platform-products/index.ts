@@ -273,10 +273,25 @@ async function fetchEbayProducts(supabase: any, platform: any, search: string, p
   const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   if (search) params.set('q', search);
 
+  const marketplaceId = creds.marketplace_id || 'EBAY_US';
   const res = await fetch(`${apiBase}/sell/inventory/v1/inventory_item?${params}`, {
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      // eBay's Sell Inventory API rejects calls missing these with a 400/25709.
+      // This is a GET with no request body, so eBay validates Accept-Language
+      // (the header that actually matters here — Content-Language is for calls
+      // that carry a body, but eBay's own error message calls out Accept-Language
+      // by name, so send both to be safe across endpoints).
+      'Content-Language': 'en-US',
+      'Accept-Language': 'en-US',
+      'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
+    },
   });
-  if (!res.ok) throw new Error(`eBay inventory fetch failed: ${res.status}`);
+  if (!res.ok) {
+    const errorBody = await res.text().catch(() => '');
+    throw new Error(`eBay inventory fetch failed: ${res.status}${errorBody ? ` - ${errorBody}` : ''}`);
+  }
   const data = await res.json();
 
   return (data.inventoryItems ?? []).map((item: any) => ({

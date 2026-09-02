@@ -295,13 +295,16 @@ async function fetchCurrentQty(platform: any, link: any, token: string): Promise
       return data.stock_quantity ?? 0;
     }
     case 'ebay': {
-      const { accessToken, apiBase } = await resolveEbayToken(platform);
+      const { apiBase, headers } = await resolveEbayToken(platform);
       const sku = link.sku;
       const res = await fetch(
         `${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
-        { headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+        { headers }
       );
-      if (!res.ok) throw new Error(`eBay inventory fetch failed: ${res.status}`);
+      if (!res.ok) {
+        const errorBody = await res.text().catch(() => '');
+        throw new Error(`eBay inventory fetch failed: ${res.status}${errorBody ? ` - ${errorBody}` : ''}`);
+      }
       const data = await res.json();
       return data.availability?.shipToLocationAvailability?.quantity ?? 0;
     }
@@ -393,7 +396,7 @@ async function syncWooCommerce(platform: any, link: any, qty: number, token: str
   return { ...result, success: true };
 }
 
-async function resolveEbayToken(platform: any): Promise<{ accessToken: string; apiBase: string }> {
+async function resolveEbayToken(platform: any): Promise<{ accessToken: string; apiBase: string; headers: Record<string, string> }> {
   const credentials = platform.credentials ?? {};
   const metadata = platform.metadata ?? {};
   const isSandbox = metadata.environment === 'sandbox';
@@ -426,17 +429,33 @@ async function resolveEbayToken(platform: any): Promise<{ accessToken: string; a
   }
 
   if (!accessToken) throw new Error('eBay access token missing or could not be refreshed');
-  return { accessToken, apiBase };
+
+  const marketplaceId = credentials.marketplace_id || 'EBAY_US';
+  const headers = {
+    'Authorization': `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+    // eBay's Sell Inventory API rejects calls missing these with a 400/25709.
+    // This shared header set covers both the GET (no body — eBay validates
+    // Accept-Language) and the PUT (has a body — validates Content-Language)
+    // call sites that reuse it, so send both rather than trying to split them.
+    'Content-Language': 'en-US',
+    'Accept-Language': 'en-US',
+    'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
+  };
+
+  return { accessToken, apiBase, headers };
 }
 
 async function syncEbay(platform: any, link: any, qty: number, supabase: any, result: any) {
-  const { accessToken, apiBase } = await resolveEbayToken(platform);
+  const { apiBase, headers } = await resolveEbayToken(platform);
   const sku = link.sku;
-  const headers = { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
 
   // Fetch current inventory item to preserve existing fields
   const getRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, { headers });
-  if (!getRes.ok) throw new Error(`eBay inventory fetch failed: ${getRes.status}`);
+  if (!getRes.ok) {
+    const errorBody = await getRes.text().catch(() => '');
+    throw new Error(`eBay inventory fetch failed: ${getRes.status}${errorBody ? ` - ${errorBody}` : ''}`);
+  }
   const item = await getRes.json();
 
   // Update quantity and PUT back

@@ -115,9 +115,22 @@ async function fetchEbay(platform: any): Promise<Map<string, { productId: string
   while (true) {
     const res = await fetch(
       `${apiBase}/sell/inventory/v1/inventory_item?limit=${limit}&offset=${offset}`,
-      { headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'X-EBAY-C-MARKETPLACE-ID': marketplaceId } }
+      { headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          // eBay's Sell Inventory API rejects calls missing these with a 400/25709.
+          // This is a GET (no body) — eBay's own error names Accept-Language, not
+          // Content-Language, so send both to cover GET and body-carrying calls alike.
+          'Content-Language': 'en-US',
+          'Accept-Language': 'en-US',
+          'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
+        } }
     );
-    if (!res.ok) { console.warn(`[link-products] eBay fetch failed: ${res.status}`); break; }
+    if (!res.ok) {
+      const errorBody = await res.text().catch(() => '');
+      console.warn(`[link-products] eBay fetch failed: ${res.status}${errorBody ? ` - ${errorBody}` : ''}`);
+      break;
+    }
     const data = await res.json();
 
     for (const item of data.inventoryItems ?? []) {
