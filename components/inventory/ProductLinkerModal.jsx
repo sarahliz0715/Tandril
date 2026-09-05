@@ -351,7 +351,7 @@ export default function ProductLinkerModal({ open, onClose, platforms, onLinked 
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-4xl w-full">
+      <DialogContent className="max-w-4xl w-full overflow-x-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Link2 className="w-5 h-5 text-emerald-600" />
@@ -362,7 +362,7 @@ export default function ProductLinkerModal({ open, onClose, platforms, onLinked 
           </p>
         </DialogHeader>
 
-        <div className="flex gap-6 py-2">
+        <div className="flex gap-6 py-2 min-w-[760px]">
           <PlatformColumn
             label="Platform A"
             platforms={platforms.filter(p => p.id !== rightPlatformId)}
