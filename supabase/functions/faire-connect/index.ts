@@ -105,7 +105,11 @@ serve(async (req) => {
       name: brandInfo.name || `Faire Brand ${cleanBrandToken}`,
       store_url: brandInfo.site_url || `https://www.faire.com/brand/${cleanBrandToken}`,
       credentials: {
-        api_token: cleanApiToken,
+        // Stored as `access_token` (not `api_token`) so this matches exactly
+        // what the OAuth connect path (exchangeFaire) stores, and what every
+        // Faire read/write action in smart-api looks up
+        // (getFaireClientForActions and friends all read credentials.access_token).
+        access_token: cleanApiToken,
         brand_token: cleanBrandToken,
       },
       status: 'connected',

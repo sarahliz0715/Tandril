@@ -1097,11 +1097,11 @@ async function fetchWooDataForOrion(platform: any): Promise<{ products: any[], o
 }
 
 async function fetchFaireDataForOrion(platform: any): Promise<{ products: any[], orders: any[] }> {
-  const { api_token } = platform.credentials || {};
-  if (!api_token) return { products: [], orders: [] };
+  const { access_token } = platform.credentials || {};
+  if (!access_token) return { products: [], orders: [] };
 
   const headers = {
-    'X-FAIRE-ACCESS-TOKEN': api_token,
+    'X-FAIRE-ACCESS-TOKEN': access_token,
     'Content-Type': 'application/json',
     'Accept': 'application/json',
   };
@@ -1169,7 +1169,7 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
           const data = await fetchWooDataForOrion(platform);
           return { ...data, platformType: 'woocommerce' };
         }
-        if (platform.platform_type === 'faire' && platform.credentials?.api_token) {
+        if (platform.platform_type === 'faire' && platform.credentials?.access_token) {
           const data = await fetchFaireDataForOrion(platform);
           return { ...data, platformType: 'faire' };
         }
