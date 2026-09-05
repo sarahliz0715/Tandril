@@ -32,7 +32,6 @@ async function verifyShopifyWebhook(
     );
 
     const hashArray = Array.from(new Uint8Array(signature));
-    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     const hashBase64 = btoa(String.fromCharCode(...hashArray));
 
     return hashBase64 === hmacHeader;
@@ -54,7 +53,6 @@ serve(async (req) => {
   try {
     // Get HMAC header for verification
     const hmacHeader = req.headers.get('X-Shopify-Hmac-Sha256');
-    const shopDomain = req.headers.get('X-Shopify-Shop-Domain');
 
     // Read the raw body for HMAC verification
     const rawBody = await req.text();
@@ -107,84 +105,100 @@ serve(async (req) => {
       console.warn('[shop/redact] Could not log to database (table may not exist):', dbError);
     }
 
-    // Implement the actual shop data deletion logic
-    try {
-      // Delete all data associated with this shop
-      // This is sent 48 hours after uninstall, so we should delete all shop data
+    const deletionErrors: string[] = [];
 
+    try {
       console.log(`[shop/redact] Starting data deletion for shop: ${payload.shop_domain}`);
 
-      // 1. Delete platform connection
+      // Resolve the Tandril user this shop belongs to BEFORE deleting the
+      // platform row — we need user_id to clean up the rest of their data,
+      // and once the platforms row is gone that link is lost. (The previous
+      // version of this function tried to filter ai_commands/saved_commands/
+      // ai_workflows/workflow_runs directly by a "shop_domain" column — none
+      // of those tables actually have one, so every one of those deletes was
+      // silently failing.)
+      const { data: platformRow, error: platformLookupError } = await supabaseClient
+        .from('platforms')
+        .select('id, user_id')
+        .eq('shop_domain', payload.shop_domain)
+        .eq('platform_type', 'shopify')
+        .maybeSingle();
+
+      if (platformLookupError) {
+        console.error('[shop/redact] Error looking up platform:', platformLookupError.message);
+      }
+
+      const userId = platformRow?.user_id;
+
+      if (userId) {
+        // Orders (and their line items, via an ON DELETE CASCADE foreign key)
+        // are the one table that's reliably scoped to a single platform
+        // connection, so this only removes this shop's own orders.
+        const { error: ordersError } = await supabaseClient
+          .from('orders')
+          .delete()
+          .eq('user_id', userId)
+          .eq('platform_type', 'shopify');
+        if (ordersError) deletionErrors.push(`orders: ${ordersError.message}`);
+        else console.log('[shop/redact] Shopify orders deleted');
+
+        // ai_commands, saved_commands, and ai_workflows aren't tagged with a
+        // specific platform in Tandril's schema — they belong to the whole
+        // account, not one store. For an account with only Shopify connected
+        // this correctly clears everything; for an account with other
+        // platforms connected too, this also clears their AI history for
+        // those, since there's no per-platform column to filter on.
+        // Deleting ai_workflows also cascades to delete workflow_runs
+        // automatically (workflow_runs.workflow_id has ON DELETE CASCADE).
+        const userWideTables = ['ai_commands', 'saved_commands', 'ai_workflows'];
+        for (const table of userWideTables) {
+          const { error } = await supabaseClient.from(table).delete().eq('user_id', userId);
+          if (error) {
+            deletionErrors.push(`${table}: ${error.message}`);
+          } else {
+            console.log(`[shop/redact] Deleted ${table} for user ${userId}`);
+          }
+        }
+      } else {
+        console.warn(`[shop/redact] No matching platform row found for ${payload.shop_domain} — nothing to resolve to a user; only platform/oauth records (if any) will be removed.`);
+      }
+
+      // Delete the platform connection itself
       const { error: platformError } = await supabaseClient
         .from('platforms')
         .delete()
-        .eq('shop_domain', payload.shop_domain);
+        .eq('shop_domain', payload.shop_domain)
+        .eq('platform_type', 'shopify');
 
       if (platformError) {
-        console.error('[shop/redact] Error deleting platform:', platformError);
+        deletionErrors.push(`platforms: ${platformError.message}`);
       } else {
         console.log('[shop/redact] Platform connection deleted');
       }
 
-      // 2. Delete AI commands history
-      const { error: commandsError } = await supabaseClient
-        .from('ai_commands')
+      // Clean up any leftover OAuth state rows for this shop
+      const { error: oauthError } = await supabaseClient
+        .from('oauth_states')
         .delete()
         .eq('shop_domain', payload.shop_domain);
-
-      if (commandsError && !commandsError.message.includes('does not exist')) {
-        console.error('[shop/redact] Error deleting commands:', commandsError);
-      } else {
-        console.log('[shop/redact] AI commands deleted');
-      }
-
-      // 3. Delete saved commands
-      const { error: savedCommandsError } = await supabaseClient
-        .from('saved_commands')
-        .delete()
-        .eq('shop_domain', payload.shop_domain);
-
-      if (savedCommandsError && !savedCommandsError.message.includes('does not exist')) {
-        console.error('[shop/redact] Error deleting saved commands:', savedCommandsError);
-      } else {
-        console.log('[shop/redact] Saved commands deleted');
-      }
-
-      // 4. Delete workflows
-      const { error: workflowsError } = await supabaseClient
-        .from('ai_workflows')
-        .delete()
-        .eq('shop_domain', payload.shop_domain);
-
-      if (workflowsError && !workflowsError.message.includes('does not exist')) {
-        console.error('[shop/redact] Error deleting workflows:', workflowsError);
-      } else {
-        console.log('[shop/redact] Workflows deleted');
-      }
-
-      // 5. Delete workflow runs
-      const { error: workflowRunsError } = await supabaseClient
-        .from('workflow_runs')
-        .delete()
-        .eq('shop_domain', payload.shop_domain);
-
-      if (workflowRunsError && !workflowRunsError.message.includes('does not exist')) {
-        console.error('[shop/redact] Error deleting workflow runs:', workflowRunsError);
-      } else {
-        console.log('[shop/redact] Workflow runs deleted');
-      }
+      if (oauthError) deletionErrors.push(`oauth_states: ${oauthError.message}`);
 
       // Update compliance request status
       await supabaseClient
         .from('compliance_requests')
         .update({
-          status: 'completed',
+          status: deletionErrors.length > 0 ? 'error' : 'completed',
+          error_message: deletionErrors.length > 0 ? deletionErrors.join(' | ') : null,
           completed_at: new Date().toISOString()
         })
         .eq('shop_domain', payload.shop_domain)
         .eq('request_type', 'shop/redact');
 
-      console.log(`[shop/redact] Successfully deleted all data for shop: ${payload.shop_domain}`);
+      if (deletionErrors.length > 0) {
+        console.error('[shop/redact] Completed with errors:', deletionErrors.join(' | '));
+      } else {
+        console.log(`[shop/redact] Successfully deleted all data for shop: ${payload.shop_domain}`);
+      }
 
     } catch (deletionError) {
       console.error('[shop/redact] Error during data deletion:', deletionError);

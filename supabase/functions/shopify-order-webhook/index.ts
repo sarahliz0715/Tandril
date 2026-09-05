@@ -72,6 +72,22 @@ serve(async (req) => {
 
     const rawBody = await req.text();
 
+    // Every webhook Shopify sends for this app is signed with the app's own
+    // client secret (the same SHOPIFY_API_SECRET already used by
+    // app-subscription-update/app-uninstalled) — not a per-shop secret.
+    // Verify this before doing anything else, so an unsigned/forged request
+    // never reaches the database lookups below.
+    const shopifyApiSecret = Deno.env.get('SHOPIFY_API_SECRET');
+    if (!shopifyApiSecret) {
+      console.error('[shopify-order-webhook] SHOPIFY_API_SECRET not configured');
+      return new Response('Server configuration error', { status: 500 });
+    }
+    const validSignature = await verifyShopifyHmac(rawBody, hmacHeader, shopifyApiSecret);
+    if (!validSignature) {
+      console.error('[shopify-order-webhook] HMAC verification failed — rejecting request');
+      return new Response('Unauthorized', { status: 401 });
+    }
+
     if (!['orders/create', 'orders/paid', 'orders/cancelled', 'refunds/create'].includes(topic)) {
       return new Response('ok', { status: 200 });
     }
@@ -96,15 +112,6 @@ serve(async (req) => {
 
     let token = platform.access_token;
     if (token && isEncrypted(token)) token = await decrypt(token);
-
-    const webhookSecret = platform.metadata?.webhook_secret;
-    if (webhookSecret) {
-      const valid = await verifyShopifyHmac(rawBody, hmacHeader, webhookSecret);
-      if (!valid) {
-        console.error('[shopify-order-webhook] HMAC verification failed');
-        return new Response('Unauthorized', { status: 401 });
-      }
-    }
 
     const payload = JSON.parse(rawBody);
     console.log(`[shopify-order-webhook] topic=${topic} id=${payload.id} shop=${shopDomain}`);
