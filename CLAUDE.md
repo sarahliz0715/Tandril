@@ -50,6 +50,7 @@ They do NOT auto-deploy from GitHub.
 | `customers-data-request` | GDPR: handles customer data export requests | N/A |
 | `customers-redact` | GDPR: anonymizes customer data on request | N/A |
 | `shop-redact` | GDPR: deletes all shop data 48h after uninstall | N/A |
+| `reorder-point-calculator` | Deterministic reorder-point math (velocity, days of stock, reorder point) per SKU, using supplier lead times | N/A (no AI/LLM call by design) |
 
 ---
 
@@ -273,6 +274,32 @@ Click **Workflows** in the sidebar. Open any existing workflow and review its tr
 - [ ] Add `EBAY_APP_ID` secret to Supabase if not already present
 - [ ] Wait for Shivangi (Etsy) approval before any resubmission
 - [ ] Fix mock data in QuickInsights, InventoryOverview, ProfitLossAnalysis (deferred — intentional until user connects store)
+- [ ] Manually deploy `reorder-point-calculator` to Supabase dashboard (code exists in repo, not yet pasted/deployed — see "Reorder Point / Days-of-Stock Feature" below)
+- [ ] Wire `reorder-point-calculator` into a cron (like `check-alerts`) or a UI button — it currently only runs when called directly (e.g. via `runReorderPointCalculator()` in `lib/supabaseFunctions.js`), nothing schedules it yet
+- [ ] Add real suppliers via the existing Suppliers UI and link products to them (`product_suppliers`) before `reorder-point-calculator` will flag anything — with 0 supplier rows, every SKU gets skipped with "no supplier lead time on file"
+
+---
+
+## Reorder Point / Days-of-Stock Feature (added Sept 9, 2026)
+
+New, fully deterministic (no AI/LLM calls) edge function: `/home/user/Tandril/supabase/functions/reorder-point-calculator/index.ts`. Same structure/auth pattern as `price-guardrail`/`inventory-protection` (Shopify-only for now, per-platform processing, errors logged per-item not per-batch). Frontend wrapper added at `runReorderPointCalculator()` in `/home/user/Tandril/lib/supabaseFunctions.js` (not yet called from any page — no UI button wired up).
+
+**What it calculates, per active Shopify product/variant with a SKU:**
+- `daily_velocity` = units sold (from paid Shopify orders) ÷ trailing window in days (default 30, both configurable)
+- `days_of_stock_remaining` = current inventory ÷ daily_velocity (`null` if velocity is 0 — never divides by zero)
+- `reorder_point` = (supplier `lead_time_days` × daily_velocity) × (1 + safety buffer %, default 20%)
+- `needs_reorder` = current inventory ≤ reorder_point
+
+**Supplier lookup:** trimmed exact-match on `product_suppliers.sku` → `suppliers.lead_time_days` (inactive suppliers excluded). A SKU with no linked, active supplier is **skipped** with reason `"no supplier lead time on file"` — never defaults to a guessed lead time. With 0 supplier rows today (per this file's own Credentials section), every SKU will skip until Sarah adds real suppliers and links products to them via the existing Suppliers UI.
+
+**(a) vs (b) decision — live Shopify fetch, not local `orders`/`order_items` persistence:** Went with **(a) query Shopify's order history live**, same approach `calculate-pnl` already uses (GraphQL `orders(query: "financial_status:paid created_at:>=...")`, `first: 250`, no pagination — same limitation `calculate-pnl`/`daily-business-briefing` already have). Reasoning:
+- **(b) would ship with zero usable data.** `shopify-order-webhook` (confirmed by reading it directly) does NOT write to `orders`/`order_items` today — it only calls `sync-inventory-levels` for cross-platform stock propagation. Turning on persistence now means a brand-new 30-day velocity window with no historical backfill; the feature would report "no recent sales data" for every SKU for a month after deploy.
+- **(a) matches existing precedent exactly** — `calculate-pnl` already computes financials live from Shopify per request rather than from local tables, for the same underlying reason (no local order history exists yet).
+- **(b) is still the better long-term direction** — cheaper/faster once real data exists, and is the natural next step alongside the already-documented cross-platform inventory sync gaps (see below) if `orders`/`order_items` ever start getting populated for other reasons (e.g. cross-platform order history, LTV analysis). Revisit if this function starts getting called often enough that repeated live Shopify GraphQL calls become a rate-limit or latency concern.
+
+**Output surface — `smart_alerts`, not `daily-business-briefing`/`generate-orion-digest`:** Chose `smart_alerts` (one row per SKU that `needs_reorder`, deduped by a configurable cooldown — default 24h — so repeated runs don't spam the notification bell) over folding this into an AI-generated briefing. Reasoning: `daily-business-briefing` and `generate-orion-digest` both pass their input through Claude to write prose — for exact numbers like "you have 12 days of stock left," a direct deterministic alert avoids any risk of the LLM paraphrasing/rounding/garbling the math (the same class of trust issue already documented in this file under Orion's hallucinated-completion bug). `smart_alerts` is also the table this file already describes as "flagging things to the user," and it's the pattern `check-alerts` already uses for fully deterministic alerts.
+
+**Known limitation, same one `link-products` already has:** SKU matching against `product_suppliers` is an exact, trimmed string match — no fuzzy matching. A stray space or casing difference on a SKU will silently skip that product with "no supplier lead time on file" rather than erroring loudly.
 
 ---
 
