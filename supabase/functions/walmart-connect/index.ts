@@ -76,6 +76,7 @@ serve(async (req) => {
       user_id: user.id,
       platform_type: 'walmart',
       name: `Walmart - ${sellerName}`,
+      shop_name: sellerName,
       credentials: { client_id, client_secret, access_token: accessToken },
       status: 'connected',
       is_active: true,

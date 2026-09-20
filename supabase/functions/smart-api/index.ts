@@ -1709,6 +1709,69 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         console.warn('[smart-api] BigCommerce inventory fetch failed:', e.message);
       }
 
+      // Fetch Walmart Marketplace products for any connected Walmart platforms
+      try {
+        const { data: walmartInvPlatforms } = await supabaseClient
+          .from('platforms')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('platform_type', 'walmart')
+          .or('is_active.eq.true,status.eq.connected');
+
+        for (const wmPlatform of (walmartInvPlatforms || [])) {
+          const { client_id, client_secret } = wmPlatform.credentials || {};
+          if (!client_id || !client_secret) continue;
+
+          const wmTokenRes = await fetch('https://marketplace.walmartapis.com/v3/token', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Basic ${btoa(`${client_id}:${client_secret}`)}`,
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'WM_SVC.NAME': 'Walmart Marketplace',
+              'WM_QOS.CORRELATION_ID': crypto.randomUUID(),
+              'Accept': 'application/json',
+            },
+            body: 'grant_type=client_credentials',
+          });
+          if (!wmTokenRes.ok) continue;
+          const wmToken = (await wmTokenRes.json()).access_token;
+
+          const wmItemsRes = await fetch('https://marketplace.walmartapis.com/v3/items?limit=100', {
+            headers: {
+              'Authorization': `Bearer ${wmToken}`,
+              'WM_SVC.NAME': 'Walmart Marketplace',
+              'WM_QOS.CORRELATION_ID': crypto.randomUUID(),
+              'Accept': 'application/json',
+            },
+          });
+          if (!wmItemsRes.ok) continue;
+          const wmData = await wmItemsRes.json();
+          for (const p of (wmData.ItemResponse || [])) {
+            const totalStock = p.inventoryCount ?? 0;
+            let status = 'active';
+            if (p.publishedStatus !== 'PUBLISHED') status = 'discontinued';
+            else if (totalStock === 0) status = 'out_of_stock';
+            else if (totalStock <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+            inventory.push({
+              id: `walmart-${p.sku}`,
+              product_name: p.productName || p.itemName || p.sku || 'Unnamed',
+              sku: p.sku || 'N/A',
+              category: p.productType || '',
+              status,
+              total_stock: totalStock,
+              base_price: parseFloat(p.price?.amount || '0') || 0,
+              image_url: null,
+              vendor: p.brand || '',
+              tags: '',
+              platform_listings: [{ listing_id: p.sku, platform: 'Walmart' }],
+              source: 'walmart',
+            });
+          }
+        }
+      } catch (e: any) {
+        console.warn('[smart-api] Walmart inventory fetch failed:', e.message);
+      }
+
       // Fetch TikTok Shop products
       try {
         const { data: ttPlatforms } = await supabaseClient
