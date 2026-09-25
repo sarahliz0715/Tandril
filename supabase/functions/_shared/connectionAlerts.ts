@@ -10,7 +10,7 @@
 const REMINDER_DELAYS_HOURS = [0, 24, 72];
 const APP_URL = 'https://www.tandril.org';
 
-const PLATFORM_LABELS: Record<string, string> = {
+export const PLATFORM_LABELS: Record<string, string> = {
   shopify: 'Shopify', ebay: 'eBay', etsy: 'Etsy', woocommerce: 'WooCommerce', bigcommerce: 'BigCommerce',
   walmart: 'Walmart', amazon: 'Amazon', tiktok_shop: 'TikTok Shop', faire: 'Faire', instagram: 'Instagram Shop',
 };

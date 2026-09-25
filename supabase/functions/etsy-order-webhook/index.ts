@@ -5,6 +5,29 @@ import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
 // Etsy v3 webhook handler for RECEIPT events (order placed)
 // Etsy sends POST with { subscription_id, trigger_event, shop_id, receipt_id }
 // We fetch the receipt details, get listing IDs, look up linked products, sync inventory
+//
+// Deployed with --no-verify-jwt (Etsy can't send a Tandril login token). Safety:
+//  - Nothing in the payload is trusted beyond shop_id/receipt_id: the receipt and stock
+//    levels are re-read from Etsy with the shop's own token, so a forged request can at
+//    worst trigger a re-sync of the real numbers.
+//  - If ETSY_WEBHOOK_SIGNING_SECRET is set (the signing secret from the Etsy app's webhook
+//    settings), the Standard Webhooks signature (webhook-id / webhook-timestamp /
+//    webhook-signature headers) is verified and unsigned or stale requests are rejected.
+
+async function verifyStandardWebhook(req: Request, rawBody: string, secret: string): Promise<boolean> {
+  const id = req.headers.get('webhook-id');
+  const timestamp = req.headers.get('webhook-timestamp');
+  const signatures = req.headers.get('webhook-signature');
+  if (!id || !timestamp || !signatures) return false;
+  if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 5 * 60) return false; // replay window
+
+  const keyBytes = Uint8Array.from(atob(secret.replace(/^whsec_/, '')), (c) => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${id}.${timestamp}.${rawBody}`));
+  const expected = btoa(String.fromCharCode(...new Uint8Array(sig)));
+  // Header is a space-separated list of "v1,<base64>" entries (multiple during secret rotation)
+  return signatures.split(' ').some((entry) => entry.split(',')[1] === expected);
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -16,6 +39,13 @@ serve(async (req) => {
 
   try {
     const rawBody = await req.text();
+
+    const signingSecret = Deno.env.get('ETSY_WEBHOOK_SIGNING_SECRET');
+    if (signingSecret && !(await verifyStandardWebhook(req, rawBody, signingSecret))) {
+      console.error('[etsy-order-webhook] Signature verification failed — rejecting request');
+      return new Response('Unauthorized', { status: 401 });
+    }
+
     let payload: any = {};
     try { payload = JSON.parse(rawBody); } catch { return new Response('ok', { status: 200 }); }
 
@@ -40,7 +70,9 @@ serve(async (req) => {
       .eq('platform_type', 'etsy')
       .eq('is_active', true)
       .eq('metadata->>shop_id', String(shop_id))
-      .single();
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
     if (!platform) {
       console.warn(`[etsy-order-webhook] No platform found for shop_id=${shop_id}`);
