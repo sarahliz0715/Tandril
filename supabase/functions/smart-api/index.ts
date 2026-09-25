@@ -5,6 +5,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
 import { isAuthFailure, markNeedsReconnect, markHealthy } from '../_shared/platformHealth.ts';
+import { resolveShopifyVariant } from '../_shared/shopifyVariant.ts';
 
 // --- Inlined from _shared/awsSigV4.ts ---
 async function _sha256hex(data: string | Uint8Array): Promise<string> {
@@ -188,6 +189,10 @@ function summarizeOrionAction(action: any): string {
     case 'instagram_update_price':      return `Updated Instagram Shopping price for "${name}" → $${action.price}`;
     case 'instagram_update_inventory':  return `Updated Instagram Shopping inventory for "${name}" → ${action.quantity} units`;
     case 'draft_ad':            return `Drafted ad campaign: "${action.name}"`;
+    case 'suggest_product_links': return 'Looked for products to link across stores';
+    case 'link_products':       return `Linked SKU ${action.sku || ''} across ${(action.items || []).map((i: any) => i.platform).join(' + ')}`;
+    case 'unlink_product':      return `Unlinked SKU ${action.sku}${action.platform ? ` from ${action.platform}` : ''}`;
+    case 'sync_product':        return action.sku ? `Synced stock for SKU ${action.sku}` : 'Synced stock for all linked products';
     case 'launch_ad':           return `Launched Meta ad campaign "${action.name}" ($${action.budget?.daily_amount || '?'}/day)`;
     case 'pause_ad':            return `Paused ad campaign ${action.name || action.campaign_id}`;
     case 'get_ad_performance':  return `Retrieved ad performance for ${action.campaign_id ? 'campaign ' + action.campaign_id : 'all campaigns'}`;
@@ -391,9 +396,17 @@ serve(async (req) => {
       if (execute_action.type === 'create_workflow') {
         try {
           const wf = execute_action;
-          const triggerType = wf.trigger_type || 'manual';
-          const triggerConfig = wf.trigger_config || {};
-          const steps: any[] = wf.steps || wf.actions || [];
+          // Older cards put a single step and the cron at the top level
+          const triggerConfig = wf.trigger_config || (wf.cron ? { cron: wf.cron } : {});
+          const triggerType = wf.trigger_type || (triggerConfig.cron ? 'schedule' : 'manual');
+          const steps: any[] = wf.steps || wf.actions
+            || (wf.action_type ? [{ type: 'action', config: {
+              action_type: wf.action_type,
+              ...(wf.recipient ? { recipient: wf.recipient } : {}),
+              ...(wf.low_stock_threshold !== undefined ? { threshold: wf.low_stock_threshold } : {}),
+              ...(wf.subject ? { subject: wf.subject } : {}),
+            } }] : []);
+          if (steps.length === 0) throw new Error('A workflow needs at least one step.');
 
           // Normalise Orion-produced steps: { type:'action', config:{ action_type, ... } }
           // or flat objects: { action_type, ... }
@@ -410,10 +423,22 @@ serve(async (req) => {
             const parts = triggerConfig.cron.trim().split(' ');
             const minute = parseInt(parts[0]);
             const hour = parseInt(parts[1]);
+            const dayOfWeek = parts[4] && parts[4] !== '*' ? parseInt(parts[4]) : null;
             const next = new Date(now);
-            next.setSeconds(0, 0);
-            next.setHours(isNaN(hour) ? 9 : hour, isNaN(minute) ? 0 : minute, 0, 0);
-            if (next <= now) next.setDate(next.getDate() + 1);
+            next.setUTCSeconds(0, 0);
+            if (parts[1] === '*') {
+              // hourly
+              next.setUTCMinutes(isNaN(minute) ? 0 : minute, 0, 0);
+              if (next <= now) next.setUTCHours(next.getUTCHours() + 1);
+            } else {
+              next.setUTCHours(isNaN(hour) ? 9 : hour, isNaN(minute) ? 0 : minute, 0, 0);
+              if (dayOfWeek !== null && !isNaN(dayOfWeek)) {
+                next.setUTCDate(next.getUTCDate() + ((dayOfWeek % 7) - next.getUTCDay() + 7) % 7);
+                if (next <= now) next.setUTCDate(next.getUTCDate() + 7);
+              } else if (next <= now) {
+                next.setUTCDate(next.getUTCDate() + 1);
+              }
+            }
             nextRunAt = next.toISOString();
           }
 
@@ -426,7 +451,9 @@ serve(async (req) => {
               trigger_type: triggerType,
               trigger_config: triggerConfig,
               actions,
-              is_active: true,
+              // Saved switched off: the seller reviews it on the Workflows page and turns it on.
+              // (Manual workflows can still be run with Run Now while off.)
+              is_active: false,
               current_step: 0,
               status: 'active',
               ...(nextRunAt ? { next_run_at: nextRunAt } : {}),
@@ -448,7 +475,9 @@ serve(async (req) => {
           });
 
           return new Response(
-            JSON.stringify({ success: true, execution_result: { workflow_id: newWorkflow.id, name: newWorkflow.name, message: `Workflow "${newWorkflow.name}" created and saved. You can find it on the Workflows page.` } }),
+            JSON.stringify({ success: true, execution_result: { workflow_id: newWorkflow.id, name: newWorkflow.name, message: triggerType === 'schedule'
+              ? `Workflow "${newWorkflow.name}" saved (switched off). Turn it on in Workflows when you're ready and it will run on its schedule.`
+              : `Workflow "${newWorkflow.name}" saved. Run it any time from Workflows → Run Now.` } }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
           );
         } catch (err: any) {
@@ -470,7 +499,7 @@ serve(async (req) => {
 
       // Log to ai_commands so it appears in the dashboard Activity Log
       // Skip read-only actions that don't change store data
-      const READ_ONLY_ACTIONS = new Set(['get_inventory', 'get_products', 'get_orders', 'get_analytics', 'get_ad_performance']);
+      const READ_ONLY_ACTIONS = new Set(['get_inventory', 'get_products', 'get_orders', 'get_analytics', 'get_ad_performance', 'suggest_product_links']);
       if (!READ_ONLY_ACTIONS.has(execute_action.type)) {
         supabaseClient
           .from('ai_commands')
@@ -1403,6 +1432,164 @@ async function getFaireClientForActions(supabaseClient: any, userId: string) {
   return { platform, apiBase, headers };
 }
 
+// ─── Cross-platform product linking (Orion actions) ──────────────────────────
+// Platforms sync-inventory-levels can read and write stock on.
+const SYNCABLE_PLATFORMS = ['shopify', 'ebay', 'woocommerce', 'etsy'];
+
+async function getSyncablePlatforms(supabaseClient: any, userId: string) {
+  const { data } = await supabaseClient
+    .from('platforms')
+    .select('*')
+    .eq('user_id', userId)
+    .in('platform_type', SYNCABLE_PLATFORMS)
+    .or('is_active.eq.true,status.eq.connected')
+    .order('updated_at', { ascending: false });
+  return (data || []) as any[];
+}
+
+async function shopifyTokenFor(platform: any): Promise<string> {
+  let t = platform.access_token || '';
+  if (t && t.length > 50 && !t.startsWith('shpat_') && !t.startsWith('shpca_')) {
+    try { t = await decrypt(t); } catch { /* use as-is */ }
+  }
+  if (!t) throw new Error(`No saved Shopify login for ${platform.shop_name || platform.shop_domain} — reconnect it in Platforms.`);
+  return t;
+}
+
+function wooClientFor(platform: any) {
+  const { consumer_key, consumer_secret } = platform.credentials || {};
+  if (!consumer_key || !consumer_secret) throw new Error('WooCommerce credentials missing — reconnect it in Platforms.');
+  return {
+    base: `${String(platform.store_url || '').replace(/\/$/, '')}/wp-json/wc/v3`,
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${btoa(`${consumer_key}:${consumer_secret}`)}` },
+  };
+}
+
+const platformLabel = (p: any) =>
+  `${({ shopify: 'Shopify', ebay: 'eBay', woocommerce: 'WooCommerce', etsy: 'Etsy' } as any)[p.platform_type] || p.platform_type} (${p.shop_name || p.shop_domain || p.name || 'store'})`;
+
+// Compact product list (one row per sellable variant) for matching.
+async function listLinkableProducts(supabaseClient: any, userId: string, platform: any): Promise<any[]> {
+  const rows: any[] = [];
+  if (platform.platform_type === 'shopify') {
+    const token = await shopifyTokenFor(platform);
+    let after: string | null = null;
+    for (let page = 0; page < 20; page++) {
+      const d: any = await shopifyGraphQL(platform.shop_domain, token, `
+        query($after: String) { productVariants(first: 250, after: $after) {
+          pageInfo { hasNextPage endCursor }
+          edges { node { id sku title inventoryQuantity product { id title status } } } } }
+      `, { after });
+      for (const e of d.productVariants.edges) {
+        const v = e.node;
+        if (v.product.status === 'ARCHIVED') continue;
+        rows.push({
+          product_id: fromShopifyGid(v.product.id), variant_id: fromShopifyGid(v.id), sku: v.sku || '',
+          title: v.title && v.title !== 'Default Title' ? `${v.product.title} — ${v.title}` : v.product.title,
+          match_title: v.product.title,
+          quantity: v.inventoryQuantity ?? null,
+        });
+      }
+      if (!d.productVariants.pageInfo.hasNextPage) break;
+      after = d.productVariants.pageInfo.endCursor;
+      if (page === 19) rows.push({ capped: true });
+    }
+  } else if (platform.platform_type === 'ebay') {
+    const { apiBase, headers } = await getEbayClientForActions(supabaseClient, userId);
+    for (let offset = 0; offset < 2000; offset += 100) {
+      const url = `${apiBase}/sell/inventory/v1/inventory_item?limit=100&offset=${offset}`;
+      let res = await fetch(url, { headers });
+      if (res.status >= 500) { await new Promise((r) => setTimeout(r, 1500)); res = await fetch(url, { headers }); }
+      if (!res.ok) throw new Error(`eBay inventory fetch failed: ${res.status} ${await res.text()}`);
+      const d = await res.json();
+      for (const it of d.inventoryItems || []) {
+        rows.push({ product_id: it.sku, variant_id: null, sku: it.sku, title: it.product?.title || it.sku,
+          quantity: it.availability?.shipToLocationAvailability?.quantity ?? null });
+      }
+      if (!d.inventoryItems || d.inventoryItems.length < 100) break;
+    }
+  } else if (platform.platform_type === 'woocommerce') {
+    const { base, headers } = wooClientFor(platform);
+    for (let page = 1; page <= 10; page++) {
+      const res = await fetch(`${base}/products?per_page=100&page=${page}&status=publish`, { headers });
+      if (!res.ok) throw new Error(`WooCommerce product fetch failed: ${res.status}`);
+      const list = await res.json();
+      for (const p of list) {
+        if (p.type === 'variable') continue; // variations need Browse & Link for now
+        rows.push({ product_id: String(p.id), variant_id: null, sku: p.sku || '', title: p.name, quantity: p.stock_quantity ?? null });
+      }
+      if (list.length < 100) break;
+    }
+  }
+  // Etsy: SKUs live on listing offerings; link Etsy products with Browse & Link.
+  return rows;
+}
+
+// Words that describe a variant or are filler, not the product — they made
+// e.g. every "Navy 3XL" shirt look like the same product.
+const TITLE_NOISE = new Set(['the', 'and', 'with', 'for', 'size', 'small', 'medium', 'large', 'xxl', 'xxxl',
+  '2xl', '3xl', '4xl', '5xl', '6xl', 'unisex', 'mens', 'womens', 'new']);
+const normTitleWords = (s: string) => new Set(
+  String(s || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/)
+    .filter((w) => w.length > 2 && !TITLE_NOISE.has(w)),
+);
+
+async function callSyncInventory(body: Record<string, any>) {
+  const res = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/sync-inventory-levels`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}` },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.success === false) throw new Error(data.error || `Sync failed (${res.status})`);
+  return data;
+}
+
+// Resolves one side of a link to the ids sync-inventory-levels needs.
+async function resolveLinkTarget(supabaseClient: any, userId: string, platforms: any[], item: any, fallbackSku: string) {
+  const type = String(item.platform || '').toLowerCase();
+  const platform = item.platform_id
+    ? platforms.find((p) => p.id === item.platform_id)
+    : platforms.find((p) => p.platform_type === type);
+  if (!platform) throw new Error(`No connected ${type || 'store'} found to link.`);
+  const sku = String(item.sku || fallbackSku || '').trim();
+
+  switch (platform.platform_type) {
+    case 'shopify': {
+      const v = await resolveShopifyVariant(platform.shop_domain, await shopifyTokenFor(platform), {
+        productId: item.product_id, variantId: item.variant_id, sku,
+      });
+      return { platform, product_id: v.productId, variant_id: v.variantId, title: v.title };
+    }
+    case 'ebay': {
+      // eBay inventory items are keyed by SKU
+      const ebaySku = String(item.product_id || sku);
+      const { apiBase, headers } = await getEbayClientForActions(supabaseClient, userId);
+      const res = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(ebaySku)}`, { headers });
+      if (res.status === 404) throw new Error(`eBay has no inventory item with SKU "${ebaySku}".`);
+      if (!res.ok) throw new Error(`eBay lookup failed: ${res.status} ${await res.text()}`);
+      const it = await res.json();
+      return { platform, product_id: ebaySku, variant_id: null, title: it.product?.title || ebaySku };
+    }
+    case 'woocommerce': {
+      const { base, headers } = wooClientFor(platform);
+      if (item.product_id) return { platform, product_id: String(item.product_id), variant_id: item.variant_id ? String(item.variant_id) : null, title: item.title || '' };
+      const res = await fetch(`${base}/products?sku=${encodeURIComponent(sku)}&per_page=1`, { headers });
+      const list = res.ok ? await res.json() : [];
+      if (!Array.isArray(list) || list.length === 0) throw new Error(`No WooCommerce product has SKU "${sku}".`);
+      const p = list[0];
+      return p.parent_id
+        ? { platform, product_id: String(p.parent_id), variant_id: String(p.id), title: p.name }
+        : { platform, product_id: String(p.id), variant_id: null, title: p.name };
+    }
+    case 'etsy': {
+      if (!item.product_id) throw new Error('Etsy needs the listing number — link Etsy products with Browse & Link on the Inventory page.');
+      return { platform, product_id: String(item.product_id), variant_id: item.variant_id ? String(item.variant_id) : null, title: item.title || '' };
+    }
+  }
+  throw new Error(`${platform.platform_type} can't be linked for inventory sync yet.`);
+}
+
 async function executeStoreAction(supabaseClient: any, userId: string, action: any) {
   // Normalize generic action types to platform-specific ones based on action.platform.
   // This lets Orion always use e.g. "update_price" and just set "platform": "ebay"
@@ -1463,6 +1650,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     'flash_sale', 'smart_restock', 'get_inventory',
     'instagram_update_price', 'instagram_update_inventory',
     'draft_ad', 'launch_ad', 'pause_ad', 'get_ad_performance',
+    'suggest_product_links', 'link_products', 'unlink_product', 'sync_product',
   ]);
   const shopifyRequired = !NON_SHOPIFY_ACTIONS.has(action.type);
   if (shopifyRequired && (!platforms || platforms.length === 0)) {
@@ -2338,21 +2526,17 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         : invProduct.variants?.[0];
       if (!targetVariant) throw new Error(`Product "${invProduct.title}" has no variants.`);
 
-      // Get location ID via GraphQL locations query
-      const locGqlData = await shopifyGraphQL(shopDomain, accessToken, `
-        query {
-          locations(first: 10) {
-            edges {
-              node { id name }
-            }
-          }
-        }
-      `);
-      const locations = locGqlData.locations.edges.map((e: any) => ({
-        id: fromShopifyGid(e.node.id),
-        name: e.node.name,
-      }));
-      const locationId = locations[0]?.id;
+      // Location the item is stocked at (ids only — the app has no read_locations
+      // scope, so asking for a location's name is rejected by Shopify)
+      const levelData = await shopifyGraphQL(shopDomain, accessToken, `
+        query($id: ID!) { inventoryItem(id: $id) { inventoryLevels(first: 10) { edges { node { location { id } } } } } }
+      `, { id: toShopifyGid('InventoryItem', targetVariant.inventory_item_id) });
+      let locationGid = levelData.inventoryItem?.inventoryLevels?.edges?.[0]?.node?.location?.id;
+      if (!locationGid) {
+        const locGqlData = await shopifyGraphQL(shopDomain, accessToken, `query { locations(first: 1) { edges { node { id } } } }`);
+        locationGid = locGqlData.locations?.edges?.[0]?.node?.id;
+      }
+      const locationId = locationGid ? fromShopifyGid(locationGid) : null;
       if (!locationId) throw new Error('Could not find inventory location for this product.');
 
       await shopifyGraphQL(shopDomain, accessToken, `
@@ -4115,9 +4299,9 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         };
         // Get locations via GraphQL
         const locGqlData = await shopifyGraphQL(shopDomain, tok, `
-          query { locations(first: 10) { edges { node { id name } } } }
+          query { locations(first: 10) { edges { node { id } } } }
         `);
-        const fulfillLocations = locGqlData.locations.edges.map((e: any) => ({ id: fromShopifyGid(e.node.id), name: e.node.name }));
+        const fulfillLocations = locGqlData.locations.edges.map((e: any) => ({ id: fromShopifyGid(e.node.id) }));
         const locationId = fulfillLocations[0]?.id;
 
         const shopH = { 'X-Shopify-Access-Token': tok, 'Content-Type': 'application/json' };
@@ -7807,6 +7991,162 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: lines.join('\n'), report };
     }
 
+    // ── Cross-platform product links (inventory sync) ────────────────────────
+    case 'suggest_product_links': {
+      const allPlatforms = await getSyncablePlatforms(supabaseClient, userId);
+      const wanted = Array.isArray(action.platforms) && action.platforms.length
+        ? action.platforms.map((t: string) => String(t).toLowerCase()) : null;
+      const plats = allPlatforms.filter((p) => p.platform_type !== 'etsy' && (!wanted || wanted.includes(p.platform_type)));
+      if (plats.length < 2) {
+        return { message: `Linking needs at least two connected stores that sync stock (Shopify, eBay, WooCommerce). Connected: ${allPlatforms.map(platformLabel).join(', ') || 'none'}.${allPlatforms.some((p) => p.platform_type === 'etsy') ? ' Etsy products are linked with Browse & Link on the Inventory page.' : ''}` };
+      }
+
+      const { data: existing } = await supabaseClient.from('platform_product_links')
+        .select('sku, platform_id, platform_product_id, platform_variant_id').eq('user_id', userId);
+      const linkedKey = new Set((existing || []).map((l: any) => `${l.platform_id}|${l.platform_product_id}|${l.platform_variant_id || ''}`));
+      const isLinked = (p: any, r: any) => linkedKey.has(`${p.id}|${r.product_id}|${r.variant_id || ''}`);
+
+      const search = String(action.search || '').toLowerCase().trim();
+      const lists: { platform: any; rows: any[] }[] = [];
+      const problems: string[] = [];
+      for (const p of plats) {
+        try {
+          let rows = await listLinkableProducts(supabaseClient, userId, p);
+          if (rows.some((r) => r.capped)) { rows = rows.filter((r) => !r.capped); problems.push(`${platformLabel(p)}: only the first ${rows.length} items were checked — add a search word to narrow it`); }
+          if (search) rows = rows.filter((r) => r.title.toLowerCase().includes(search) || r.sku.toLowerCase().includes(search));
+          lists.push({ platform: p, rows: rows.filter((r) => !isLinked(p, r)) });
+        } catch (e: any) {
+          problems.push(`${platformLabel(p)}: ${e.message}`);
+        }
+      }
+
+      const describe = (p: any, r: any) =>
+        `${platformLabel(p)} "${r.title}" [platform_id ${p.id}, product_id ${r.product_id}${r.variant_id ? `, variant_id ${r.variant_id}` : ''}, SKU ${r.sku || 'none'}, stock ${r.quantity ?? '?'}]`;
+
+      // 1. Same SKU on two or more stores
+      const bySku = new Map<string, { p: any; r: any }[]>();
+      for (const { platform, rows } of lists) for (const r of rows) {
+        const k = r.sku.trim().toLowerCase();
+        if (!k) continue;
+        if (!bySku.has(k)) bySku.set(k, []);
+        bySku.get(k)!.push({ p: platform, r });
+      }
+      const skuMatches = [...bySku.values()].filter((g) => new Set(g.map((x) => x.p.id)).size > 1);
+      const matchedIds = new Set(skuMatches.flat().map((x) => `${x.p.id}|${x.r.product_id}|${x.r.variant_id || ''}`));
+
+      // 2. Similar titles (different or missing SKUs)
+      const titleMatches: { a: any; b: any; score: number }[] = [];
+      for (let i = 0; i < lists.length; i++) for (let j = i + 1; j < lists.length; j++) {
+        const [small, big] = lists[i].rows.length <= lists[j].rows.length ? [lists[i], lists[j]] : [lists[j], lists[i]];
+        const bigWords = big.rows.map((r) => ({ r, w: normTitleWords(r.match_title || r.title) }));
+        for (const r of small.rows) {
+          if (matchedIds.has(`${small.platform.id}|${r.product_id}|${r.variant_id || ''}`)) continue;
+          const w = normTitleWords(r.match_title || r.title);
+          if (w.size < 2) continue;
+          let best: any = null, bestScore = 0;
+          for (const cand of bigWords) {
+            let inter = 0; w.forEach((x) => { if (cand.w.has(x)) inter++; });
+            if (inter < 2) continue;
+            const score = inter / (w.size + cand.w.size - inter || 1);
+            if (score > bestScore) { bestScore = score; best = cand.r; }
+          }
+          if (best && bestScore >= 0.5) titleMatches.push({ a: { p: small.platform, r }, b: { p: big.platform, r: best }, score: bestScore });
+        }
+      }
+      titleMatches.sort((x, y) => y.score - x.score);
+
+      const lines: string[] = [];
+      lines.push(`Checked ${lists.map((l) => `${platformLabel(l.platform)}: ${l.rows.length} unlinked item(s)`).join('; ')}.`);
+      if (problems.length) lines.push(`Could not read: ${problems.join('; ')}`);
+      if (skuMatches.length) {
+        lines.push(`\nSAME SKU on more than one store (${skuMatches.length}${skuMatches.length > 30 ? ', first 30 shown' : ''}) — very likely the same product:`);
+        skuMatches.slice(0, 30).forEach((g) => lines.push(`- SKU ${g[0].r.sku}: ${g.map((x) => describe(x.p, x.r)).join('  ↔  ')}`));
+      }
+      if (titleMatches.length) {
+        lines.push(`\nSIMILAR TITLES, different or missing SKUs (${titleMatches.length}${titleMatches.length > 30 ? ', best 30 shown' : ''}) — ask the seller to confirm each before linking:`);
+        titleMatches.slice(0, 30).forEach((m) => lines.push(`- ${Math.round(m.score * 100)}% match: ${describe(m.a.p, m.a.r)}  ↔  ${describe(m.b.p, m.b.r)}`));
+      }
+      if (!skuMatches.length && !titleMatches.length) lines.push('\nNo likely matches found between these stores.');
+      lines.push('\n(For Orion: present these to the seller in plain language, grouped, and ask which ones are really the same product. Only emit link_products for pairs the seller confirms, using the platform_id / product_id / variant_id values above. Never link items the seller says are different, and remember items they say should not sync.)');
+      return { message: lines.join('\n'), sku_matches: skuMatches.length, title_matches: titleMatches.length };
+    }
+
+    case 'link_products': {
+      const items: any[] = Array.isArray(action.items) ? action.items : [];
+      if (items.length === 0) throw new Error('link_products needs "items": one entry per store, e.g. [{"platform":"shopify","product_id":"123"},{"platform":"ebay","sku":"ABC"}].');
+      const linkSku = String(action.sku || items.find((i) => i.sku)?.sku || '').trim();
+      if (!linkSku) throw new Error('link_products needs the shared "sku" that ties the stores together.');
+
+      const plats = await getSyncablePlatforms(supabaseClient, userId);
+      const done: string[] = [];
+      for (const item of items) {
+        const t = await resolveLinkTarget(supabaseClient, userId, plats, item, linkSku);
+        let dup = supabaseClient.from('platform_product_links').select('id').eq('user_id', userId)
+          .eq('platform_id', t.platform.id).eq('platform_product_id', t.product_id);
+        dup = t.variant_id ? dup.eq('platform_variant_id', t.variant_id) : dup.is('platform_variant_id', null);
+        const { data: already } = await dup.limit(1);
+        if (already?.length) {
+          await supabaseClient.from('platform_product_links').update({ sku: linkSku }).eq('id', already[0].id);
+          done.push(`${platformLabel(t.platform)} "${t.title}" was already linked`);
+          continue;
+        }
+        const { error } = await supabaseClient.from('platform_product_links').insert({
+          user_id: userId, sku: linkSku, platform_id: t.platform.id, platform_type: t.platform.platform_type,
+          platform_product_id: t.product_id, platform_variant_id: t.variant_id,
+        });
+        if (error) throw new Error(`Could not save the ${platformLabel(t.platform)} link: ${error.message}`);
+        done.push(`${platformLabel(t.platform)} "${t.title}"`);
+      }
+
+      let syncNote = '';
+      const { count } = await supabaseClient.from('platform_product_links')
+        .select('id', { count: 'exact', head: true }).eq('user_id', userId).eq('sku', linkSku);
+      if ((count ?? 0) >= 2 && action.sync !== false) {
+        try {
+          const r = await callSyncInventory({ user_id: userId, sku: linkSku, mode: 'lowest', triggered_by: 'orion_link' });
+          syncNote = r.total === 0 || r.synced === r.total
+            ? ' Stock is now matched across the linked stores (lowest count kept).'
+            : ` Stock sync finished with ${r.total - r.synced} problem(s) — see Inventory → Sync Links.`;
+        } catch (e: any) {
+          syncNote = ` Linked, but the first stock sync failed: ${e.message}`;
+        }
+      }
+      return { message: `Linked SKU ${linkSku}: ${done.join('; ')}.${syncNote}` };
+    }
+
+    case 'unlink_product': {
+      if (!action.sku) throw new Error('unlink_product needs the "sku".');
+      let q = supabaseClient.from('platform_product_links').delete().eq('user_id', userId).eq('sku', action.sku);
+      if (action.platform) q = q.eq('platform_type', String(action.platform).toLowerCase());
+      const { data, error } = await q.select('platform_type');
+      if (error) throw new Error(`Could not unlink: ${error.message}`);
+      if (!data?.length) return { message: `Nothing was linked for SKU ${action.sku}${action.platform ? ` on ${action.platform}` : ''}.` };
+      return { message: `Unlinked SKU ${action.sku} from ${data.map((d: any) => d.platform_type).join(', ')}. Stock for it no longer syncs between those stores.` };
+    }
+
+    case 'sync_product': {
+      let skus: string[] = [];
+      if (action.sku) skus = [String(action.sku)];
+      else {
+        const { data } = await supabaseClient.from('platform_product_links').select('sku').eq('user_id', userId);
+        skus = [...new Set((data || []).map((l: any) => l.sku))] as string[];
+      }
+      if (skus.length === 0) return { message: 'No linked products to sync yet.' };
+      const out: string[] = [];
+      let failed = 0;
+      for (const sku of skus.slice(0, 50)) {
+        try {
+          const r = await callSyncInventory({ user_id: userId, sku, mode: 'lowest', triggered_by: 'orion_sync' });
+          if (r.total && r.synced < r.total) failed++;
+          out.push(`${sku}: ${r.total ? `${r.synced}/${r.total} store(s) updated` : 'already matching'}`);
+        } catch (e: any) {
+          failed++;
+          out.push(`${sku}: failed — ${e.message}`);
+        }
+      }
+      return { message: `Synced ${skus.length > 50 ? '50 of ' + skus.length : skus.length} linked product(s) using the lowest stock count${failed ? ` (${failed} with problems)` : ''}:\n${out.join('\n')}` };
+    }
+
     case 'draft_ad': {
       if (!action.name) throw new Error('name is required for draft_ad.');
       action = await enrichAdActionFromProduct(action, shopDomain, accessToken);
@@ -8999,6 +9339,41 @@ Examples:
 4. "Stop/pause the X ad" → pause_ad with that campaign's id. There is no resume action yet — if asked to restart a paused campaign, tell them to turn it back on in Meta Ads Manager.
 5. One ad action block per response. Never claim an ad is live, launched, or paused until the user has confirmed the card and you've seen the result.\n`;
 
+  const syncStoreNames = storeContext.platforms
+    .filter((p: any) => ['shopify', 'ebay', 'woocommerce', 'etsy'].includes(p.platform_type))
+    .map((p: any) => `${p.platform_type} (${p.shop_name || p.shop_domain || p.name || 'store'})`);
+  const linkingSection = `
+**Cross-store product linking (inventory sync) — you can do this for the seller:**
+A "link" tells Tandril that listings on different stores are the same physical item, so a sale on one lowers stock on the others. Syncing stores connected: ${syncStoreNames.join(', ') || 'none'}.${syncStoreNames.length < 2 ? ' Linking needs at least two of Shopify / eBay / WooCommerce / Etsy — say so if they ask.' : ''}
+Actions:
+  • suggest_product_links — { type, platforms?: ["shopify","ebay"], search?: "tote" } scans the stores and returns products with the SAME SKU on two stores plus pairs with SIMILAR TITLES. Read-only. Use it first whenever they ask to link, set up sync, or "which of my products are on both stores".
+  • link_products — { type, sku, product_name, items: [ { platform, platform_id?, product_id?, variant_id?, sku? }, ... ] } links one item across stores and immediately matches stock (lowest count kept). sku = the shared SKU (normally the SKU the listings already use). For Shopify, give product_id (and variant_id if you have it) — Tandril finds the right variant; if you only have the SKU it searches by SKU. For eBay the SKU is the product id. Use the ids from suggest_product_links results when you have them.
+  • unlink_product — { type, sku, platform? } stops syncing that SKU (all stores, or just one).
+  • sync_product — { type, sku? } brings a linked item's stock into line now (lowest count wins). Omit sku to sync every linked item.
+Rules:
+  - Never link on a guess. Same-SKU matches: list them and ask "link these?" (one confirmation can cover the whole list). Similar-title matches: ask about each one.
+  - Not everything should sync. If the seller says some listings are separate (e.g. "the eBay video games are my son's"), don't suggest those again and offer to save that with remember.
+  - Up to 10 link_products blocks per response for a confirmed list; continue with the next batch after results come back.
+  - Linking is by exact SKU. If the same item has different SKUs on each store, link it anyway with one shared sku — the ids tie it together.
+Examples:
+[ORION_ACTION:{"type":"suggest_product_links","platforms":["shopify","ebay"]}]
+[ORION_ACTION:{"type":"link_products","sku":"1671288_4533","product_name":"Skeleton Halloween Tote","items":[{"platform":"shopify","product_id":"8711448953024"},{"platform":"ebay","sku":"1671288_4533"}]}]
+[ORION_ACTION:{"type":"sync_product","sku":"1671288_4533"}]
+
+**Workflows — you can build these for the seller:**
+Use create_workflow when they want something automated, scheduled, repeated, or multi-step with delays ("every Monday…", "drop the price Friday and put it back Sunday", "email me when…"). A single immediate change is a normal action, not a workflow.
+[ORION_ACTION:{"type":"create_workflow","workflow_name":"Weekend Tote Sale","description":"Tote to $19 Friday, back to $29 Sunday","trigger_type":"manual","steps":[{"type":"action","config":{"action_type":"update_price","platform":"shopify","product_name":"Skeleton Halloween Tote","price":19}},{"type":"wait","duration":2,"unit":"days"},{"type":"action","config":{"action_type":"update_price","platform":"shopify","product_name":"Skeleton Halloween Tote","price":29}}]}]
+  Fields: workflow_name (required), description, trigger_type "manual" (runs when they press Run Now) or "schedule" with trigger_config {"cron":"M H * * D"} (UTC; e.g. "0 14 * * 1" = Mondays 14:00 UTC — convert from the seller's time and say which time you used), steps (required, in order).
+  Step types:
+    - Any store action you can do in chat, as {"type":"action","config":{"action_type":"<action type>", ...same fields as the chat action}} — e.g. update_price, update_inventory, flash_sale, sync_product, link_products, smart_restock.
+    - {"type":"wait","duration":2,"unit":"hours"|"days"|"minutes"} — pauses; the scheduler checks hourly so waits are at least ~1 hour.
+    - {"type":"action","config":{"action_type":"run_ai_command","command_text":"Summarize this week's sales and low stock"}} — you run in the background; your answer becomes {{step_N_output}} and the body of a following blank send_email.
+    - {"type":"action","config":{"action_type":"send_email","email_recipient":"x@y.com","email_subject":"...","email_body":""}}
+    - {"type":"action","config":{"action_type":"inventory_email","recipient":"x@y.com","threshold":5}} — low-stock report email.
+    - {"type":"action","config":{"action_type":"send_alert","alert_title":"...","alert_message":"...","alert_priority":"high"}} — shows in Tandril's notification bell.
+  Rules: ask for anything you'd otherwise guess (restore price, email address, time of day). Workflows are saved switched OFF — after it's approved, tell them to review it on the Workflows page and turn it on (manual ones can be run with Run Now). Never say a workflow is running until they've turned it on.
+`;
+
   const needsReconnect = storeContext.platforms.filter((p: any) => p.status === 'needs_reconnect');
   const reconnectSection = needsReconnect.length > 0
     ? `\n**⚠️ CONNECTION PROBLEM — tell the user this first, before answering anything else:** ${needsReconnect.map((p: any) => `${p.platform_type} (${p.shop_name || p.shop_domain || p.name || 'store'})`).join(', ')} rejected Tandril's saved login. Tandril can't read products or sync inventory for ${needsReconnect.length > 1 ? 'these stores' : 'this store'} until the user reconnects it: Platforms tab → Disconnect → Connect again. Any product data for ${needsReconnect.length > 1 ? 'them' : 'it'} below may be missing or stale — do not treat missing products as the store being empty.\n`
@@ -9978,7 +10353,7 @@ Action grouping — choose the most efficient approach:
 - Revenue last 30 days: $${(storeContext.metrics.revenue_last_30d || 0).toFixed(2)} (${storeContext.metrics.orders_last_30d || 0} orders)
 - Average Order Value (last 30d): $${storeContext.metrics.orders_last_30d > 0 ? (storeContext.metrics.revenue_last_30d / storeContext.metrics.orders_last_30d).toFixed(2) : '0.00'}
 ${storeContext.metrics.revenue_by_platform_30d ? `- Revenue by platform (last 30d): ${storeContext.metrics.revenue_by_platform_30d}` : ''}
-${reconnectSection}${lowStockSection}${ebayErrorSection}${memorySection}${syncSection}${mode !== 'demo/test' ? adsSection : ''}
+${reconnectSection}${lowStockSection}${ebayErrorSection}${memorySection}${syncSection}${mode !== 'demo/test' ? adsSection + linkingSection : ''}
 ${mode !== 'demo/test' ? `**Product Inventory (${storeContext.products.length} of ${storeContext.total_products} products):**
 ${formatProducts(storeContext.products)}
 

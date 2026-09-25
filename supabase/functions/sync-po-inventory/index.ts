@@ -211,12 +211,10 @@ serve(async (req) => {
 
     // Fetch primary location via GraphQL
     const locData = await shopifyGraphQL(shopDomain, accessToken, `
-      query { locations(first: 10) { edges { node { id name } } } }
+      query { locations(first: 10) { edges { node { id } } } }
     `);
-    const locations = locData.locations.edges.map((e: any) => ({
-      id: fromShopifyGid(e.node.id),
-      name: e.node.name,
-    }));
+    // ids only — the app has no read_locations scope, so a location's name is rejected
+    const locations = locData.locations.edges.map((e: any) => ({ id: fromShopifyGid(e.node.id) }));
     const primaryLocationId = locations[0]?.id;
 
     // Process each item

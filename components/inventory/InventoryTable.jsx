@@ -63,7 +63,7 @@ export default function InventoryTable({ inventory, onEdit }) {
               <TableCell>{item.sku}</TableCell>
               <TableCell>
                 <Badge className={statusColors[item.status] || statusColors.discontinued}>
-                  {item.status.replace('_', ' ')}
+                  {(item.status || 'unknown').replace('_', ' ')}
                 </Badge>
               </TableCell>
               <TableCell className="text-right">{item.total_stock}</TableCell>

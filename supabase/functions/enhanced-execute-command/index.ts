@@ -635,11 +635,10 @@ async function updateInventoryEnhanced(
   let resolvedLocationId = location_id;
   if (!resolvedLocationId) {
     const locData = await shopifyGraphQL(platform.shop_domain, platform.access_token, `
-      query { locations(first: 10) { edges { node { id name isActive } } } }
+      query { locations(first: 10) { edges { node { id } } } }
     `);
-    const locations = locData.locations.edges
-      .filter((e: any) => e.node.isActive)
-      .map((e: any) => ({ id: fromShopifyGid(e.node.id), name: e.node.name }));
+    // ids only — the app has no read_locations scope, so name/isActive are rejected
+    const locations = locData.locations.edges.map((e: any) => ({ id: fromShopifyGid(e.node.id) }));
     if (locations.length === 0) {
       throw new Error('No active locations found for this store');
     }

@@ -367,7 +367,7 @@ export default function Inventory() {
             )
           ) : (
             <InventoryTable
-              items={filteredInventory}
+              inventory={filteredInventory}
               onEdit={handleEditItem}
               onDelete={handleDeleteItem}
             />
