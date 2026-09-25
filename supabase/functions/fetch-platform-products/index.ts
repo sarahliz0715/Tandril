@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
 
 // Returns a paginated, searchable product list for a given platform.
 // Used by the visual product linker UI.
@@ -78,6 +79,8 @@ serve(async (req) => {
       .single();
 
     if (platErr || !platform) throw new Error('Platform not found');
+    // Etsy tokens expire hourly — refresh in place before any Etsy call below
+    if (platform.platform_type === 'etsy') await getEtsyAccessToken(supabase, platform);
 
     const products = await fetchProducts(supabase, platform, search, page);
 

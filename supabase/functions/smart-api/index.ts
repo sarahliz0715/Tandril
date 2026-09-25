@@ -3,6 +3,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
 
 // --- Inlined from _shared/awsSigV4.ts ---
 async function _sha256hex(data: string | Uint8Array): Promise<string> {
@@ -2078,7 +2079,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         const etsyClientId = Deno.env.get('ETSY_CLIENT_ID');
         const { data: etsyInvPlats } = await supabaseClient.from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected');
         for (const etsyPlat of (etsyInvPlats || [])) {
-          const etsyTok = etsyPlat.credentials?.access_token;
+          const etsyTok = await getEtsyAccessToken(supabaseClient, etsyPlat);
           const etsyShopId = etsyPlat.metadata?.shop_id;
           if (!etsyTok || !etsyShopId || !etsyClientId) continue;
           const etsyH = { 'x-api-key': etsyClientId, 'Authorization': `Bearer ${etsyTok}` };
@@ -2527,7 +2528,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             }
             case 'etsy': {
               const etsyClientId = Deno.env.get('ETSY_CLIENT_ID');
-              const etsyTok = platform.credentials?.access_token;
+              const etsyTok = await getEtsyAccessToken(supabaseClient, platform);
               const etsyShopId = platform.metadata?.shop_id;
               if (!etsyTok || !etsyShopId || !etsyClientId) throw new Error('Etsy credentials missing');
               const etsyH = { 'x-api-key': etsyClientId, 'Authorization': `Bearer ${etsyTok}`, 'Content-Type': 'application/json' };
@@ -3664,7 +3665,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           // ── Etsy ─────────────────────────────────────────────────────────────
           if (plat.platform_type === 'etsy') {
             const shopId = plat.metadata?.shop_id;
-            const tok = plat.credentials?.access_token;
+            const tok = await getEtsyAccessToken(supabaseClient, plat);
             const clientId = Deno.env.get('ETSY_CLIENT_ID');
             if (!shopId || !tok || !clientId) continue;
             const rRes = await fetch(
@@ -4065,7 +4066,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       // ── Etsy ─────────────────────────────────────────────────────────────────
       if (orderPlatform === 'etsy') {
         const shopId = orderPlat.metadata?.shop_id;
-        const tok = orderPlat.credentials?.access_token;
+        const tok = await getEtsyAccessToken(supabaseClient, orderPlat);
         const clientId = Deno.env.get('ETSY_CLIENT_ID');
         if (!shopId || !tok || !clientId) throw new Error('Etsy credentials incomplete for fulfillment.');
         const eRes = await fetch(`https://openapi.etsy.com/v3/application/shops/${shopId}/receipts/${orderId}`, {
@@ -5490,7 +5491,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
       if (!etsyPlats || etsyPlats.length === 0) throw new Error('No connected Etsy shop found.');
       const etsyPlat = etsyPlats[0];
-      const etsyTok = etsyPlat.credentials?.access_token;
+      const etsyTok = await getEtsyAccessToken(supabaseClient, etsyPlat);
       const etsyShopId = etsyPlat.metadata?.shop_id;
       const etsyClientId = Deno.env.get('ETSY_CLIENT_ID');
       if (!etsyTok || !etsyShopId || !etsyClientId) throw new Error('Etsy credentials or shop_id missing.');
@@ -5607,7 +5608,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
       if (!etsyPlatsC || etsyPlatsC.length === 0) throw new Error('No connected Etsy shop found.');
       const etsyPlatC = etsyPlatsC[0];
-      const etsyTokC = etsyPlatC.credentials?.access_token;
+      const etsyTokC = await getEtsyAccessToken(supabaseClient, etsyPlatC);
       const etsyShopIdC = etsyPlatC.metadata?.shop_id;
       const etsyClientIdC = Deno.env.get('ETSY_CLIENT_ID');
       if (!etsyTokC || !etsyShopIdC || !etsyClientIdC) throw new Error('Etsy credentials or shop_id missing.');
@@ -5668,7 +5669,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
       if (!etsyPlatsB || etsyPlatsB.length === 0) throw new Error('No connected Etsy shop found.');
       const etsyPlatB = etsyPlatsB[0];
-      const etsyTokB = etsyPlatB.credentials?.access_token;
+      const etsyTokB = await getEtsyAccessToken(supabaseClient, etsyPlatB);
       const etsyShopIdB = etsyPlatB.metadata?.shop_id;
       const etsyClientIdB = Deno.env.get('ETSY_CLIENT_ID');
       if (!etsyTokB || !etsyShopIdB || !etsyClientIdB) throw new Error('Etsy credentials or shop_id missing.');
@@ -5859,7 +5860,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
       if (!etsySalePlats || etsySalePlats.length === 0) throw new Error('No connected Etsy shop found.');
       const etsySalePlat = etsySalePlats[0];
-      const etsySaleTok = etsySalePlat.credentials?.access_token;
+      const etsySaleTok = await getEtsyAccessToken(supabaseClient, etsySalePlat);
       const etsySaleShopId = etsySalePlat.metadata?.shop_id;
       const etsySaleClientId = Deno.env.get('ETSY_CLIENT_ID');
       if (!etsySaleTok || !etsySaleShopId || !etsySaleClientId) throw new Error('Etsy credentials or shop_id missing.');
@@ -5921,7 +5922,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
       if (!etsyEndSalePlats || etsyEndSalePlats.length === 0) throw new Error('No connected Etsy shop found.');
       const etsyEndPlat = etsyEndSalePlats[0];
-      const etsyEndTok = etsyEndPlat.credentials?.access_token;
+      const etsyEndTok = await getEtsyAccessToken(supabaseClient, etsyEndPlat);
       const etsyEndShopId = etsyEndPlat.metadata?.shop_id;
       const etsyEndClientId = Deno.env.get('ETSY_CLIENT_ID');
       if (!etsyEndTok || !etsyEndShopId || !etsyEndClientId) throw new Error('Etsy credentials or shop_id missing.');
@@ -6424,7 +6425,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
         if (etsyMsgPlats && etsyMsgPlats.length > 0) {
           const etsyMsgPlat = etsyMsgPlats[0];
-          const etsyMsgTok = etsyMsgPlat.credentials?.access_token;
+          const etsyMsgTok = await getEtsyAccessToken(supabaseClient, etsyMsgPlat);
           const etsyMsgShopId = etsyMsgPlat.metadata?.shop_id;
           const etsyMsgClientId = Deno.env.get('ETSY_CLIENT_ID');
           if (etsyMsgTok && etsyMsgShopId && etsyMsgClientId) {
@@ -6519,7 +6520,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
         if (!etsySendPlats || etsySendPlats.length === 0) throw new Error('No connected Etsy shop found.');
         const etsySendPlat = etsySendPlats[0];
-        const etsySendTok = etsySendPlat.credentials?.access_token;
+        const etsySendTok = await getEtsyAccessToken(supabaseClient, etsySendPlat);
         const etsySendShopId = etsySendPlat.metadata?.shop_id;
         const etsySendClientId = Deno.env.get('ETSY_CLIENT_ID');
         if (!etsySendTok || !etsySendShopId || !etsySendClientId) throw new Error('Etsy credentials or shop_id missing.');
@@ -7431,7 +7432,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
           if (etsyPlats && etsyPlats.length > 0) {
             const etsyPl = etsyPlats[0];
-            const etsyTok = etsyPl.credentials?.access_token;
+            const etsyTok = await getEtsyAccessToken(supabaseClient, etsyPl);
             const etsyShopId = etsyPl.metadata?.shop_id;
             const etsyClientId = Deno.env.get('ETSY_CLIENT_ID');
             if (etsyTok && etsyShopId && etsyClientId) {
@@ -8473,7 +8474,7 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
         }
       } else if (pt === 'etsy') {
         const shopId = platform.metadata?.shop_id;
-        const tok = platform.credentials?.access_token;
+        const tok = await getEtsyAccessToken(supabaseClient, platform);
         const clientId = Deno.env.get('ETSY_CLIENT_ID');
         if (shopId && tok && clientId) {
           const res = await fetch(
@@ -8575,7 +8576,7 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
   for (const platform of (platforms || [])) {
     if (platform.platform_type !== 'etsy') continue;
     const shopId = platform.metadata?.shop_id;
-    const tok = platform.credentials?.access_token;
+    const tok = await getEtsyAccessToken(supabaseClient, platform);
     const clientId = Deno.env.get('ETSY_CLIENT_ID');
     if (!shopId || !tok || !clientId) continue;
     try {
