@@ -262,6 +262,9 @@ async function executeWorkflowSteps(
       if (actionType === 'inventory_email') {
         if (!cfg.recipient) cfg.recipient = await ownerEmail(workflow.user_id, supabase);
         result = await sendInventoryEmail(workflow.user_id, cfg, supabase);
+      } else if (actionType === 'photo_check_email') {
+        if (!cfg.recipient) cfg.recipient = await ownerEmail(workflow.user_id, supabase);
+        result = await sendPhotoCheckEmail(workflow.user_id, cfg, supabase);
       } else if (actionType === 'send_email') {
         // Auto-fill body from the most recent AI command output if body is empty
         const lastAiOutput = Object.values(stepOutputs).at(-1) as string | undefined;
@@ -502,7 +505,7 @@ async function sendGenericEmail(cfg: any): Promise<any> {
   const emailRes = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${resendApiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: fromEmail, to: [to], subject, html: `<p>${body.replace(/\n/g, '<br>')}</p>` }),
+    body: JSON.stringify({ from: fromEmail, to: [to], subject, html: markdownToEmailHtml(body) }),
   });
 
   if (!emailRes.ok) {
@@ -511,6 +514,149 @@ async function sendGenericEmail(cfg: any): Promise<any> {
   }
 
   return { action: 'send_email', sent_to: to };
+}
+
+// Orion's answers use light markdown (**bold**, "- " / "1. " lists); emails
+// showed the raw asterisks. Convert just those, escaping everything else.
+function markdownToEmailHtml(md: string): string {
+  const esc = (v: string) => v.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
+  const inline = (v: string) => esc(v).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(^|\W)\*(?!\s)(.+?)\*(?=\W|$)/g, '$1<i>$2</i>');
+  const out: string[] = [];
+  let list: 'ul' | 'ol' | null = null;
+  const close = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  for (const raw of String(md || '').split('\n')) {
+    const line = raw.trimEnd();
+    const bullet = line.match(/^\s*[-*•]\s+(.*)$/);
+    const numbered = line.match(/^\s*\d+[.)]\s+(.*)$/);
+    const heading = line.match(/^\s*#{1,6}\s+(.*)$/);
+    if (bullet || numbered) {
+      const kind = bullet ? 'ul' : 'ol';
+      if (list !== kind) { close(); out.push(`<${kind} style="margin:0 0 12px;padding-left:22px;">`); list = kind; }
+      out.push(`<li style="margin:0 0 6px;">${inline((bullet || numbered)![1])}</li>`);
+    } else {
+      close();
+      if (!line.trim()) continue;
+      out.push(heading ? `<h3 style="margin:16px 0 8px;font-size:16px;">${inline(heading[1])}</h3>` : `<p style="margin:0 0 12px;">${inline(line)}</p>`);
+    }
+  }
+  close();
+  return `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;line-height:1.5;color:#1e293b;max-width:680px;">${out.join('\n')}</div>`;
+}
+
+// ── Photo check email ─────────────────────────────────────────────────────────
+// Lists every active Shopify product and eBay listing that has no photo.
+// Built in code rather than asking Orion, which only sees a summary of the
+// store and can't reliably check hundreds of products.
+async function sendPhotoCheckEmail(userId: string, cfg: any, supabase: any): Promise<any> {
+  const resendApiKey = Deno.env.get('RESEND_API_KEY');
+  const fromEmail = Deno.env.get('RESEND_FROM_EMAIL') ?? 'Tandril <noreply@tandril.org>';
+  const recipient = cfg.recipient;
+  if (!recipient) throw new Error('photo_check_email: recipient is required');
+  if (!resendApiKey) throw new Error('RESEND_API_KEY is not configured');
+
+  const { data: platforms } = await supabase
+    .from('platforms').select('*').eq('user_id', userId)
+    .in('platform_type', ['shopify', 'ebay']).eq('is_active', true);
+
+  const missing: { store: string; title: string; detail: string }[] = [];
+  let checked = 0;
+  const problems: string[] = [];
+
+  for (const platform of platforms || []) {
+    try {
+      if (platform.platform_type === 'shopify') {
+        let token = platform.access_token;
+        if (token && isEncrypted(token)) token = await decrypt(token);
+        if (!token) continue;
+        const shopDomain = platform.shop_domain || platform.store_url;
+        let cursor: string | null = null;
+        for (let page = 0; page < 20; page++) {
+          const d: any = await shopifyGraphQL(shopDomain, token, `
+            query($after: String) {
+              products(first: 100, after: $after, query: "status:active") {
+                pageInfo { hasNextPage endCursor }
+                edges { node { title handle images(first: 1) { edges { node { id } } } } }
+              }
+            }`, { after: cursor });
+          for (const e of d.products.edges) {
+            checked++;
+            if (!e.node.images.edges.length) missing.push({ store: platform.shop_name || shopDomain, title: e.node.title, detail: 'Shopify' });
+          }
+          if (!d.products.pageInfo.hasNextPage) break;
+          cursor = d.products.pageInfo.endCursor;
+        }
+      } else {
+        const { apiBase, headers } = await ebayClient(platform);
+        for (let offset = 0; offset < 2000; offset += 100) {
+          const res = await fetch(`${apiBase}/sell/inventory/v1/inventory_item?limit=100&offset=${offset}`, { headers });
+          if (!res.ok) throw new Error(`eBay listing fetch failed: ${res.status}`);
+          const d = await res.json();
+          for (const item of d.inventoryItems || []) {
+            checked++;
+            if (!(item.product?.imageUrls || []).length) missing.push({ store: platform.shop_name || 'eBay', title: item.product?.title || item.sku, detail: `eBay · SKU ${item.sku}` });
+          }
+          if (!d.next || !(d.inventoryItems || []).length) break;
+        }
+      }
+    } catch (e: any) {
+      problems.push(`${platform.shop_name || platform.platform_type}: ${e.message}`);
+    }
+  }
+
+  const esc = (v: any) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
+  const rows = missing.slice(0, 300).map((m) => `<tr><td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">${esc(m.title)}</td><td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;color:#64748b;font-size:12px;">${esc(m.detail)}</td></tr>`).join('');
+  const html = `
+  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:680px;margin:0 auto;padding:32px 24px;background:#fff;">
+    <h1 style="font-size:22px;font-weight:700;color:#1a1a2e;margin:0 0 4px;">Photo Check</h1>
+    <p style="color:#64748b;font-size:14px;margin:0 0 24px;">${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+    <p style="font-size:14px;color:#334155;margin:0 0 24px;">Checked <b>${checked}</b> products and listings · <b style="color:${missing.length ? '#dc2626' : '#16a34a'};">${missing.length}</b> ${missing.length === 1 ? 'has' : 'have'} no photo.</p>
+    ${missing.length ? `<table style="width:100%;border-collapse:collapse;margin-bottom:24px;"><tr style="background:#f8fafc;"><th style="padding:10px 12px;text-align:left;font-size:12px;color:#64748b;">Product</th><th style="padding:10px 12px;text-align:left;font-size:12px;color:#64748b;">Where</th></tr>${rows}</table>${missing.length > 300 ? `<p style="font-size:12px;color:#64748b;">…and ${missing.length - 300} more.</p>` : ''}` : `<div style="padding:24px;background:#f0fdf4;border-radius:10px;text-align:center;"><p style="font-size:16px;color:#16a34a;font-weight:600;margin:0;">Every product has at least one photo.</p></div>`}
+    ${problems.length ? `<p style="font-size:12px;color:#b45309;margin:16px 0 0;">Couldn't check: ${problems.map(esc).join('; ')}</p>` : ''}
+    <hr style="border:none;border-top:1px solid #e2e8f0;margin:32px 0;"/>
+    <p style="font-size:12px;color:#94a3b8;margin:0;">Sent by Tandril · Automated Photo Check</p>
+  </div>`;
+
+  const emailRes = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${resendApiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: fromEmail, to: [recipient], subject: `Tandril Photo Check — ${missing.length} without photos`, html }),
+  });
+  if (!emailRes.ok) {
+    const err = await emailRes.json().catch(() => ({}));
+    throw new Error(`Resend error: ${(err as any).message ?? emailRes.statusText}`);
+  }
+  return { action: 'photo_check_email', sent_to: recipient, checked, missing_photos: missing.length, problems };
+}
+
+// eBay access token (refreshed when close to expiry) + the headers the Sell
+// Inventory API requires.
+async function ebayClient(platform: any): Promise<{ apiBase: string; headers: Record<string, string> }> {
+  const credentials = platform.credentials ?? {};
+  const metadata = platform.metadata ?? {};
+  const isSandbox = metadata.environment === 'sandbox';
+  const apiBase = isSandbox ? 'https://api.sandbox.ebay.com' : 'https://api.ebay.com';
+  let accessToken = credentials.access_token;
+  const expiresAt = metadata.token_expires_at ? new Date(metadata.token_expires_at).getTime() : 0;
+  if ((!expiresAt || Date.now() > expiresAt - 5 * 60 * 1000) && credentials.refresh_token) {
+    const id = Deno.env.get('EBAY_CLIENT_ID'), secret = Deno.env.get('EBAY_CLIENT_SECRET');
+    if (id && secret) {
+      const r = await fetch(`${apiBase}/identity/v1/oauth2/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Authorization': `Basic ${btoa(`${id}:${secret}`)}` },
+        body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: credentials.refresh_token }).toString(),
+      });
+      if (r.ok) accessToken = (await r.json()).access_token;
+    }
+  }
+  if (!accessToken) throw new Error('eBay login missing — reconnect eBay');
+  return {
+    apiBase,
+    headers: {
+      'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json',
+      'Content-Language': 'en-US', 'Accept-Language': 'en-US',
+      'X-EBAY-C-MARKETPLACE-ID': credentials.marketplace_id || 'EBAY_US',
+    },
+  };
 }
 
 // ── Inventory email HTML ──────────────────────────────────────────────────────
