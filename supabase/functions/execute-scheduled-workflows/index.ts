@@ -412,39 +412,43 @@ async function sendInventoryEmail(userId: string, cfg: any, supabase: any): Prom
 
     const shopDomain = platform.store_url || platform.shop_domain;
 
-    let gqlData: any;
-    try {
-      gqlData = await shopifyGraphQL(shopDomain, token, `
-        query {
-          products(first: 250, query: "status:active") {
-            edges {
-              node {
-                id title
-                variants(first: 100) {
-                  edges {
-                    node {
-                      id sku inventoryQuantity
-                      title
-                    }
+    // Every active product, not just the first 250 (large stores have more)
+    const products: any[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < 20; page++) {
+      let gqlData: any;
+      try {
+        gqlData = await shopifyGraphQL(shopDomain, token, `
+          query($after: String) {
+            products(first: 100, after: $after, query: "status:active") {
+              pageInfo { hasNextPage endCursor }
+              edges {
+                node {
+                  id title
+                  variants(first: 100) {
+                    edges { node { id sku inventoryQuantity title } }
                   }
                 }
               }
             }
           }
-        }
-      `);
-    } catch { continue; }
-
-    const products = gqlData.products.edges.map((e: any) => ({
-      id: fromShopifyGid(e.node.id),
-      title: e.node.title,
-      variants: e.node.variants.edges.map((v: any) => ({
-        id: fromShopifyGid(v.node.id),
-        sku: v.node.sku,
-        title: v.node.title,
-        inventory_quantity: v.node.inventoryQuantity,
-      })),
-    }));
+        `, { after: cursor });
+      } catch { break; }
+      for (const e of gqlData.products.edges) {
+        products.push({
+          id: fromShopifyGid(e.node.id),
+          title: e.node.title,
+          variants: e.node.variants.edges.map((v: any) => ({
+            id: fromShopifyGid(v.node.id),
+            sku: v.node.sku,
+            title: v.node.title,
+            inventory_quantity: v.node.inventoryQuantity,
+          })),
+        });
+      }
+      if (!gqlData.products.pageInfo.hasNextPage) break;
+      cursor = gqlData.products.pageInfo.endCursor;
+    }
 
     for (const product of products) {
       for (const variant of product.variants ?? []) {
@@ -511,37 +515,38 @@ async function sendGenericEmail(cfg: any): Promise<any> {
 
 // ── Inventory email HTML ──────────────────────────────────────────────────────
 function buildInventoryEmailHtml(outOfStock: any[], lowStock: any[], threshold: number, date: Date): string {
-  const fmt = (items: any[]) => items.map(i => `
-    <tr>
-      <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">${i.product}${i.variant ? ` — ${i.variant}` : ''}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;color:#64748b;">${i.sku || '—'}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-weight:600;color:${i.quantity === 0 ? '#dc2626' : '#d97706'};">${i.quantity}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;color:#94a3b8;font-size:12px;">${i.store}</td>
-    </tr>`).join('');
+  const esc = (v: any) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
+  const td = 'padding:8px 12px;border-bottom:1px solid #f1f5f9;vertical-align:top;';
+  const th = 'padding:10px 12px;text-align:left;font-size:12px;color:#64748b;font-weight:600;';
 
-  const tableHeader = `<tr style="background:#f8fafc;">
-    <th style="padding:10px 12px;text-align:left;font-size:12px;color:#64748b;font-weight:600;">Product</th>
-    <th style="padding:10px 12px;text-align:left;font-size:12px;color:#64748b;font-weight:600;">SKU</th>
-    <th style="padding:10px 12px;text-align:left;font-size:12px;color:#64748b;font-weight:600;">Qty</th>
-    <th style="padding:10px 12px;text-align:left;font-size:12px;color:#64748b;font-weight:600;">Store</th>
-  </tr>`;
+  // One row per product (a store can have hundreds of sold-out size/color
+  // variants — listing each one made the email huge and hard to read).
+  const byProduct = (items: any[]) => {
+    const map = new Map<string, { product: string; variants: string[] }>();
+    for (const i of items) {
+      const key = `${i.store}|${i.product}`;
+      if (!map.has(key)) map.set(key, { product: i.product, variants: [] });
+      map.get(key)!.variants.push(i.variant || 'Default');
+    }
+    return [...map.values()].sort((x, y) => y.variants.length - x.variants.length);
+  };
+  const soldOut = byProduct(outOfStock);
+  const MAX_ROWS = 150;
+  const soldOutRows = soldOut.slice(0, MAX_ROWS).map((g) => {
+    const shown = g.variants.slice(0, 8).map(esc).join(', ');
+    const more = g.variants.length > 8 ? ` +${g.variants.length - 8} more` : '';
+    return `<tr><td style="${td}">${esc(g.product)}</td><td style="${td}color:#dc2626;font-weight:600;">${g.variants.length}</td><td style="${td}color:#64748b;font-size:12px;">${shown}${more}</td></tr>`;
+  }).join('');
+  const lowRows = lowStock.slice(0, MAX_ROWS).map((i) => `<tr><td style="${td}">${esc(i.product)}${i.variant ? ` — ${esc(i.variant)}` : ''}</td><td style="${td}color:#64748b;">${esc(i.sku || '—')}</td><td style="${td}font-weight:600;color:#d97706;">${i.quantity}</td></tr>`).join('');
+  const moreNote = (n: number, what: string) => n > MAX_ROWS ? `<p style="font-size:12px;color:#64748b;margin:-24px 0 32px;">…and ${n - MAX_ROWS} more ${what}.</p>` : '';
 
   return `
   <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:680px;margin:0 auto;padding:32px 24px;background:#fff;">
     <h1 style="font-size:22px;font-weight:700;color:#1a1a2e;margin:0 0 4px;">Inventory Report</h1>
-    <p style="color:#64748b;font-size:14px;margin:0 0 32px;">${date.toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</p>
-    <div style="display:flex;gap:16px;margin-bottom:32px;">
-      <div style="flex:1;padding:16px;background:#fef2f2;border-radius:10px;border-left:4px solid #dc2626;">
-        <p style="margin:0;font-size:28px;font-weight:700;color:#dc2626;">${outOfStock.length}</p>
-        <p style="margin:4px 0 0;font-size:13px;color:#64748b;">Out of Stock</p>
-      </div>
-      <div style="flex:1;padding:16px;background:#fffbeb;border-radius:10px;border-left:4px solid #d97706;">
-        <p style="margin:0;font-size:28px;font-weight:700;color:#d97706;">${lowStock.length}</p>
-        <p style="margin:4px 0 0;font-size:13px;color:#64748b;">Low Stock (≤${threshold})</p>
-      </div>
-    </div>
-    ${outOfStock.length > 0 ? `<h2 style="font-size:16px;font-weight:600;color:#dc2626;margin:0 0 12px;">Out of Stock</h2><table style="width:100%;border-collapse:collapse;margin-bottom:32px;">${tableHeader}${fmt(outOfStock)}</table>` : ''}
-    ${lowStock.length > 0 ? `<h2 style="font-size:16px;font-weight:600;color:#d97706;margin:0 0 12px;">Low Stock</h2><table style="width:100%;border-collapse:collapse;margin-bottom:32px;">${tableHeader}${fmt(lowStock)}</table>` : ''}
+    <p style="color:#64748b;font-size:14px;margin:0 0 24px;">${date.toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</p>
+    <p style="font-size:14px;color:#334155;margin:0 0 24px;"><b style="color:#d97706;">${lowStock.length}</b> item${lowStock.length === 1 ? '' : 's'} low on stock (${threshold} or fewer) · <b style="color:#dc2626;">${outOfStock.length}</b> size/color option${outOfStock.length === 1 ? '' : 's'} sold out across <b>${soldOut.length}</b> product${soldOut.length === 1 ? '' : 's'}</p>
+    ${lowStock.length > 0 ? `<h2 style="font-size:16px;font-weight:600;color:#d97706;margin:0 0 12px;">Low stock — reorder soon</h2><table style="width:100%;border-collapse:collapse;margin-bottom:32px;"><tr style="background:#f8fafc;"><th style="${th}">Product</th><th style="${th}">SKU</th><th style="${th}">Qty</th></tr>${lowRows}</table>${moreNote(lowStock.length, 'low-stock items')}` : ''}
+    ${soldOut.length > 0 ? `<h2 style="font-size:16px;font-weight:600;color:#dc2626;margin:0 0 4px;">Sold out</h2><p style="font-size:12px;color:#64748b;margin:0 0 12px;">Customers can't buy these options. For print-on-demand products (e.g. Printful), 0 usually means the supplier can't make that size/color right now.</p><table style="width:100%;border-collapse:collapse;margin-bottom:32px;"><tr style="background:#f8fafc;"><th style="${th}">Product</th><th style="${th}">Sold-out options</th><th style="${th}">Which</th></tr>${soldOutRows}</table>${moreNote(soldOut.length, 'products with sold-out options')}` : ''}
     ${outOfStock.length === 0 && lowStock.length === 0 ? `<div style="padding:24px;background:#f0fdf4;border-radius:10px;text-align:center;"><p style="font-size:16px;color:#16a34a;font-weight:600;margin:0;">All inventory levels are healthy!</p></div>` : ''}
     <hr style="border:none;border-top:1px solid #e2e8f0;margin:32px 0;"/>
     <p style="font-size:12px;color:#94a3b8;margin:0;">Sent by Tandril · Automated Inventory Report</p>
