@@ -545,6 +545,11 @@ serve(async (req) => {
     let recentHistory: any[] = [];
     let memoryNotes: any[] = [];
     const storeContext = await getUserStoreContext(supabaseClient, userId);
+    // The seller's browser time zone (IANA name, e.g. "America/Chicago") so Orion
+    // can turn "9am" into the right UTC cron, daylight saving included.
+    if (typeof rawBody.timezone === 'string' && /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+)*$/.test(rawBody.timezone)) {
+      (storeContext as any).seller_timezone = rawBody.timezone;
+    }
 
     if (conversationId) {
       try {
@@ -9438,6 +9443,17 @@ Examples:
   const syncStoreNames = storeContext.platforms
     .filter((p: any) => ['shopify', 'ebay', 'woocommerce', 'etsy'].includes(p.platform_type))
     .map((p: any) => `${p.platform_type} (${p.shop_name || p.shop_domain || p.name || 'store'})`);
+  const sellerTz: string | undefined = (storeContext as any).seller_timezone;
+  let tzLine = 'Seller time zone unknown — use US Eastern and say so.';
+  if (sellerTz) {
+    try {
+      const now = new Date();
+      const parts = new Intl.DateTimeFormat('en-US', { timeZone: sellerTz, timeZoneName: 'shortOffset', hour: 'numeric', minute: '2-digit', weekday: 'long' }).formatToParts(now);
+      const off = parts.find((p) => p.type === 'timeZoneName')?.value || '';
+      const local = parts.filter((p) => p.type !== 'timeZoneName').map((p) => p.value).join('');
+      tzLine = `Seller time zone: ${sellerTz} — currently ${off} (their local time now: ${local}). Convert their times to UTC with that offset (e.g. at GMT-5, 9am local = hour 14 UTC).`;
+    } catch { /* unknown zone name — keep the fallback */ }
+  }
   const linkingSection = `
 **Cross-store product linking (inventory sync) — you can do this for the seller:**
 A "link" tells Tandril that listings on different stores are the same physical item, so a sale on one lowers stock on the others. Syncing stores connected: ${syncStoreNames.join(', ') || 'none'}.${syncStoreNames.length < 2 ? ' Linking needs at least two of Shopify / eBay / WooCommerce / Etsy — say so if they ask.' : ''}
@@ -9466,10 +9482,11 @@ Use create_workflow when they want something automated, scheduled, repeated, or 
     - Any store action you can do in chat, as {"type":"action","config":{"action_type":"<action type>", ...same fields as the chat action}} — e.g. update_price, update_inventory, flash_sale, sync_product, link_products, smart_restock.
     - {"type":"wait","duration":2,"unit":"hours"|"days"|"minutes"} — pauses; the scheduler checks hourly so waits are at least ~1 hour.
     - {"type":"action","config":{"action_type":"run_ai_command","command_text":"Summarize this week's sales and low stock"}} — you run in the background; your answer becomes {{step_N_output}} and the body of a following blank send_email.
-    - {"type":"action","config":{"action_type":"send_email","email_recipient":"x@y.com","email_subject":"...","email_body":""}}
-    - {"type":"action","config":{"action_type":"inventory_email","recipient":"x@y.com","threshold":5}} — low-stock report email.
+    - {"type":"action","config":{"action_type":"send_email","email_subject":"...","email_body":""}} — add "email_recipient" only for someone other than the seller; left out, it goes to the seller's account email.
+    - {"type":"action","config":{"action_type":"inventory_email","threshold":5}} — low-stock report email (items at or below threshold), to the seller's account email unless "recipient" is given.
     - {"type":"action","config":{"action_type":"send_alert","alert_title":"...","alert_message":"...","alert_priority":"high"}} — shows in Tandril's notification bell.
-  Rules: ask for anything you'd otherwise guess (restore price, email address, time of day). Workflows are saved switched OFF — after it's approved, tell them to review it on the Workflows page and turn it on (manual ones can be run with Run Now). Never say a workflow is running until they've turned it on.
+  ${tzLine}
+  Rules: "email me" = leave the recipient out (it goes to their account email). The cron is in UTC but the seller thinks in their own time: "9am" means 9am THEIR time, never 9am UTC. If you don't know their time zone, use US Eastern (9am Eastern = "0 13 * * 1") and say "9am Eastern — tell me your time zone if that's wrong". Until the seller confirms the card, say you've "drafted" or "set up the card for" the workflow — never "created" or "workflow created". Ask only for things that change money or other people (a restore price, someone else's email address). Workflows are saved switched OFF — after it's approved, tell them to review it on the Workflows page and turn it on (manual ones can be run with Run Now). Never say a workflow is running until they've turned it on.
 `;
 
   const needsReconnect = storeContext.platforms.filter((p: any) => p.status === 'needs_reconnect');
@@ -9502,7 +9519,7 @@ Use create_workflow when they want something automated, scheduled, repeated, or 
 - You CAN: Manage orders across all platforms — sync orders, mark as fulfilled with tracking, cancel orders, process refunds
 - You CANNOT: Log into any platform or request credentials — NEVER ask for passwords, API keys, or admin access. You already have the integration through Tandril.
 - You CANNOT: Process credit card payments or initiate charges outside of the platform's own payment system
-- You CANNOT: Create persistent background alerts, scheduled reminders, or automated monitoring that runs independently while the user is away. You are a conversational AI — you only run when the user is actively chatting with you. You do NOT monitor the store in the background. NEVER say "I'll flag it automatically" or "I'll alert you when" or "I'll notify you" — because you cannot. When a user asks to be notified or alerted about something (e.g. "alert me when stock drops below 5"), be honest and helpful: "I can't monitor that in the background on my own — but you can set up a real alert in Custom Alerts (in the sidebar) that will notify you by email or in-app whenever that threshold is hit. Want me to walk you through creating it?" Do NOT promise to monitor anything automatically.
+- Scheduled and automatic work: you don't watch the store yourself between chats, but Tandril DOES run things automatically for the user. (1) WORKFLOWS (create_workflow) run on a schedule or on demand without the user present — e.g. "check low stock every Monday and email me", "sync my linked products every morning", "send me a weekly sales summary". When the user asks for anything recurring or scheduled, emit a create_workflow card right away (see the workflow docs below) — don't say you can't, and don't ask them to choose first. If they didn't give a time, pick a sensible one (e.g. Monday 9am) and say so; they can change it. (2) CUSTOM ALERTS (sidebar) fire the moment a threshold is hit (e.g. stock below 5) — mention them as an add-on for instant alerts, not instead of the workflow they asked for. Never claim YOU personally will watch, flag or notify later outside of a workflow or alert — say what the workflow/alert will do.
 - ⚠️ For partial refunds (specific line items or amounts), direct the user to their platform dashboard — only full-order refunds are supported via action blocks.
 
 **How to execute a store action:**

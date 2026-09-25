@@ -260,13 +260,17 @@ async function executeWorkflowSteps(
 
     try {
       if (actionType === 'inventory_email') {
+        if (!cfg.recipient) cfg.recipient = await ownerEmail(workflow.user_id, supabase);
         result = await sendInventoryEmail(workflow.user_id, cfg, supabase);
       } else if (actionType === 'send_email') {
         // Auto-fill body from the most recent AI command output if body is empty
         const lastAiOutput = Object.values(stepOutputs).at(-1) as string | undefined;
         const enrichedCfg = (!cfg.email_body && lastAiOutput)
           ? { ...cfg, email_body: lastAiOutput }
-          : cfg;
+          : { ...cfg };
+        if (!enrichedCfg.email_recipient && !enrichedCfg.recipient) {
+          enrichedCfg.email_recipient = await ownerEmail(workflow.user_id, supabase);
+        }
         result = await sendGenericEmail(enrichedCfg);
       } else if (actionType === 'webhook') {
         result = await callWebhook(cfg);
@@ -369,6 +373,12 @@ async function saveAlert(userId: string, cfg: any, supabase: any): Promise<any> 
   });
   if (error) throw new Error(`Could not save alert: ${error.message}`);
   return { saved: true };
+}
+
+// "Email me" workflows are saved without an address — send to the account owner.
+async function ownerEmail(userId: string, supabase: any): Promise<string | undefined> {
+  const { data } = await supabase.auth.admin.getUserById(userId);
+  return data?.user?.email || undefined;
 }
 
 // ── Inventory email ───────────────────────────────────────────────────────────
