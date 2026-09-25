@@ -176,6 +176,16 @@ serve(async (req) => {
         console.log('[shop/redact] Platform connection deleted');
       }
 
+      // Deleting the platform row saves its product links to paused_product_links
+      // (so a normal reconnect can restore them). A shop redact means delete for
+      // good, so remove those saved links too.
+      const { error: pausedError } = await supabaseClient
+        .from('paused_product_links')
+        .delete()
+        .eq('platform_type', 'shopify')
+        .eq('store_key', String(payload.shop_domain).toLowerCase());
+      if (pausedError) deletionErrors.push(`paused_product_links: ${pausedError.message}`);
+
       // Clean up any leftover OAuth state rows for this shop
       const { error: oauthError } = await supabaseClient
         .from('oauth_states')

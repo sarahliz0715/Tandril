@@ -10,13 +10,14 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Link2, Plus, Trash2, RefreshCw, CheckCircle, XCircle, Loader2, Clock, AlertTriangle } from 'lucide-react';
+import { Link2, Plus, Trash2, RefreshCw, CheckCircle, XCircle, Loader2, Clock, AlertTriangle, PauseCircle } from 'lucide-react';
 
 export default function SyncLinksPanel() {
     const [links, setLinks] = useState([]);
     const [platforms, setPlatforms] = useState([]);
     const [syncLog, setSyncLog] = useState([]);
     const [retryQueue, setRetryQueue] = useState([]);
+    const [pausedLinks, setPausedLinks] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [showAddModal, setShowAddModal] = useState(false);
     const [isSyncing, setIsSyncing] = useState(null);
@@ -37,7 +38,7 @@ export default function SyncLinksPanel() {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) return;
 
-            const [linksRes, platformsRes, logRes, retryRes] = await Promise.all([
+            const [linksRes, platformsRes, logRes, retryRes, pausedRes] = await Promise.all([
                 supabase
                     .from('platform_product_links')
                     .select('*, platforms(shop_name, shop_domain, platform_type)')
@@ -59,12 +60,18 @@ export default function SyncLinksPanel() {
                     .select('target_platform_id, sku, last_error, last_attempted_at, attempt_count, resolved_at')
                     .eq('user_id', user.id)
                     .or('resolved_at.is.null,and(resolved_at.not.is.null,last_error.not.is.null)'),
+                // Links saved when a store was disconnected; restored when it reconnects
+                supabase
+                    .from('paused_product_links')
+                    .select('platform_type, store_key, store_name')
+                    .eq('user_id', user.id),
             ]);
 
             setLinks(linksRes.data ?? []);
             setPlatforms(platformsRes.data ?? []);
             setSyncLog(logRes.data ?? []);
             setRetryQueue(retryRes.data ?? []);
+            setPausedLinks(pausedRes.data ?? []);
         } catch (err) {
             console.error('SyncLinksPanel load error:', err);
         } finally {
@@ -274,6 +281,20 @@ export default function SyncLinksPanel() {
                     </p>
                 </CardHeader>
                 <CardContent>
+                    {pausedLinks.length > 0 && (() => {
+                        const byStore = {};
+                        for (const p of pausedLinks) {
+                            const key = `${p.platform_type}:${p.store_key}`;
+                            byStore[key] = byStore[key] || { name: p.store_name || p.store_key, count: 0 };
+                            byStore[key].count++;
+                        }
+                        return Object.entries(byStore).map(([key, s]) => (
+                            <div key={key} className="flex items-center gap-2 mb-3 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700">
+                                <PauseCircle className="w-4 h-4 flex-shrink-0" />
+                                <span>{s.count} product link{s.count !== 1 ? 's are' : ' is'} saved and paused for <strong>{s.name}</strong>, which is disconnected. Reconnect that store on the Platforms page and {s.count !== 1 ? "they'll" : "it'll"} be restored automatically.</span>
+                            </div>
+                        ));
+                    })()}
                     {retryQueue.length > 0 && (() => {
                         const gaveUp = retryQueue.filter(r => r.resolved_at && r.last_error);
                         const retrying = retryQueue.filter(r => !r.resolved_at);

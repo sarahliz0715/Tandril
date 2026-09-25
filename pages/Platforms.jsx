@@ -1,11 +1,10 @@
-
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Platform } from '@/lib/entities';
 import { PlatformType } from '@/lib/entities';
 import { User } from '@/lib/entities';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { shopifyAuthExchange } from '@/lib/supabaseFunctions';
+import { shopifyAuthExchange, invokeEdgeFunction } from '@/lib/supabaseFunctions';
 import { supabase } from '@/lib/supabaseClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -269,6 +268,52 @@ export default function Platforms() {
         loadData();
     }, [loadData]);
 
+    // After a store reconnects, the database restores its saved product links and
+    // marks metadata.links_restored.pending. Bring stock back in line for those SKUs
+    // (lowest count wins — sales made while disconnected never reached this store),
+    // then clear the flag. check-platform-connections does the same hourly as a backstop.
+    const catchingUp = useRef(new Set());
+    useEffect(() => {
+        if (!currentUser?.id) return;
+        const pending = platforms.filter(p => p.metadata?.links_restored?.pending && !catchingUp.current.has(p.id));
+        for (const platform of pending) {
+            catchingUp.current.add(platform.id);
+            const restored = platform.metadata.links_restored;
+            const storeName = platform.shop_name || platform.name;
+            (async () => {
+                const skus = restored.skus || [];
+                let failed = 0;
+                for (const sku of skus) {
+                    try {
+                        await invokeEdgeFunction('sync-inventory-levels', {
+                            user_id: currentUser.id, sku, mode: 'lowest', triggered_by: 'reconnect_catchup',
+                        });
+                    } catch (e) {
+                        failed++;
+                        console.error(`Catch-up sync failed for ${sku}:`, e);
+                    }
+                }
+                try {
+                    await Platform.update(platform.id, {
+                        metadata: { ...platform.metadata, links_restored: { ...restored, pending: false, caught_up_at: new Date().toISOString() } },
+                    });
+                } catch (e) {
+                    console.error('Failed to clear links_restored flag:', e);
+                }
+                const linkWord = restored.count === 1 ? 'product link' : 'product links';
+                if (failed === 0) {
+                    toast.success(`Restored ${restored.count} ${linkWord} for ${storeName}`, {
+                        description: 'Stock has been brought back in line across your platforms.',
+                    });
+                } else {
+                    toast.warning(`Restored ${restored.count} ${linkWord} for ${storeName}`, {
+                        description: `${failed} item${failed === 1 ? '' : 's'} couldn't be brought in line yet — Tandril will retry within the hour.`,
+                    });
+                }
+            })();
+        }
+    }, [platforms, currentUser]);
+
     // Realtime subscription — reload whenever any platform row is inserted or updated
     // so the page reflects connected status immediately without a manual refresh.
     useEffect(() => {
@@ -288,15 +333,42 @@ export default function Platforms() {
 
     // Handle platform disconnection with confirmation
     const handleDisconnect = useCallback(async (platform) => {
+        const storeName = platform.shop_name || platform.name;
+        // Links are saved (paused_product_links) by a database trigger when the
+        // platform row is deleted, and restored when the same store reconnects.
+        const { count: linkCount } = await supabase
+            .from('platform_product_links')
+            .select('id', { count: 'exact', head: true })
+            .eq('platform_id', platform.id);
+        const links = linkCount ?? 0;
+        const linkWord = links === 1 ? 'product link' : 'product links';
+
         await confirm({
-            title: 'Disconnect Platform?',
-            description: `Are you sure you want to disconnect ${platform.name}? This will stop all automations and data syncing for this platform.`,
+            title: `Disconnect ${storeName}?`,
+            description: (
+                <>
+                    <span className="block">
+                        {storeName} will be disconnected from Tandril. Automations for this store stop,
+                        and no inventory syncs to or from it while it's disconnected.
+                    </span>
+                    {links > 0 && (
+                        <span className="block mt-3">
+                            Your {links} {linkWord} for this store will be <strong>saved and paused</strong>, not deleted.
+                            When you reconnect this same store, they'll be restored automatically and stock will be
+                            brought back in line across your platforms (the lowest count is kept, so nothing is oversold).
+                            Connecting a different store won't restore them.
+                        </span>
+                    )}
+                </>
+            ),
             confirmText: 'Disconnect',
             variant: 'destructive',
             onConfirm: async () => {
                 try {
                     await Platform.delete(platform.id);
-                    toast.success(`${platform.name} disconnected successfully`);
+                    toast.success(`${storeName} disconnected`, links > 0 ? {
+                        description: `${links} ${linkWord} saved and paused — they'll be restored when you reconnect this store.`
+                    } : undefined);
                     loadData(); // Re-fetch data after disconnection
                 } catch (error) {
                     console.error('Error disconnecting platform:', error);

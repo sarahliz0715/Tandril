@@ -72,8 +72,8 @@ serve(async (req) => {
     let body: any = {};
     try { const t = await req.text(); if (t) body = JSON.parse(t); } catch { /**/ }
 
-    const { user_id, sku, source_platform_id, source_platform_type, triggered_by } = body;
-    let { new_quantity } = body;
+    const { user_id, sku, source_platform_type, triggered_by, mode } = body;
+    let { new_quantity, source_platform_id } = body;
 
     if (!user_id || !sku) {
       throw new Error('Missing required fields: user_id, sku');
@@ -92,6 +92,34 @@ serve(async (req) => {
         JSON.stringify({ success: true, synced: 0, message: 'No linked platforms for this SKU' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
+    }
+
+    // mode 'lowest' (catch-up after a store reconnects): read the current stock on
+    // every linked platform and push the LOWEST to the rest. Sales made while a store
+    // was disconnected never reached it, so the lowest count is the safe one — it can
+    // under-state stock, never over-state it.
+    let alreadyAtLowest = new Set<string>();
+    if (mode === 'lowest') {
+      const readings: { link: any; qty: number }[] = [];
+      for (const link of allLinks) {
+        const platform = link.platforms;
+        if (!platform || !(platform.is_active || platform.status === 'connected')) continue;
+        try {
+          if (platform.platform_type === 'etsy') await getEtsyAccessToken(supabase, platform);
+          const token = await resolveToken(platform);
+          if (!token) continue;
+          const qty = await fetchCurrentQty(platform, link, token);
+          if (typeof qty === 'number' && Number.isFinite(qty)) readings.push({ link, qty });
+        } catch (err) {
+          console.warn(`[sync-inventory-levels] lowest: could not read ${link.platform_type} qty for SKU=${sku}: ${err.message}`);
+        }
+      }
+      if (readings.length === 0) throw new Error('Could not read current stock from any linked platform');
+      const lowest = readings.reduce((a, b) => (b.qty < a.qty ? b : a));
+      new_quantity = lowest.qty;
+      source_platform_id = lowest.link.platform_id;
+      alreadyAtLowest = new Set(readings.filter(r => r.qty === lowest.qty).map(r => r.link.id));
+      console.log(`[sync-inventory-levels] lowest: SKU=${sku} readings=${JSON.stringify(readings.map(r => [r.link.platform_type, r.qty]))} → ${new_quantity}`);
     }
 
     // If no quantity provided, fetch current qty from the source platform (or first active platform)
@@ -130,9 +158,19 @@ serve(async (req) => {
     }
 
     // Target links = all platforms except the source
-    const targetLinks = source_platform_id
-      ? allLinks.filter(l => l.platform_id !== source_platform_id)
-      : allLinks.slice(1); // skip the first (used as source above)
+    const targetLinks = mode === 'lowest'
+      ? allLinks.filter(l => !alreadyAtLowest.has(l.id))
+      : source_platform_id
+        ? allLinks.filter(l => l.platform_id !== source_platform_id)
+        : allLinks.slice(1); // skip the first (used as source above)
+
+    // In lowest mode, links already at the lowest count need no write — just record it
+    if (mode === 'lowest' && alreadyAtLowest.size > 0) {
+      await supabase
+        .from('platform_product_links')
+        .update({ last_synced_quantity: new_quantity })
+        .in('id', [...alreadyAtLowest]);
+    }
 
     if (targetLinks.length === 0) {
       return new Response(
