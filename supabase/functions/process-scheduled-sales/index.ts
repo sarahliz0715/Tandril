@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
 
 // Called by pg_cron every 5 minutes.
 // Fires any flash sales whose start_at has arrived.
@@ -271,7 +272,7 @@ async function launchSale(supabase: any, sale: any, flashSaleId: string) {
         .eq('user_id', user_id).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
       if (plats && plats.length > 0) {
         const pl = plats[0];
-        const tok = pl.credentials?.access_token;
+        const tok = await getEtsyAccessToken(supabase, pl);
         const shopId = pl.metadata?.shop_id;
         const clientId = Deno.env.get('ETSY_CLIENT_ID');
         if (tok && shopId && clientId) {

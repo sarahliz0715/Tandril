@@ -137,14 +137,14 @@ serve(async (req) => {
     // Register order webhook for real-time inventory sync (best-effort, same as OAuth path)
     try {
       const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/shopify-order-webhook`;
-      await fetch(`https://${shop_domain}/admin/api/2024-01/webhooks.json`, {
-        method: 'POST',
-        headers: { 'X-Shopify-Access-Token': access_token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          webhook: { topic: 'orders/paid', address: webhookUrl, format: 'json' }
-        }),
-      });
-      console.log(`[Shopify Manual Connect] Registered orders/paid webhook for ${shop_domain}`);
+      await Promise.all(['orders/paid', 'orders/cancelled', 'refunds/create', 'inventory_levels/update'].map(topic =>
+        fetch(`https://${shop_domain}/admin/api/2024-01/webhooks.json`, {
+          method: 'POST',
+          headers: { 'X-Shopify-Access-Token': access_token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ webhook: { topic, address: webhookUrl, format: 'json' } }),
+        })
+      ));
+      console.log(`[Shopify Manual Connect] Registered order, refund and inventory webhooks for ${shop_domain}`);
     } catch (webhookErr) {
       console.warn(`[Shopify Manual Connect] Webhook registration failed: ${webhookErr.message}`);
     }

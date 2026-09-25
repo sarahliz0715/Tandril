@@ -970,6 +970,39 @@ export default function AIBusinessCoach() {
           fields: actionLabels.map((label) => ({ label: '', value: label })),
         };
       }
+      case 'draft_ad':
+      case 'launch_ad': {
+        const isLaunch = action.type === 'launch_ad';
+        if (isLaunch && action.campaign_id && !action.budget) {
+          return {
+            icon: '🚀', title: 'Launch Ad Draft on Meta',
+            fields: [
+              { label: 'Campaign', value: action.name || action.campaign_id },
+              { label: '⚠️ Spending', value: 'Starts spending its daily budget on Meta as soon as you confirm' },
+            ],
+          };
+        }
+        const creative = action.creative || {};
+        const daily = action.budget?.daily_amount;
+        return {
+          icon: isLaunch ? '🚀' : '📝',
+          title: isLaunch ? 'Launch Meta Ad (goes live)' : 'Draft Meta Ad (no spend)',
+          fields: [
+            { label: 'Campaign', value: action.name },
+            action.product_handle && { label: 'Product', value: action.product_handle },
+            { label: 'Daily budget', value: daily ? `$${daily}/day` : 'Not set' },
+            { label: 'Goal', value: action.objective === 'REACH' ? 'Reach' : 'Traffic (link clicks)' },
+            creative.headline && { label: 'Headline', value: creative.headline },
+            creative.primary_text && { label: 'Ad text', value: creative.primary_text },
+            creative.link && { label: 'Link', value: creative.link },
+            isLaunch && { label: '⚠️ Spending', value: `Starts spending up to $${daily ?? '?'}/day on Meta as soon as you confirm` },
+          ].filter(Boolean),
+        };
+      }
+      case 'pause_ad':
+        return { icon: '⏸️', title: 'Pause Meta Ad', fields: [{ label: 'Campaign', value: action.name || action.campaign_id }] };
+      case 'get_ad_performance':
+        return { icon: '📊', title: 'Get Ad Performance', fields: [{ label: 'Campaigns', value: action.name || action.campaign_id || 'All launched campaigns' }] };
       case 'batch_update': {
         const updates = action.updates || [];
         const fieldLabel = action.field === 'title' ? 'Title' : action.field === 'price' ? 'Price' : action.field === 'inventory' ? 'Stock' : action.field === 'image_alt' ? 'Alt Text' : action.field === 'metafield' ? `Metafield: ${action.metafield_key || ''}` : action.field === 'description' ? 'Description' : action.field === 'url_handle' ? 'URL Handle' : action.field === 'seo_listing' ? 'SEO Listing' : action.field;

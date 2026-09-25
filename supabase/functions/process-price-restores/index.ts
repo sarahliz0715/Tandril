@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
 
 // Called by pg_cron every 5 minutes.
 // Restores prices / ends promotions for expired flash sales.
@@ -146,7 +147,7 @@ async function restoreRow(supabase: any, row: any): Promise<void> {
       }
 
       if (row.platform_type === 'etsy') {
-        const tok = plat.credentials?.access_token;
+        const tok = await getEtsyAccessToken(supabase, plat);
         const shopId = plat.metadata?.shop_id;
         const clientId = Deno.env.get('ETSY_CLIENT_ID');
         if (!tok || !shopId || !clientId) throw new Error('Etsy credentials missing');

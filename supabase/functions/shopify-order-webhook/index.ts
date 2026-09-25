@@ -88,7 +88,7 @@ serve(async (req) => {
       return new Response('Unauthorized', { status: 401 });
     }
 
-    if (!['orders/create', 'orders/paid', 'orders/cancelled', 'refunds/create'].includes(topic)) {
+    if (!['orders/create', 'orders/paid', 'orders/cancelled', 'refunds/create', 'inventory_levels/update'].includes(topic)) {
       return new Response('ok', { status: 200 });
     }
 
@@ -97,13 +97,16 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
+    // A shop can have more than one platforms row (reconnects) — take the most recently updated
     const { data: platform } = await supabase
       .from('platforms')
       .select('*')
-      .eq('shop_domain', shopDomain)
+      .eq('shop_domain', shopDomain.toLowerCase())
       .eq('platform_type', 'shopify')
       .eq('is_active', true)
-      .single();
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
     if (!platform) {
       console.warn(`[shopify-order-webhook] Unknown shop domain: ${shopDomain}`);
@@ -114,14 +117,55 @@ serve(async (req) => {
     if (token && isEncrypted(token)) token = await decrypt(token);
 
     const payload = JSON.parse(rawBody);
-    console.log(`[shopify-order-webhook] topic=${topic} id=${payload.id} shop=${shopDomain}`);
-
-    // For refunds, affected line items are nested under refund_line_items
-    const lineItems = topic === 'refunds/create'
-      ? (payload.refund_line_items ?? []).map((r: any) => r.line_item).filter(Boolean)
-      : (payload.line_items ?? []);
+    console.log(`[shopify-order-webhook] topic=${topic} id=${payload.id ?? payload.inventory_item_id} shop=${shopDomain}`);
 
     const skuUpdates: { sku: string; quantity: number }[] = [];
+
+    if (topic === 'inventory_levels/update') {
+      // Fires on ANY stock change at a location — manual edits in Shopify admin, orders,
+      // apps, and Tandril's own writes from sync-inventory-levels. Payload only has the
+      // inventory item + location, so look up the SKU and the total across locations.
+      if (!payload.inventory_item_id) return new Response('ok', { status: 200 });
+      const invData = await shopifyGraphQL(shopDomain, token, `
+        query($id: ID!) {
+          inventoryItem(id: $id) {
+            sku
+            inventoryLevels(first: 10) {
+              edges { node { quantities(names: ["available"]) { name quantity } } }
+            }
+          }
+        }
+      `, { id: toShopifyGid('InventoryItem', payload.inventory_item_id) }).catch(() => null);
+
+      const sku = invData?.inventoryItem?.sku;
+      if (!sku) return new Response('ok', { status: 200 });
+      const totalQty = (invData.inventoryItem.inventoryLevels.edges || []).reduce((sum: number, e: any) =>
+        sum + (e.node.quantities?.find((q: any) => q.name === 'available')?.quantity ?? 0), 0);
+
+      // Only linked SKUs sync anywhere. If the link already holds this quantity, the change
+      // is either Tandril's own write echoing back or already propagated (e.g. by the
+      // orders/paid webhook for the same sale) — skip it so nothing ping-pongs.
+      const { data: link } = await supabase
+        .from('platform_product_links')
+        .select('id, last_synced_quantity')
+        .eq('platform_id', platform.id)
+        .eq('sku', sku)
+        .limit(1)
+        .maybeSingle();
+      if (!link) return new Response('ok', { status: 200 });
+      if (link.last_synced_quantity === totalQty) {
+        console.log(`[shopify-order-webhook] SKU=${sku} qty=${totalQty} unchanged since last sync — skipping`);
+        return new Response('ok', { status: 200 });
+      }
+
+      skuUpdates.push({ sku, quantity: totalQty });
+    }
+
+    // For refunds, affected line items are nested under refund_line_items
+    const lineItems = topic === 'inventory_levels/update' ? []
+      : topic === 'refunds/create'
+      ? (payload.refund_line_items ?? []).map((r: any) => r.line_item).filter(Boolean)
+      : (payload.line_items ?? []);
 
     for (const lineItem of lineItems) {
       const sku = lineItem.sku;

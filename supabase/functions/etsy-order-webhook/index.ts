@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
 
 // Etsy v3 webhook handler for RECEIPT events (order placed)
 // Etsy sends POST with { subscription_id, trigger_event, shop_id, receipt_id }
@@ -46,7 +47,7 @@ serve(async (req) => {
       return new Response('ok', { status: 200 });
     }
 
-    const etsyToken = platform.credentials?.access_token;
+    const etsyToken = await getEtsyAccessToken(supabase, platform);
     const etsyClientId = Deno.env.get('ETSY_CLIENT_ID');
     if (!etsyToken || !etsyClientId) {
       console.error('[etsy-order-webhook] Missing Etsy credentials');

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -101,6 +102,7 @@ serve(async (req) => {
       if (!sourceLink) throw new Error('No active source platform found to fetch current quantity');
 
       const sourcePlatform = sourceLink.platforms;
+      if (sourcePlatform?.platform_type === 'etsy') await getEtsyAccessToken(supabase, sourcePlatform);
       const sourceToken = await resolveToken(sourcePlatform);
       if (!sourceToken) throw new Error('Source platform has no access token');
 
@@ -113,6 +115,18 @@ serve(async (req) => {
     }
 
     console.log(`[sync-inventory-levels] SKU=${sku} qty=${new_quantity} user=${user_id}`);
+
+    // Record the quantity on the source link too, so shopify-order-webhook's
+    // inventory_levels/update handler can recognise this value as already synced
+    // and not bounce it back out to every platform again.
+    if (source_platform_id) {
+      await supabase
+        .from('platform_product_links')
+        .update({ last_synced_quantity: new_quantity })
+        .eq('user_id', user_id)
+        .eq('sku', sku)
+        .eq('platform_id', source_platform_id);
+    }
 
     // Target links = all platforms except the source
     const targetLinks = source_platform_id
@@ -135,6 +149,8 @@ serve(async (req) => {
     for (const link of targetLinks) {
       const platform = link.platforms;
       if (!platform || !platform.is_active) continue;
+      // Etsy tokens expire hourly — refresh in place before syncEtsy reads it
+      if (platform.platform_type === 'etsy') await getEtsyAccessToken(supabase, platform);
 
       // Resolve token: Shopify uses access_token (encrypted); WooCommerce may use
       // credentials.consumer_key/consumer_secret; eBay/Etsy use credentials.access_token

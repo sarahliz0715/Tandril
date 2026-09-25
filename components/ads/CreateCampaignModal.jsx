@@ -42,16 +42,12 @@ export default function CreateCampaignModal({ isOpen, onClose, onSave }) {
     };
 
     const handleSave = async () => {
-        if (!adAccountId) {
-            toast.error("Ad Account ID is required.");
-            return;
-        }
         if (!campaignData.name) {
             toast.error("Campaign Name is required.");
             return;
         }
         setIsSaving(true);
-        await onSave({ ...campaignData, adAccountId });
+        await onSave({ ...campaignData, adAccountId: adAccountId.trim() || undefined });
         setIsSaving(false);
     };
 
@@ -66,7 +62,7 @@ export default function CreateCampaignModal({ isOpen, onClose, onSave }) {
                 </DialogHeader>
                 <div className="space-y-6 py-4 overflow-y-auto px-6 max-h-[70vh]">
                     <div className="space-y-2">
-                        <Label htmlFor="ad-account-id" className="text-base font-semibold">Ad Account ID</Label>
+                        <Label htmlFor="ad-account-id" className="text-base font-semibold">Ad Account ID <span className="font-normal text-slate-500">(optional)</span></Label>
                         <Input 
                             id="ad-account-id" 
                             value={adAccountId} 
@@ -75,7 +71,7 @@ export default function CreateCampaignModal({ isOpen, onClose, onSave }) {
                         />
                         <p className="text-xs text-slate-500 flex items-center gap-1">
                             <Info className="w-3 h-3" />
-                            Find this in your Facebook Ads Manager URL (act=...).
+                            Leave blank to use your connected ad account. Only needed if you have more than one (find it in the Ads Manager URL, act=...).
                         </p>
                     </div>
 

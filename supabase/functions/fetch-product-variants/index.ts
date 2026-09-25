@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -85,6 +86,8 @@ serve(async (req) => {
       .single();
 
     if (platErr || !platform) throw new Error('Platform not found');
+    // Etsy tokens expire hourly — refresh in place before any Etsy call below
+    if (platform.platform_type === 'etsy') await getEtsyAccessToken(supabase, platform);
 
     const variants = await fetchVariants(platform, product_id);
 

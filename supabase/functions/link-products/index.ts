@@ -9,6 +9,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -243,6 +244,7 @@ serve(async (req) => {
             products = await fetchEbay(platform);
             break;
           case 'etsy':
+            await getEtsyAccessToken(adminClient, platform);
             products = await fetchEtsy(platform);
             break;
           // Additional platforms can be added here

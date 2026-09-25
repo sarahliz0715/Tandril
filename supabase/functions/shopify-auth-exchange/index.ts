@@ -177,6 +177,9 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const webhooksToRegister = [
       { topic: 'orders/paid',              address: `${supabaseUrl}/functions/v1/shopify-order-webhook` },
+      { topic: 'orders/cancelled',         address: `${supabaseUrl}/functions/v1/shopify-order-webhook` },
+      { topic: 'refunds/create',           address: `${supabaseUrl}/functions/v1/shopify-order-webhook` },
+      { topic: 'inventory_levels/update',  address: `${supabaseUrl}/functions/v1/shopify-order-webhook` },
       { topic: 'app/uninstalled',          address: `${supabaseUrl}/functions/v1/app-uninstalled` },
       { topic: 'app_subscriptions/update', address: `${supabaseUrl}/functions/v1/app-subscription-update` },
     ];

@@ -157,8 +157,9 @@ serve(async (req) => {
         fetch(whBase, { method: 'POST', headers: whHeaders, body: JSON.stringify({ webhook: { topic: 'orders/paid', address: webhookUrl, format: 'json' } }) }),
         fetch(whBase, { method: 'POST', headers: whHeaders, body: JSON.stringify({ webhook: { topic: 'orders/cancelled', address: webhookUrl, format: 'json' } }) }),
         fetch(whBase, { method: 'POST', headers: whHeaders, body: JSON.stringify({ webhook: { topic: 'refunds/create', address: webhookUrl, format: 'json' } }) }),
+        fetch(whBase, { method: 'POST', headers: whHeaders, body: JSON.stringify({ webhook: { topic: 'inventory_levels/update', address: webhookUrl, format: 'json' } }) }),
       ]);
-      console.log(`[Shopify Callback] Registered orders/paid, orders/cancelled, refunds/create webhooks for ${shop}`);
+      console.log(`[Shopify Callback] Registered orders/paid, orders/cancelled, refunds/create, inventory_levels/update webhooks for ${shop}`);
     } catch (webhookErr) {
       console.warn(`[Shopify Callback] Webhook registration failed: ${webhookErr.message}`);
     }

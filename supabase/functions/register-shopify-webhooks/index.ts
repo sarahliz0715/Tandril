@@ -2,7 +2,9 @@
 //
 // One-time utility: (re-)registers all required Shopify webhooks for every
 // active platform row. Call with service-role bearer to fix stores that
-// connected before app_subscriptions/update was added to shopify-auth-exchange.
+// connected before app_subscriptions/update was added to shopify-auth-exchange,
+// and to backfill orders/cancelled, refunds/create and inventory_levels/update
+// (added Sept 25, 2026) for stores connected before then.
 //
 // POST /functions/v1/register-shopify-webhooks
 // Body: { "shop_domain": "omhbridge-dev.myshopify.com" }  (optional — omit to do all shops)
@@ -72,6 +74,9 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
     const webhooks = [
       { topic: 'orders/paid',              address: `${supabaseUrl}/functions/v1/shopify-order-webhook` },
+      { topic: 'orders/cancelled',         address: `${supabaseUrl}/functions/v1/shopify-order-webhook` },
+      { topic: 'refunds/create',           address: `${supabaseUrl}/functions/v1/shopify-order-webhook` },
+      { topic: 'inventory_levels/update',  address: `${supabaseUrl}/functions/v1/shopify-order-webhook` },
       { topic: 'app/uninstalled',          address: `${supabaseUrl}/functions/v1/app-uninstalled` },
       { topic: 'app_subscriptions/update', address: `${supabaseUrl}/functions/v1/app-subscription-update` },
     ];

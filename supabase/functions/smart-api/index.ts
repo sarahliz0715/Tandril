@@ -3,6 +3,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
 
 // --- Inlined from _shared/awsSigV4.ts ---
 async function _sha256hex(data: string | Uint8Array): Promise<string> {
@@ -187,7 +188,7 @@ function summarizeOrionAction(action: any): string {
     case 'instagram_update_inventory':  return `Updated Instagram Shopping inventory for "${name}" → ${action.quantity} units`;
     case 'draft_ad':            return `Drafted ad campaign: "${action.name}"`;
     case 'launch_ad':           return `Launched Meta ad campaign "${action.name}" ($${action.budget?.daily_amount || '?'}/day)`;
-    case 'pause_ad':            return `Paused ad campaign ${action.campaign_id}`;
+    case 'pause_ad':            return `Paused ad campaign ${action.name || action.campaign_id}`;
     case 'get_ad_performance':  return `Retrieved ad performance for ${action.campaign_id ? 'campaign ' + action.campaign_id : 'all campaigns'}`;
     case 'tiktok_update_title':         return `Updated TikTok Shop title for "${name}"`;
     case 'tiktok_update_description':   return `Updated TikTok Shop description for "${name}"`;
@@ -1139,14 +1140,77 @@ async function getMetaAdsPlatform(supabaseClient: any, userId: string) {
   return { platform, accessToken, pageId: platform.metadata?.page_id || '' };
 }
 
+// Resolves which Meta ad account to launch into when none was given: the one saved on
+// the connection, else the connection's only active ad account (saved for next time).
+// Multiple active accounts is ambiguous — ask the user rather than guess where to spend.
+async function resolveMetaAdAccountId(supabaseClient: any, platform: any, accessToken: string): Promise<string> {
+  if (platform.metadata?.ad_account_id) return String(platform.metadata.ad_account_id);
+
+  const res = await fetch(`https://graph.facebook.com/v19.0/me/adaccounts?fields=account_id,name,account_status&limit=50&access_token=${encodeURIComponent(accessToken)}`);
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(`Could not look up your Meta ad accounts: ${data.error?.message || res.status}`);
+
+  const active = (data.data || []).filter((a: any) => a.account_status === 1); // 1 = ACTIVE
+  if (active.length === 0) throw new Error('No active Meta ad account found on your Facebook connection. Set one up in Meta Ads Manager, then reconnect Facebook/Meta.');
+  if (active.length > 1) {
+    const list = active.map((a: any) => `${a.name} (${a.account_id})`).join(', ');
+    throw new Error(`You have more than one active Meta ad account: ${list}. Tell Orion which ad_account_id to use.`);
+  }
+
+  const adAccountId = String(active[0].account_id);
+  await supabaseClient.from('platforms').update({
+    metadata: { ...(platform.metadata || {}), ad_account_id: adAccountId, ad_account_name: active[0].name },
+  }).eq('id', platform.id);
+  return adAccountId;
+}
+
+// Looks up a Shopify product by handle for an ad: its public product page (the ad's
+// destination link) and main image. Returns null if Shopify isn't connected or no match.
+async function resolveShopifyProductForAd(shopDomain: string, accessToken: string, handle: string) {
+  if (!shopDomain || !accessToken || !handle) return null;
+  try {
+    const data = await shopifyGraphQL(shopDomain, accessToken, `
+      query($q: String!) {
+        products(first: 1, query: $q) {
+          edges { node { id title handle onlineStoreUrl featuredImage { url } } }
+        }
+      }
+    `, { q: `handle:${handle}` });
+    const node = data.products?.edges?.[0]?.node;
+    if (!node) return null;
+    return {
+      product_id: fromShopifyGid(node.id),
+      title: node.title,
+      // onlineStoreUrl is null when the product isn't published to the Online Store;
+      // the myshopify.com product URL still redirects to the store's primary domain.
+      url: node.onlineStoreUrl || `https://${shopDomain}/products/${node.handle}`,
+      image_url: node.featuredImage?.url || null,
+    };
+  } catch (e: any) {
+    console.warn('[smart-api] Shopify product lookup for ad failed:', e.message);
+    return null;
+  }
+}
+
+// Fills an ad action's destination link, image and linked product from action.product_handle,
+// without overwriting anything Orion or the user set explicitly.
+async function enrichAdActionFromProduct(action: any, shopDomain: string, accessToken: string) {
+  if (!action.product_handle) return action;
+  const product = await resolveShopifyProductForAd(shopDomain, accessToken, action.product_handle);
+  if (!product) throw new Error(`Couldn't find a Shopify product with handle "${action.product_handle}".`);
+  const creative = { ...(action.creative || {}) };
+  if (!creative.link) creative.link = product.url;
+  if (!creative.media_urls?.length && product.image_url) creative.media_urls = [product.image_url];
+  return { ...action, creative, linked_product_id: action.linked_product_id || product.product_id };
+}
+
 // Creates a real Meta Marketing API campaign → ad set → ad creative → ad, in that order.
 // If a later step fails, best-effort pauses whatever was already created so a partial
 // failure doesn't leave a live, unmanaged campaign spending money.
 async function launchMetaCampaign(supabaseClient: any, userId: string, campaignRow: any) {
-  const { accessToken, pageId } = await getMetaAdsPlatform(supabaseClient, userId);
+  const { platform: metaPlatform, accessToken, pageId } = await getMetaAdsPlatform(supabaseClient, userId);
 
-  const adAccountId = String(campaignRow.ad_account_id || '').replace(/^act_/, '');
-  if (!adAccountId) throw new Error('ad_account_id is required to launch a Meta ad campaign.');
+  const adAccountId = String(campaignRow.ad_account_id || await resolveMetaAdAccountId(supabaseClient, metaPlatform, accessToken)).replace(/^act_/, '');
   if (!pageId) throw new Error('No Facebook Page found on your Meta connection. A Page is required to run ads — reconnect Facebook/Meta after creating or claiming a Page.');
 
   const objective = campaignRow.objective || 'LINK_CLICKS';
@@ -1242,7 +1306,7 @@ async function launchMetaCampaign(supabaseClient: any, userId: string, campaignR
     throw err;
   }
 
-  return { metaCampaignId, metaAdSetId, metaCreativeId, metaAdId };
+  return { metaCampaignId, metaAdSetId, metaCreativeId, metaAdId, adAccountId };
 }
 
 // Looks up a TikTok product by keyword (SKU first, then product name) and returns
@@ -1954,24 +2018,154 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         }
       } catch (e: any) { console.warn('[smart-api] Squarespace inventory fetch failed:', e.message); }
 
-      // Fetch BigCommerce products
+      // Fetch Ecwid products
       try {
-        const { data: bcPlats } = await supabaseClient.from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'bigcommerce').or('is_active.eq.true,status.eq.connected');
-        for (const bcPlat of (bcPlats || [])) {
-          const bcCr = bcPlat.credentials;
-          const bcHash = bcCr?.store_hash || bcPlat.metadata?.store_hash;
-          if (!bcCr?.access_token || !bcHash) continue;
-          const bcH = { 'X-Auth-Token': bcCr.access_token, 'Content-Type': 'application/json', 'Accept': 'application/json' };
-          const bcRes = await fetch(`https://api.bigcommerce.com/stores/${bcHash}/v3/catalog/products?limit=250`, { headers: bcH });
-          if (!bcRes.ok) continue;
-          for (const p of ((await bcRes.json()).data || [])) {
-            let status = p.is_visible ? 'active' : 'inactive';
-            if (status === 'active' && (p.inventory_quantity || 0) === 0) status = 'out_of_stock';
-            else if (status === 'active' && (p.inventory_quantity || 0) <= LOW_STOCK_THRESHOLD) status = 'low_stock';
-            inventory.push({ id: `bigcommerce-${p.id}`, product_name: p.name || 'BigCommerce Product', sku: p.sku || 'N/A', category: '', status, total_stock: p.inventory_quantity ?? 0, base_price: parseFloat(p.price || '0'), image_url: null, vendor: p.brand_name || '', tags: '', platform_listings: [{ listing_id: String(p.id), platform: 'BigCommerce' }], source: 'bigcommerce' });
+        const { data: ecwidPlats } = await supabaseClient.from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'ecwid').or('is_active.eq.true,status.eq.connected');
+        for (const ecwidPlat of (ecwidPlats || [])) {
+          const { store_id, access_token: ecwidTok } = ecwidPlat.credentials || {};
+          if (!store_id || !ecwidTok) continue;
+          let ecwidOffset = 0;
+          let ecwidTotal = Infinity;
+          while (ecwidOffset < ecwidTotal && ecwidOffset < 2000) { // safety cap: 2000 products
+            const ecwidRes = await fetch(`https://app.ecwid.com/api/v3/${store_id}/products?limit=100&offset=${ecwidOffset}`, { headers: { 'Authorization': `Bearer ${ecwidTok}` } });
+            if (!ecwidRes.ok) break;
+            const ecwidData = await ecwidRes.json();
+            const items = ecwidData.items || [];
+            for (const p of items) {
+              // Ecwid omits quantity when stock isn't tracked ("unlimited") — treat as in stock
+              const tracked = p.unlimited === false || p.quantity != null;
+              const qty = tracked ? (p.quantity ?? 0) : 0;
+              let status = p.enabled ? 'active' : 'inactive';
+              if (status === 'active' && tracked && qty === 0) status = 'out_of_stock';
+              else if (status === 'active' && tracked && qty <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+              inventory.push({ id: `ecwid-${p.id}`, product_name: p.name || 'Ecwid Product', sku: p.sku || 'N/A', category: '', status, total_stock: qty, base_price: parseFloat(p.price ?? '0') || 0, image_url: p.thumbnailUrl || p.imageUrl || null, vendor: '', tags: '', platform_listings: [{ listing_id: String(p.id), platform: 'Ecwid' }], source: 'ecwid' });
+            }
+            ecwidTotal = ecwidData.total ?? 0;
+            if (items.length === 0) break;
+            ecwidOffset += items.length;
           }
         }
-      } catch (e: any) { console.warn('[smart-api] BigCommerce inventory fetch failed:', e.message); }
+      } catch (e: any) { console.warn('[smart-api] Ecwid inventory fetch failed:', e.message); }
+
+      // Fetch Magento products
+      try {
+        const { data: magentoPlats } = await supabaseClient.from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'magento').or('is_active.eq.true,status.eq.connected');
+        for (const magentoPlat of (magentoPlats || [])) {
+          const magentoTok = magentoPlat.credentials?.access_token;
+          if (!magentoTok || !magentoPlat.store_url) continue;
+          const magentoBase = magentoPlat.store_url.replace(/\/$/, '');
+          const magentoH = { 'Authorization': `Bearer ${magentoTok}`, 'Content-Type': 'application/json' };
+          let magentoPage = 1;
+          let magentoHasMore = true;
+          while (magentoHasMore && magentoPage <= 20) { // safety cap: 2000 products
+            const magentoRes = await fetch(`${magentoBase}/rest/V1/products?searchCriteria[pageSize]=100&searchCriteria[currentPage]=${magentoPage}`, { headers: magentoH });
+            if (!magentoRes.ok) break;
+            const magentoData = await magentoRes.json();
+            const items = magentoData.items || [];
+            for (const p of items) {
+              const qty = p.extension_attributes?.stock_item?.qty ?? 0;
+              const img = (p.media_gallery_entries || [])[0]?.file;
+              let status = p.status === 1 ? 'active' : 'inactive';
+              if (status === 'active' && qty === 0) status = 'out_of_stock';
+              else if (status === 'active' && qty <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+              inventory.push({ id: `magento-${p.id}`, product_name: p.name || 'Magento Product', sku: p.sku || 'N/A', category: p.type_id || '', status, total_stock: qty, base_price: parseFloat(p.price ?? '0') || 0, image_url: img ? `${magentoBase}/media/catalog/product${img}` : null, vendor: '', tags: '', platform_listings: [{ listing_id: String(p.id), platform: 'Magento' }], source: 'magento' });
+            }
+            // Magento clamps currentPage to the last page instead of returning empty, so stop on total_count
+            magentoHasMore = items.length === 100 && magentoPage * 100 < (magentoData.total_count ?? 0);
+            magentoPage++;
+          }
+        }
+      } catch (e: any) { console.warn('[smart-api] Magento inventory fetch failed:', e.message); }
+
+      // Fetch PrestaShop products (+ product-level stock from stock_availables)
+      try {
+        const { data: psPlats } = await supabaseClient.from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'prestashop').or('is_active.eq.true,status.eq.connected');
+        for (const psPlat of (psPlats || [])) {
+          const psKey = psPlat.credentials?.api_key;
+          if (!psKey || !psPlat.store_url) continue;
+          const psBase = psPlat.store_url.replace(/\/$/, '');
+          const psH = { 'Authorization': `Basic ${btoa(`${psKey}:`)}` };
+          const psRes = await fetch(`${psBase}/api/products?output_format=JSON&display=[id,name,reference,price,active]&limit=0,2000`, { headers: psH });
+          if (!psRes.ok) continue;
+          const psProducts = (await psRes.json()).products || [];
+          // id_product_attribute=0 rows hold each product's total stock across combinations
+          const stockByProduct: Record<string, number> = {};
+          try {
+            const stockRes = await fetch(`${psBase}/api/stock_availables?output_format=JSON&display=[id_product,quantity]&filter[id_product_attribute]=0&limit=0,5000`, { headers: psH });
+            if (stockRes.ok) {
+              for (const sa of ((await stockRes.json()).stock_availables || [])) {
+                stockByProduct[String(sa.id_product)] = parseInt(sa.quantity) || 0;
+              }
+            }
+          } catch (_) { /* stock stays 0 if the API key lacks stock_availables access */ }
+          for (const p of psProducts) {
+            const name = Array.isArray(p.name) ? (p.name[0]?.value || 'PrestaShop Product') : (p.name || 'PrestaShop Product');
+            const qty = stockByProduct[String(p.id)] ?? 0;
+            let status = String(p.active) === '1' ? 'active' : 'inactive';
+            if (status === 'active' && qty === 0) status = 'out_of_stock';
+            else if (status === 'active' && qty <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+            inventory.push({ id: `prestashop-${p.id}`, product_name: name, sku: p.reference || 'N/A', category: '', status, total_stock: qty, base_price: parseFloat(p.price ?? '0') || 0, image_url: null, vendor: '', tags: '', platform_listings: [{ listing_id: String(p.id), platform: 'PrestaShop' }], source: 'prestashop' });
+          }
+        }
+      } catch (e: any) { console.warn('[smart-api] PrestaShop inventory fetch failed:', e.message); }
+
+      // Fetch Wish products
+      try {
+        const { data: wishPlats } = await supabaseClient.from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'wish').or('is_active.eq.true,status.eq.connected');
+        for (const wishPlat of (wishPlats || [])) {
+          const wishTok = wishPlat.credentials?.access_token;
+          if (!wishTok) continue;
+          let wishOffset = 0;
+          let wishHasMore = true;
+          while (wishHasMore && wishOffset < 2000) { // safety cap: 2000 products
+            const wishRes = await fetch(`https://merchant.wish.com/api/v3/product/multi-get?access_token=${encodeURIComponent(wishTok)}&limit=50&offset=${wishOffset}`);
+            if (!wishRes.ok) break;
+            const wishData = await wishRes.json();
+            if (wishData.code !== 0) break;
+            const items = wishData.data || [];
+            for (const p of items) {
+              const variants = p.variants || [];
+              const qty = variants.reduce((s: number, v: any) => s + (parseInt(v.inventory) || 0), 0);
+              let status = p.is_enabled ? 'active' : 'inactive';
+              if (status === 'active' && qty === 0) status = 'out_of_stock';
+              else if (status === 'active' && qty <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+              inventory.push({ id: `wish-${p.id}`, product_name: p.name || 'Wish Product', sku: variants[0]?.sku || 'N/A', category: '', status, total_stock: qty, base_price: parseFloat(variants[0]?.price ?? '0') || 0, image_url: p.main_image || null, vendor: '', tags: '', platform_listings: [{ listing_id: String(p.id), platform: 'Wish' }], source: 'wish' });
+            }
+            wishHasMore = items.length === 50;
+            wishOffset += 50;
+          }
+        }
+      } catch (e: any) { console.warn('[smart-api] Wish inventory fetch failed:', e.message); }
+
+      // Fetch Etsy active listings
+      try {
+        const etsyClientId = Deno.env.get('ETSY_CLIENT_ID');
+        const { data: etsyInvPlats } = await supabaseClient.from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected');
+        for (const etsyPlat of (etsyInvPlats || [])) {
+          const etsyTok = await getEtsyAccessToken(supabaseClient, etsyPlat);
+          const etsyShopId = etsyPlat.metadata?.shop_id;
+          if (!etsyTok || !etsyShopId || !etsyClientId) continue;
+          const etsyH = { 'x-api-key': etsyClientId, 'Authorization': `Bearer ${etsyTok}` };
+          let etsyOffset = 0;
+          let etsyHasMore = true;
+          while (etsyHasMore && etsyOffset < 2000) { // safety cap: 2000 listings
+            const etsyRes = await fetch(`https://openapi.etsy.com/v3/application/shops/${etsyShopId}/listings/active?limit=100&offset=${etsyOffset}&includes=Images`, { headers: etsyH });
+            if (!etsyRes.ok) break;
+            const etsyData = await etsyRes.json();
+            const listings = etsyData.results || [];
+            for (const l of listings) {
+              const price = l.price?.amount != null ? l.price.amount / (l.price.divisor || 100) : 0;
+              const qty = l.quantity ?? 0;
+              let status = 'active';
+              if (qty === 0) status = 'out_of_stock';
+              else if (qty <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+              inventory.push({ id: `etsy-${l.listing_id}`, product_name: l.title || 'Etsy Listing', sku: l.skus?.[0] || l.sku?.[0] || 'N/A', category: l.taxonomy_path?.[0] || '', status, total_stock: qty, base_price: price, image_url: l.images?.[0]?.url_570xN || null, vendor: '', tags: (l.tags || []).join(', '), platform_listings: [{ listing_id: String(l.listing_id), platform: 'Etsy' }], source: 'etsy' });
+            }
+            etsyHasMore = listings.length === 100;
+            etsyOffset += 100;
+          }
+        }
+      } catch (e: any) { console.warn('[smart-api] Etsy inventory fetch failed:', e.message); }
 
       // Fetch Faire products
       try {
@@ -2397,7 +2591,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             }
             case 'etsy': {
               const etsyClientId = Deno.env.get('ETSY_CLIENT_ID');
-              const etsyTok = platform.credentials?.access_token;
+              const etsyTok = await getEtsyAccessToken(supabaseClient, platform);
               const etsyShopId = platform.metadata?.shop_id;
               if (!etsyTok || !etsyShopId || !etsyClientId) throw new Error('Etsy credentials missing');
               const etsyH = { 'x-api-key': etsyClientId, 'Authorization': `Bearer ${etsyTok}`, 'Content-Type': 'application/json' };
@@ -3534,7 +3728,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           // ── Etsy ─────────────────────────────────────────────────────────────
           if (plat.platform_type === 'etsy') {
             const shopId = plat.metadata?.shop_id;
-            const tok = plat.credentials?.access_token;
+            const tok = await getEtsyAccessToken(supabaseClient, plat);
             const clientId = Deno.env.get('ETSY_CLIENT_ID');
             if (!shopId || !tok || !clientId) continue;
             const rRes = await fetch(
@@ -3935,7 +4129,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       // ── Etsy ─────────────────────────────────────────────────────────────────
       if (orderPlatform === 'etsy') {
         const shopId = orderPlat.metadata?.shop_id;
-        const tok = orderPlat.credentials?.access_token;
+        const tok = await getEtsyAccessToken(supabaseClient, orderPlat);
         const clientId = Deno.env.get('ETSY_CLIENT_ID');
         if (!shopId || !tok || !clientId) throw new Error('Etsy credentials incomplete for fulfillment.');
         const eRes = await fetch(`https://openapi.etsy.com/v3/application/shops/${shopId}/receipts/${orderId}`, {
@@ -5360,7 +5554,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
       if (!etsyPlats || etsyPlats.length === 0) throw new Error('No connected Etsy shop found.');
       const etsyPlat = etsyPlats[0];
-      const etsyTok = etsyPlat.credentials?.access_token;
+      const etsyTok = await getEtsyAccessToken(supabaseClient, etsyPlat);
       const etsyShopId = etsyPlat.metadata?.shop_id;
       const etsyClientId = Deno.env.get('ETSY_CLIENT_ID');
       if (!etsyTok || !etsyShopId || !etsyClientId) throw new Error('Etsy credentials or shop_id missing.');
@@ -5477,7 +5671,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
       if (!etsyPlatsC || etsyPlatsC.length === 0) throw new Error('No connected Etsy shop found.');
       const etsyPlatC = etsyPlatsC[0];
-      const etsyTokC = etsyPlatC.credentials?.access_token;
+      const etsyTokC = await getEtsyAccessToken(supabaseClient, etsyPlatC);
       const etsyShopIdC = etsyPlatC.metadata?.shop_id;
       const etsyClientIdC = Deno.env.get('ETSY_CLIENT_ID');
       if (!etsyTokC || !etsyShopIdC || !etsyClientIdC) throw new Error('Etsy credentials or shop_id missing.');
@@ -5538,7 +5732,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
       if (!etsyPlatsB || etsyPlatsB.length === 0) throw new Error('No connected Etsy shop found.');
       const etsyPlatB = etsyPlatsB[0];
-      const etsyTokB = etsyPlatB.credentials?.access_token;
+      const etsyTokB = await getEtsyAccessToken(supabaseClient, etsyPlatB);
       const etsyShopIdB = etsyPlatB.metadata?.shop_id;
       const etsyClientIdB = Deno.env.get('ETSY_CLIENT_ID');
       if (!etsyTokB || !etsyShopIdB || !etsyClientIdB) throw new Error('Etsy credentials or shop_id missing.');
@@ -5729,7 +5923,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
       if (!etsySalePlats || etsySalePlats.length === 0) throw new Error('No connected Etsy shop found.');
       const etsySalePlat = etsySalePlats[0];
-      const etsySaleTok = etsySalePlat.credentials?.access_token;
+      const etsySaleTok = await getEtsyAccessToken(supabaseClient, etsySalePlat);
       const etsySaleShopId = etsySalePlat.metadata?.shop_id;
       const etsySaleClientId = Deno.env.get('ETSY_CLIENT_ID');
       if (!etsySaleTok || !etsySaleShopId || !etsySaleClientId) throw new Error('Etsy credentials or shop_id missing.');
@@ -5791,7 +5985,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
       if (!etsyEndSalePlats || etsyEndSalePlats.length === 0) throw new Error('No connected Etsy shop found.');
       const etsyEndPlat = etsyEndSalePlats[0];
-      const etsyEndTok = etsyEndPlat.credentials?.access_token;
+      const etsyEndTok = await getEtsyAccessToken(supabaseClient, etsyEndPlat);
       const etsyEndShopId = etsyEndPlat.metadata?.shop_id;
       const etsyEndClientId = Deno.env.get('ETSY_CLIENT_ID');
       if (!etsyEndTok || !etsyEndShopId || !etsyEndClientId) throw new Error('Etsy credentials or shop_id missing.');
@@ -6294,7 +6488,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
         if (etsyMsgPlats && etsyMsgPlats.length > 0) {
           const etsyMsgPlat = etsyMsgPlats[0];
-          const etsyMsgTok = etsyMsgPlat.credentials?.access_token;
+          const etsyMsgTok = await getEtsyAccessToken(supabaseClient, etsyMsgPlat);
           const etsyMsgShopId = etsyMsgPlat.metadata?.shop_id;
           const etsyMsgClientId = Deno.env.get('ETSY_CLIENT_ID');
           if (etsyMsgTok && etsyMsgShopId && etsyMsgClientId) {
@@ -6389,7 +6583,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
         if (!etsySendPlats || etsySendPlats.length === 0) throw new Error('No connected Etsy shop found.');
         const etsySendPlat = etsySendPlats[0];
-        const etsySendTok = etsySendPlat.credentials?.access_token;
+        const etsySendTok = await getEtsyAccessToken(supabaseClient, etsySendPlat);
         const etsySendShopId = etsySendPlat.metadata?.shop_id;
         const etsySendClientId = Deno.env.get('ETSY_CLIENT_ID');
         if (!etsySendTok || !etsySendShopId || !etsySendClientId) throw new Error('Etsy credentials or shop_id missing.');
@@ -7301,7 +7495,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             .eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected').limit(1);
           if (etsyPlats && etsyPlats.length > 0) {
             const etsyPl = etsyPlats[0];
-            const etsyTok = etsyPl.credentials?.access_token;
+            const etsyTok = await getEtsyAccessToken(supabaseClient, etsyPl);
             const etsyShopId = etsyPl.metadata?.shop_id;
             const etsyClientId = Deno.env.get('ETSY_CLIENT_ID');
             if (etsyTok && etsyShopId && etsyClientId) {
@@ -7606,6 +7800,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
 
     case 'draft_ad': {
       if (!action.name) throw new Error('name is required for draft_ad.');
+      action = await enrichAdActionFromProduct(action, shopDomain, accessToken);
       const { data: draftRow, error: draftErr } = await supabaseClient
         .from('ad_campaigns')
         .insert({
@@ -7627,6 +7822,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     }
 
     case 'launch_ad': {
+      action = await enrichAdActionFromProduct(action, shopDomain, accessToken);
       let campaignRow: any;
 
       if (action.campaign_id) {
@@ -7677,7 +7873,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         name: campaignRow.name,
         status: 'active',
         objective: campaignRow.objective,
-        ad_account_id: campaignRow.ad_account_id,
+        ad_account_id: launchResult.adAccountId,
         platform_campaign_id: launchResult.metaCampaignId,
         platform_adset_id: launchResult.metaAdSetId,
         platform_ad_id: launchResult.metaAdId,
@@ -7765,7 +7961,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         if (!row.platform_campaign_id) continue;
         try {
           const insightsRes = await fetch(
-            `https://graph.facebook.com/v19.0/${row.platform_campaign_id}/insights?fields=spend,impressions,clicks,reach&access_token=${perfToken}`
+            `https://graph.facebook.com/v19.0/${row.platform_campaign_id}/insights?fields=spend,impressions,clicks,reach&date_preset=maximum&access_token=${perfToken}`
           );
           const insightsData = await insightsRes.json();
           const metrics = insightsData.data?.[0] || { spend: '0', impressions: '0', clicks: '0', reach: '0' };
@@ -8343,7 +8539,7 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
         }
       } else if (pt === 'etsy') {
         const shopId = platform.metadata?.shop_id;
-        const tok = platform.credentials?.access_token;
+        const tok = await getEtsyAccessToken(supabaseClient, platform);
         const clientId = Deno.env.get('ETSY_CLIENT_ID');
         if (shopId && tok && clientId) {
           const res = await fetch(
@@ -8445,7 +8641,7 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
   for (const platform of (platforms || [])) {
     if (platform.platform_type !== 'etsy') continue;
     const shopId = platform.metadata?.shop_id;
-    const tok = platform.credentials?.access_token;
+    const tok = await getEtsyAccessToken(supabaseClient, platform);
     const clientId = Deno.env.get('ETSY_CLIENT_ID');
     if (!shopId || !tok || !clientId) continue;
     try {
@@ -8594,10 +8790,34 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     velocityMap[key].daily_velocity = parseFloat((velocityMap[key].units_sold / 30).toFixed(3));
   }
 
+  // ── Meta Ads: connection status + recent campaigns, so Orion can report on / pause them ──
+  const metaAdsPlatform = (platforms || []).find((p: any) => p.platform_type === 'meta_ads');
+  let adCampaigns: any[] = [];
+  if (metaAdsPlatform) {
+    const { data: campaignRows } = await supabaseClient
+      .from('ad_campaigns')
+      .select('id, name, status, objective, budget, performance_metrics, launched_at, last_synced_at, linked_product_id, error_message')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(10);
+    adCampaigns = campaignRows || [];
+  }
+  const metaAds = metaAdsPlatform ? {
+    connected: true,
+    page_name: metaAdsPlatform.metadata?.page_name || null,
+    has_page: !!metaAdsPlatform.metadata?.page_id,
+    ad_account_id: metaAdsPlatform.metadata?.ad_account_id || null,
+    token_expired: metaAdsPlatform.metadata?.token_expires_at
+      ? Date.now() > new Date(metaAdsPlatform.metadata.token_expires_at).getTime()
+      : false,
+  } : { connected: false };
+
   return {
     platforms: platforms || [],
     products,
     total_products: productCount,
+    meta_ads: metaAds,
+    ad_campaigns: adCampaigns,
     orders,
     total_orders: totalOrders,
     low_stock_products: lowStockProducts,
@@ -8725,6 +8945,49 @@ async function chatWithClaude(
 ${recentLines ? `Recent sync events:\n${recentLines}` : 'No recent syncs on record.'}${failedLines ? `\nLinks with errors:\n${failedLines}` : ''}
 SYNC RULES: When a user asks "are my inventories in sync?", "when did my last sync happen?", "why did my stock change?", or anything about inventory sync health, answer directly using the data above. If sync.pending_retries > 0 proactively mention it. If sync.failed_links > 0, name the specific SKUs and platforms that are failing and suggest they check the Inventory → Sync Links tab.\n`;
   })() : '';
+
+  const metaAds = storeContext.meta_ads || { connected: false };
+  const adCampaigns: any[] = storeContext.ad_campaigns || [];
+  const shopifyDomain = storeContext.platforms.find((p: any) => p.platform_type === 'shopify')?.shop_domain || '';
+  const formatCampaigns = () => adCampaigns.length === 0 ? '  (none yet)' : adCampaigns.map((c: any) => {
+    const m = c.performance_metrics || {};
+    const perf = c.launched_at ? ` | spend $${Number(m.spend || 0).toFixed(2)}, ${m.impressions || 0} impressions, ${m.clicks || 0} clicks${c.last_synced_at ? ` (as of ${new Date(c.last_synced_at).toLocaleString()})` : ''}` : '';
+    return `  - "${c.name}" | id: ${c.id} | status: ${c.status} | $${c.budget?.daily_amount ?? '?'}/day | ${c.objective || 'LINK_CLICKS'}${perf}${c.error_message ? ` | last error: ${c.error_message}` : ''}`;
+  }).join('\n');
+
+  const adsSection = !metaAds.connected
+    ? `\n**Meta (Facebook/Instagram) Ads:** Not connected. If the user asks to run, launch, or draft a Facebook/Instagram ad, tell them to connect it first: Platforms tab → "Connect Facebook / Meta". Do NOT generate ad action blocks until it's connected.\n`
+    : `\n**Meta (Facebook/Instagram) Ads — connected${metaAds.page_name ? ` (Facebook Page: ${metaAds.page_name})` : ''}:**${metaAds.token_expired ? '\n⚠️ The Meta connection has EXPIRED. Tell the user to reconnect Facebook/Meta in the Platforms tab before any ad action — ad actions will fail until they do.' : ''}${!metaAds.has_page ? '\n⚠️ No Facebook Page is linked to this connection, so ads cannot launch. Tell the user to create or claim a Facebook Page, then disconnect and reconnect Facebook/Meta.' : ''}
+Recent campaigns:
+${formatCampaigns()}
+
+Ad actions:
+  • draft_ad — saves a campaign as a DRAFT in Tandril. Spends nothing, nothing goes to Meta.
+    { type, name, product_handle?, objective?, budget: { daily_amount }, targeting?, creative: { headline, primary_text, link?, media_urls? } }
+  • launch_ad — creates the REAL campaign on Meta and starts spending immediately.
+    Same fields as draft_ad, OR { type, campaign_id, name } to launch an existing draft from the list above.
+  • pause_ad — { type, campaign_id, name } stops a live campaign. campaign_id is the Tandril id from the list above; name is shown on the confirmation card.
+  • get_ad_performance — { type, campaign_id? } pulls fresh spend/impressions/clicks/reach from Meta (omit campaign_id for all).
+  Field rules:
+    - product_handle: the Shopify product's Handle from the product list above. Tandril fills in the product page link and main image automatically — prefer this for any Shopify product.${shopifyDomain ? '' : ' (No Shopify store is connected, so product_handle won\'t work — ask the user for the page URL and put it in creative.link.)'}
+    - For non-Shopify products, ask the user for the product page URL and put it in creative.link. Never invent a URL.
+    - objective: "LINK_CLICKS" (Traffic — default) or "REACH". NEVER "CONVERSIONS" — Tandril has no Meta Pixel, so it would waste their money.
+    - budget.daily_amount: dollars per day, e.g. 20. NEVER invent a budget — if the user didn't give one, ask.
+    - targeting (optional): { "locations": { "countries": ["US"] }, "age_min": 18, "age_max": 65 } — these are the defaults; only include what the user asked for.
+    - creative.headline (keep under 40 characters) and creative.primary_text (keep under 125 characters): YOU write these — punchy, specific to the product, no fake claims or made-up discounts.
+    - Ad account: found automatically. Only if a launch fails saying there are several ad accounts, ask which one and add ad_account_id.
+Examples:
+[ORION_ACTION:{"type":"draft_ad","name":"Halloween Tote — Traffic","product_handle":"halloween-tote","objective":"LINK_CLICKS","budget":{"daily_amount":15},"creative":{"headline":"The Tote Made for Spooky Season","primary_text":"Hand-printed Halloween tote, roomy enough for every treat. Grab yours before the 31st."}}]
+[ORION_ACTION:{"type":"launch_ad","campaign_id":"<id from the campaign list>","name":"<that campaign's name>"}]
+[ORION_ACTION:{"type":"pause_ad","campaign_id":"<id from the campaign list>","name":"<that campaign's name>"}]
+[ORION_ACTION:{"type":"get_ad_performance"}]
+
+**Ad Workflow:**
+1. "Run an ad for X", "advertise X", "help me move this inventory with ads" → confirm the product and the daily budget (ask if missing), then write the copy and emit a draft_ad block. Default to DRAFT.
+2. Use launch_ad ONLY when the user explicitly says to launch, go live, start it, or publish it — either on a draft ("launch the tote ad") or directly ("launch a $20/day ad for the tote right now"). When you emit launch_ad, say plainly in the same message: "This will start spending up to $X/day on your Meta ad account as soon as you confirm."
+3. "How are my ads doing?" → if the numbers above are recent enough, answer from them; otherwise emit get_ad_performance. Report spend, clicks and cost per click (spend ÷ clicks) in plain language.
+4. "Stop/pause the X ad" → pause_ad with that campaign's id. There is no resume action yet — if asked to restart a paused campaign, tell them to turn it back on in Meta Ads Manager.
+5. One ad action block per response. Never claim an ad is live, launched, or paused until the user has confirmed the card and you've seen the result.\n`;
 
   const workflowPrefix = isWorkflowCall
     ? `**AUTOMATED WORKFLOW MODE:** You are running as a step in an automated workflow, not in a live chat. The user is not present. Your response will be emailed to them automatically. Rules for this mode:
@@ -9700,7 +9963,7 @@ Action grouping — choose the most efficient approach:
 - Revenue last 30 days: $${(storeContext.metrics.revenue_last_30d || 0).toFixed(2)} (${storeContext.metrics.orders_last_30d || 0} orders)
 - Average Order Value (last 30d): $${storeContext.metrics.orders_last_30d > 0 ? (storeContext.metrics.revenue_last_30d / storeContext.metrics.orders_last_30d).toFixed(2) : '0.00'}
 ${storeContext.metrics.revenue_by_platform_30d ? `- Revenue by platform (last 30d): ${storeContext.metrics.revenue_by_platform_30d}` : ''}
-${lowStockSection}${ebayErrorSection}${memorySection}${syncSection}
+${lowStockSection}${ebayErrorSection}${memorySection}${syncSection}${mode !== 'demo/test' ? adsSection : ''}
 ${mode !== 'demo/test' ? `**Product Inventory (${storeContext.products.length} of ${storeContext.total_products} products):**
 ${formatProducts(storeContext.products)}
 
