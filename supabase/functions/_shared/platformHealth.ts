@@ -11,13 +11,23 @@ export function isAuthFailure(err: unknown): boolean {
   return /\b(401|403)\b|Invalid API key or access token|unrecognized login/i.test(msg);
 }
 
-/** Returns true if this call changed the status (i.e. it wasn't already flagged). */
-export async function markNeedsReconnect(supabase: any, platform: any, reason: string): Promise<boolean> {
+/**
+ * Returns true if this call changed the status (i.e. it wasn't already flagged).
+ * `kind` records why ('rejected' credentials vs app 'uninstalled') for the seller email.
+ */
+export async function markNeedsReconnect(
+  supabase: any, platform: any, reason: string, kind: 'rejected' | 'uninstalled' = 'rejected',
+): Promise<boolean> {
   if (!platform?.id) return false;
   const alreadyFlagged = platform.status === 'needs_reconnect';
+  const previous = platform.metadata?.connection_error;
   const metadata = {
     ...(platform.metadata || {}),
-    connection_error: { message: reason.slice(0, 300), at: new Date().toISOString() },
+    // Keep the original detection time and email count when re-flagging, so repeated
+    // failures don't restart the reminder schedule in _shared/connectionAlerts.ts.
+    connection_error: alreadyFlagged && previous?.at
+      ? { ...previous, message: reason.slice(0, 300) }
+      : { message: reason.slice(0, 300), reason: kind, at: new Date().toISOString(), emails_sent: 0 },
   };
   const { error } = await supabase
     .from('platforms')

@@ -1,11 +1,12 @@
--- Schedule check-platform-connections daily at 13:07 UTC: flags Shopify stores whose access
--- token Shopify rejects as 'needs_reconnect' and drops an alert in the notification bell.
+-- Schedule check-platform-connections hourly (at :07): flags Shopify stores whose access token
+-- Shopify rejects as 'needs_reconnect', re-registers missing sync webhooks, and emails sellers
+-- about broken connections (immediately, then 24h/72h reminders).
 -- IMPORTANT: Replace biksocozipayckfuzzul and YOUR_SERVICE_ROLE_KEY before running
 -- (or copy the headers from an existing cron.job command, as done for sync-ad-performance).
 
 SELECT cron.schedule(
   'check-platform-connections',
-  '7 13 * * *',
+  '7 * * * *',
   $$
   SELECT net.http_post(
     url := 'https://biksocozipayckfuzzul.supabase.co/functions/v1/check-platform-connections',
