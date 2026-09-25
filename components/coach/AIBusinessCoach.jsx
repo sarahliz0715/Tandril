@@ -789,6 +789,15 @@ export default function AIBusinessCoach() {
             { label: 'Rule', value: 'Every store is set to the lowest current count' },
           ],
         };
+      case 'set_keep_stocked':
+        return {
+          icon: '📦', title: 'Keep Made-to-Order Item Stocked',
+          fields: [
+            { label: 'Product', value: action.sku },
+            { label: 'Keep other stores at', value: action.quantity },
+            { label: 'Rule', value: 'Topped back up after each sale and every hour (Shopify stays with your print-on-demand app)' },
+          ],
+        };
       case 'update_metafield':
         return {
           icon: '🔧', title: 'Update Product Data Field',

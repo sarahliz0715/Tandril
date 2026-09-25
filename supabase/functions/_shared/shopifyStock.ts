@@ -55,3 +55,30 @@ export const EXTERNAL_STOCK_REASON =
   'Shopify stock for this product is managed by a print-on-demand or fulfillment app (like Printful), so Tandril leaves it alone.';
 
 export const isLocationNotFoundError = (msg: string) => /location could not be found/i.test(msg || '');
+
+// Stock level other stores are topped up to for made-to-order products
+// when the seller hasn't picked one.
+export const DEFAULT_KEEP_STOCKED_AT = 5;
+
+// True when every stock level for this Shopify variant is held by a
+// fulfillment app, i.e. the product is made to order (e.g. Printful).
+export async function isMadeToOrderVariant(domain: string, token: string, variantId: string): Promise<boolean> {
+  const res = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
+    body: JSON.stringify({
+      query: `query($id: ID!) { productVariant(id: $id) { inventoryItem { id inventoryLevels(first: 10) { edges { node {
+        location { id } quantities(names: ["available"]) { name quantity } } } } } } }`,
+      variables: { id: `gid://shopify/ProductVariant/${variantId}` },
+    }),
+  });
+  if (!res.ok) return false;
+  const item = (await res.json())?.data?.productVariant?.inventoryItem;
+  const levels = item?.inventoryLevels?.edges || [];
+  if (!item || levels.length === 0) return false;
+  for (const e of levels) {
+    const qty = e.node.quantities?.find((q: any) => q.name === 'available')?.quantity ?? 0;
+    if (!(await isExternallyManagedLocation(domain, token, e.node.location.id, item.id, qty))) return false;
+  }
+  return true;
+}

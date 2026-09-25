@@ -3,7 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
 import { isAuthFailure, markNeedsReconnect } from '../_shared/platformHealth.ts';
 import { resolveShopifyVariant } from '../_shared/shopifyVariant.ts';
-import { isExternallyManagedLocation, isLocationNotFoundError, EXTERNAL_STOCK_REASON } from '../_shared/shopifyStock.ts';
+import { isExternallyManagedLocation, isLocationNotFoundError, EXTERNAL_STOCK_REASON, isMadeToOrderVariant, DEFAULT_KEEP_STOCKED_AT } from '../_shared/shopifyStock.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -121,12 +121,63 @@ serve(async (req) => {
       }
     }
 
+    // Made to order (e.g. Printful): Shopify's stock is the fulfillment app's 9999 and
+    // can't be changed, so there's nothing to sync. Instead keep every other store
+    // topped up to a fixed number (keep_stocked_at, default 5) — after a sale there,
+    // and on the hourly check. Detected once per Shopify link and remembered.
+    let madeToOrderTargets: any[] | null = null;
+    for (const link of allLinks) {
+      if (link.platform_type !== 'shopify' || link.made_to_order !== null || !link.platform_variant_id || !link.platforms) continue;
+      try {
+        const token = await resolveToken(link.platforms);
+        if (!token) continue;
+        link.made_to_order = await isMadeToOrderVariant(link.platforms.shop_domain, token, link.platform_variant_id);
+        await supabase.from('platform_product_links').update({ made_to_order: link.made_to_order }).eq('id', link.id);
+        if (link.made_to_order) console.log(`[sync-inventory-levels] SKU=${sku} is made to order on Shopify — keeping other stores topped up`);
+      } catch (err) {
+        console.warn(`[sync-inventory-levels] made-to-order check failed for SKU=${sku}: ${err.message}`);
+      }
+    }
+    const madeToOrderLink = allLinks.find(l => l.platform_type === 'shopify' && l.made_to_order);
+    if (madeToOrderLink) {
+      const keepAt = madeToOrderLink.keep_stocked_at ?? DEFAULT_KEEP_STOCKED_AT;
+      madeToOrderTargets = [];
+      const atLevel: string[] = [];
+      for (const link of allLinks) {
+        if (link.platform_type === 'shopify' && link.made_to_order) continue;
+        const platform = link.platforms;
+        if (!platform || !(platform.is_active || platform.status === 'connected')) continue;
+        try {
+          if (platform.platform_type === 'etsy') await getEtsyAccessToken(supabase, platform);
+          const token = await resolveToken(platform);
+          const qty = token ? await fetchCurrentQty(platform, link, token) : null;
+          if (qty === keepAt) { atLevel.push(link.id); continue; }
+        } catch (err) {
+          console.warn(`[sync-inventory-levels] made-to-order: could not read ${link.platform_type} qty for SKU=${sku}: ${err.message}`);
+        }
+        madeToOrderTargets.push(link);
+      }
+      if (atLevel.length) {
+        await supabase.from('platform_product_links').update({ last_synced_quantity: keepAt }).in('id', atLevel);
+      }
+      if (madeToOrderTargets.length === 0) {
+        return new Response(
+          JSON.stringify({ success: true, synced: 0, total: 0, made_to_order: true, keep_stocked_at: keepAt,
+            message: `Made to order — other stores already at ${keepAt}` }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      new_quantity = keepAt;
+      source_platform_id = null;
+      console.log(`[sync-inventory-levels] made-to-order: SKU=${sku} topping up ${madeToOrderTargets.length} store(s) to ${keepAt}`);
+    }
+
     // mode 'lowest' (catch-up after a store reconnects): read the current stock on
     // every linked platform and push the LOWEST to the rest. Sales made while a store
     // was disconnected never reached it, so the lowest count is the safe one — it can
     // under-state stock, never over-state it.
     let alreadyAtLowest = new Set<string>();
-    if (mode === 'lowest') {
+    if (mode === 'lowest' && !madeToOrderTargets) {
       const readings: { link: any; qty: number }[] = [];
       for (const link of allLinks) {
         const platform = link.platforms;
@@ -185,11 +236,11 @@ serve(async (req) => {
     }
 
     // Target links = all platforms except the source
-    const targetLinks = mode === 'lowest'
+    const targetLinks = madeToOrderTargets ?? (mode === 'lowest'
       ? allLinks.filter(l => !alreadyAtLowest.has(l.id))
       : source_platform_id
         ? allLinks.filter(l => l.platform_id !== source_platform_id)
-        : allLinks.slice(1); // skip the first (used as source above)
+        : allLinks.slice(1)); // skip the first (used as source above)
 
     // In lowest mode, links already at the lowest count need no write — just record it
     if (mode === 'lowest' && alreadyAtLowest.size > 0) {
@@ -277,7 +328,7 @@ serve(async (req) => {
         // Nothing to sync on this platform (e.g. Shopify stock run by Printful):
         // not a failure, so clear any earlier error and pending retry for it.
         await supabase.from('platform_product_links')
-          .update({ last_sync_error: null, last_sync_failed_at: null })
+          .update({ last_sync_error: null, last_sync_failed_at: null, ...(result.made_to_order ? { made_to_order: true } : {}) })
           .eq('id', link.id);
         await supabase.from('sync_retry_queue')
           .update({ resolved_at: new Date().toISOString(), last_error: null })
@@ -324,7 +375,8 @@ serve(async (req) => {
     console.log(`[sync-inventory-levels] Synced ${succeeded}/${syncResults.length} platforms for SKU=${sku}`);
 
     return new Response(
-      JSON.stringify({ success: true, synced: succeeded, total: syncResults.length, results: syncResults }),
+      JSON.stringify({ success: true, synced: succeeded, total: syncResults.length, results: syncResults,
+        ...(madeToOrderTargets ? { made_to_order: true, keep_stocked_at: new_quantity } : {}) }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
@@ -495,7 +547,7 @@ async function syncShopify(platform: any, link: any, qty: number, token: string,
   // Print-on-demand items (e.g. Printful) keep stock at the fulfillment app's own
   // location, which Tandril can't change — leave Shopify alone instead of failing.
   if (invErrs.some((e: any) => isLocationNotFoundError(e.message))) {
-    return { ...result, skipped: true, reason: EXTERNAL_STOCK_REASON };
+    return { ...result, skipped: true, made_to_order: true, reason: EXTERNAL_STOCK_REASON };
   }
   if (invErrs.length) throw new Error(`Shopify rejected the stock update: ${invErrs.map((e: any) => e.message).join('; ')}`);
 

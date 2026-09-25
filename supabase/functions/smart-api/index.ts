@@ -193,6 +193,7 @@ function summarizeOrionAction(action: any): string {
     case 'link_products':       return `Linked SKU ${action.sku || ''} across ${(action.items || []).map((i: any) => i.platform).join(' + ')}`;
     case 'unlink_product':      return `Unlinked SKU ${action.sku}${action.platform ? ` from ${action.platform}` : ''}`;
     case 'sync_product':        return action.sku ? `Synced stock for SKU ${action.sku}` : 'Synced stock for all linked products';
+    case 'set_keep_stocked':    return `Keep SKU ${action.sku} stocked at ${action.quantity} on other stores`;
     case 'launch_ad':           return `Launched Meta ad campaign "${action.name}" ($${action.budget?.daily_amount || '?'}/day)`;
     case 'pause_ad':            return `Paused ad campaign ${action.name || action.campaign_id}`;
     case 'get_ad_performance':  return `Retrieved ad performance for ${action.campaign_id ? 'campaign ' + action.campaign_id : 'all campaigns'}`;
@@ -1650,7 +1651,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     'flash_sale', 'smart_restock', 'get_inventory',
     'instagram_update_price', 'instagram_update_inventory',
     'draft_ad', 'launch_ad', 'pause_ad', 'get_ad_performance',
-    'suggest_product_links', 'link_products', 'unlink_product', 'sync_product',
+    'suggest_product_links', 'link_products', 'unlink_product', 'sync_product', 'set_keep_stocked',
   ]);
   const shopifyRequired = !NON_SHOPIFY_ACTIONS.has(action.type);
   if (shopifyRequired && (!platforms || platforms.length === 0)) {
@@ -8127,6 +8128,23 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: `Unlinked SKU ${action.sku} from ${data.map((d: any) => d.platform_type).join(', ')}. Stock for it no longer syncs between those stores.` };
     }
 
+    case 'set_keep_stocked': {
+      const qty = Number(action.quantity);
+      if (!action.sku || !Number.isInteger(qty) || qty < 1 || qty > 999) throw new Error('set_keep_stocked needs a "sku" and a whole-number "quantity" from 1 to 999.');
+      const { data, error } = await supabaseClient.from('platform_product_links')
+        .update({ keep_stocked_at: qty })
+        .eq('user_id', userId).eq('sku', action.sku).eq('platform_type', 'shopify').eq('made_to_order', true)
+        .select('id');
+      if (error) throw new Error(`Could not save: ${error.message}`);
+      if (!data?.length) return { message: `SKU ${action.sku} isn't a made-to-order (print-on-demand) product on Shopify, so there's no top-up level to set — its stock syncs normally.` };
+      let note = '';
+      try {
+        const r = await callSyncInventory({ user_id: userId, sku: action.sku, mode: 'lowest', triggered_by: 'orion_sync' });
+        note = r.total ? ` Updated ${r.synced}/${r.total} store(s) to ${qty} now.` : ` Other stores are already at ${qty}.`;
+      } catch (e: any) { note = ` Couldn't apply it right away (${e.message}); the hourly check will.`; }
+      return { message: `SKU ${action.sku} will be kept at ${qty} on your other stores.${note}` };
+    }
+
     case 'sync_product': {
       let skus: string[] = [];
       if (action.sku) skus = [String(action.sku)];
@@ -8141,7 +8159,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         try {
           const r = await callSyncInventory({ user_id: userId, sku, mode: 'lowest', triggered_by: 'orion_sync' });
           if (r.total && r.synced < r.total) failed++;
-          out.push(`${sku}: ${r.total ? `${r.synced}/${r.total} store(s) updated` : 'already matching'}`);
+          const mot = r.made_to_order || (r.results || []).some((x: any) => x.made_to_order);
+          out.push(`${sku}: ${r.total ? `${r.synced}/${r.total} store(s) updated` : 'already matching'}${mot ? ` (made to order on Shopify — other stores kept at ${r.keep_stocked_at ?? 'the set level'})` : ''}`);
         } catch (e: any) {
           failed++;
           out.push(`${sku}: failed — ${e.message}`);
@@ -9072,7 +9091,7 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
   // ── Cross-platform sync context ──────────────────────────────────────────────
   const { data: syncLinks } = await supabaseClient
     .from('platform_product_links')
-    .select('sku, platform_type, last_synced_at, last_synced_quantity, last_sync_error, last_sync_failed_at')
+    .select('sku, platform_type, last_synced_at, last_synced_quantity, last_sync_error, last_sync_failed_at, made_to_order, keep_stocked_at')
     .eq('user_id', userId);
 
   const { data: recentSyncLog } = await supabaseClient
@@ -9106,6 +9125,8 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
       last_synced_quantity: l.last_synced_quantity,
       has_error: !!l.last_sync_error,
       error: l.last_sync_error ?? null,
+      made_to_order: !!l.made_to_order,
+      keep_stocked_at: l.keep_stocked_at ?? null,
     })),
     recent_syncs: (recentSyncLog || []).map((s: any) => ({
       sku: s.sku,
@@ -9295,6 +9316,8 @@ async function chatWithClaude(
       const links = sync.platform_links.filter((l: any) => l.sku === sku);
       const where = [...new Set(links.map((l: any) => l.platform))].join(' + ');
       const qty = links.find((l: any) => l.last_synced_quantity != null)?.last_synced_quantity;
+      const mot = links.find((l: any) => l.made_to_order);
+      if (mot) return `  - SKU ${sku}: linked on ${where} — made to order on Shopify (print-on-demand, shows 9999); other stores kept at ${mot.keep_stocked_at ?? 5}`;
       return `  - SKU ${sku}: linked on ${where}${qty != null ? ` (last synced qty ${qty})` : ''}`;
     }).join('\n');
 
@@ -9362,6 +9385,8 @@ Actions:
   • link_products — { type, sku, product_name, items: [ { platform, platform_id?, product_id?, variant_id?, sku? }, ... ] } links one item across stores and immediately matches stock (lowest count kept). sku = the shared SKU (normally the SKU the listings already use). For Shopify, give product_id (and variant_id if you have it) — Tandril finds the right variant; if you only have the SKU it searches by SKU. For eBay the SKU is the product id. Use the ids from suggest_product_links results when you have them.
   • unlink_product — { type, sku, platform? } stops syncing that SKU (all stores, or just one).
   • sync_product — { type, sku? } brings a linked item's stock into line now (lowest count wins). Omit sku to sync every linked item.
+  • set_keep_stocked — { type, sku, quantity } for a MADE-TO-ORDER product only (marked "made to order" in the sync status above): the number Tandril keeps its other stores (eBay etc.) topped up to after sales. Default is 5.
+  Made-to-order products (print-on-demand, e.g. Printful): Shopify shows 9999 because the POD app makes each one to order — Tandril can't and doesn't change that, and never copies 9999 to other stores. Instead it tops the other stores back up to the keep-stocked number after each sale and every hour. Explain it this way if asked why Shopify shows 9999.
 Rules:
   - Never link on a guess. Same-SKU matches: list them and ask "link these?" (one confirmation can cover the whole list). Similar-title matches: ask about each one.
   - Not everything should sync. If the seller says some listings are separate (e.g. "the eBay video games are my son's"), don't suggest those again and offer to save that with remember.
