@@ -591,7 +591,7 @@ async function updateInventoryEnhanced(
       };
     }
 
-    await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+    const invSetRes = await shopifyGraphQL(platform.shop_domain, platform.access_token, `
       mutation($input: InventorySetQuantitiesInput!) {
         inventorySetQuantities(input: $input) {
           userErrors { field message }
@@ -601,6 +601,7 @@ async function updateInventoryEnhanced(
       input: {
         reason: 'correction',
         name: 'available',
+        ignoreCompareQuantity: true,
         quantities: [{
           inventoryItemId: toShopifyGid('InventoryItem', inventory_item_id),
           locationId: toShopifyGid('Location', location_id),
@@ -608,6 +609,8 @@ async function updateInventoryEnhanced(
         }],
       },
     });
+    const invErrs = invSetRes?.inventorySetQuantities?.userErrors || [];
+    if (invErrs.length) throw new Error(`Shopify rejected the stock update: ${invErrs.map((e: any) => e.message).join('; ')}`);
 
     return {
       message: `Updated inventory to ${targetQty}`,
@@ -681,7 +684,7 @@ async function updateInventoryEnhanced(
   const results: any[] = [];
   for (const variant of variantsToUpdate) {
     try {
-      await shopifyGraphQL(platform.shop_domain, platform.access_token, `
+      const invSetRes = await shopifyGraphQL(platform.shop_domain, platform.access_token, `
         mutation($input: InventorySetQuantitiesInput!) {
           inventorySetQuantities(input: $input) {
             userErrors { field message }
@@ -691,6 +694,7 @@ async function updateInventoryEnhanced(
         input: {
           reason: 'correction',
           name: 'available',
+          ignoreCompareQuantity: true,
           quantities: [{
             inventoryItemId: toShopifyGid('InventoryItem', variant.inventory_item_id),
             locationId: toShopifyGid('Location', resolvedLocationId),
@@ -698,6 +702,8 @@ async function updateInventoryEnhanced(
           }],
         },
       });
+      const invErrs = invSetRes?.inventorySetQuantities?.userErrors || [];
+      if (invErrs.length) throw new Error(`Shopify rejected the stock update: ${invErrs.map((e: any) => e.message).join('; ')}`);
       results.push({
         product_title: variant.product_title,
         variant_title: variant.variant_title,

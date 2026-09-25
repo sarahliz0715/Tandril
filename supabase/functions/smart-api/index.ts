@@ -193,6 +193,7 @@ function summarizeOrionAction(action: any): string {
     case 'link_products':       return `Linked SKU ${action.sku || ''} across ${(action.items || []).map((i: any) => i.platform).join(' + ')}`;
     case 'unlink_product':      return `Unlinked SKU ${action.sku}${action.platform ? ` from ${action.platform}` : ''}`;
     case 'sync_product':        return action.sku ? `Synced stock for SKU ${action.sku}` : 'Synced stock for all linked products';
+    case 'set_keep_stocked':    return `Keep SKU ${action.sku} stocked at ${action.quantity} on other stores`;
     case 'launch_ad':           return `Launched Meta ad campaign "${action.name}" ($${action.budget?.daily_amount || '?'}/day)`;
     case 'pause_ad':            return `Paused ad campaign ${action.name || action.campaign_id}`;
     case 'get_ad_performance':  return `Retrieved ad performance for ${action.campaign_id ? 'campaign ' + action.campaign_id : 'all campaigns'}`;
@@ -1590,6 +1591,55 @@ async function resolveLinkTarget(supabaseClient: any, userId: string, platforms:
   throw new Error(`${platform.platform_type} can't be linked for inventory sync yet.`);
 }
 
+// eBay only accepts public image links, and Orion can't see images — it has
+// invented placeholder URLs before (a Sept 5 listing got a fake cdn.shopify.com
+// link and showed no photo). Keep only links that actually load as an image.
+async function verifiedImageUrls(urls: string[]): Promise<string[]> {
+  const ok: string[] = [];
+  for (const url of urls.slice(0, 12)) {
+    if (!/^https:\/\//i.test(url || '')) continue;
+    try {
+      const res = await fetch(url, { method: 'GET', headers: { Range: 'bytes=0-0' } });
+      const type = res.headers.get('content-type') || '';
+      await res.body?.cancel();
+      if (res.ok && type.startsWith('image/')) ok.push(url);
+      else console.warn(`[verifiedImageUrls] dropped ${url}: ${res.status} ${type}`);
+    } catch (e: any) {
+      console.warn(`[verifiedImageUrls] dropped ${url}: ${e.message}`);
+    }
+  }
+  return ok;
+}
+
+// The real photos of the Shopify product with this SKU, if there is one.
+async function shopifyImagesForSku(shopDomain: string, accessToken: string, sku: string): Promise<string[]> {
+  if (!shopDomain || !accessToken || !sku) return [];
+  try {
+    const v = await resolveShopifyVariant(shopDomain, accessToken, { sku });
+    const data = await shopifyGraphQL(shopDomain, accessToken,
+      `query($id: ID!) { product(id: $id) { images(first: 12) { edges { node { url } } } } }`,
+      { id: toShopifyGid('Product', v.productId) });
+    return (data.product?.images?.edges || []).map((e: any) => e.node.url).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+// An eBay offer created with its own availableQuantity overrides the inventory
+// item for that listing, so changing only the inventory item leaves buyers seeing
+// the old number. Bring every such offer for the SKU in line.
+async function syncEbayOfferQuantities(apiBase: string, headers: Record<string, string>, sku: string, qty: number) {
+  const res = await fetch(`${apiBase}/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`, { headers });
+  if (!res.ok) return;
+  for (const offer of (await res.json()).offers || []) {
+    if (typeof offer.availableQuantity !== 'number' || offer.availableQuantity === qty) continue;
+    const { offerId, listing: _l, status: _s, ...offerBody } = offer;
+    offerBody.availableQuantity = qty;
+    const putRes = await fetch(`${apiBase}/sell/inventory/v1/offer/${offerId}`, { method: 'PUT', headers, body: JSON.stringify(offerBody) });
+    if (!putRes.ok) throw new Error(`eBay listing quantity update failed: ${await putRes.text()}`);
+  }
+}
+
 async function executeStoreAction(supabaseClient: any, userId: string, action: any) {
   // Normalize generic action types to platform-specific ones based on action.platform.
   // This lets Orion always use e.g. "update_price" and just set "platform": "ebay"
@@ -1650,7 +1700,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     'flash_sale', 'smart_restock', 'get_inventory',
     'instagram_update_price', 'instagram_update_inventory',
     'draft_ad', 'launch_ad', 'pause_ad', 'get_ad_performance',
-    'suggest_product_links', 'link_products', 'unlink_product', 'sync_product',
+    'suggest_product_links', 'link_products', 'unlink_product', 'sync_product', 'set_keep_stocked',
   ]);
   const shopifyRequired = !NON_SHOPIFY_ACTIONS.has(action.type);
   if (shopifyRequired && (!platforms || platforms.length === 0)) {
@@ -2539,7 +2589,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const locationId = locationGid ? fromShopifyGid(locationGid) : null;
       if (!locationId) throw new Error('Could not find inventory location for this product.');
 
-      await shopifyGraphQL(shopDomain, accessToken, `
+      const invSetRes = await shopifyGraphQL(shopDomain, accessToken, `
         mutation setInventory($input: InventorySetQuantitiesInput!) {
           inventorySetQuantities(input: $input) {
             inventoryAdjustmentGroup { reason }
@@ -2550,6 +2600,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         input: {
           reason: 'correction',
           name: 'available',
+          ignoreCompareQuantity: true,
           quantities: [{
             inventoryItemId: toShopifyGid('InventoryItem', targetVariant.inventory_item_id),
             locationId: toShopifyGid('Location', locationId),
@@ -2557,6 +2608,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           }],
         },
       });
+      const invErrs = invSetRes?.inventorySetQuantities?.userErrors || [];
+      if (invErrs.length) throw new Error(`Shopify rejected the stock update: ${invErrs.map((e: any) => e.message).join('; ')}`);
       return {
         message: `Updated inventory for "${action.sku || action.product_name}" to ${action.quantity} units`,
         previous_state: { quantity: targetVariant.inventory_quantity },
@@ -3161,6 +3214,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         body: JSON.stringify(updatedItem),
       });
       if (!putRes.ok) throw new Error(`eBay inventory update failed: ${await putRes.text()}`);
+      await syncEbayOfferQuantities(apiBase, ebayHeaders, sku, Number(action.quantity));
       return { message: `Updated eBay inventory for "${action.product_name || sku}" to ${action.quantity} units` };
     }
 
@@ -3240,7 +3294,15 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const sku = action.sku;
       if (!sku) throw new Error('sku is required for ebay_update_image.');
       const newUrls: string[] = action.image_urls || (action.image_url ? [action.image_url] : []);
-      if (newUrls.length === 0) throw new Error('image_url or image_urls is required for ebay_update_image. Provide a public HTTPS URL.');
+      // No link given: use the matching Shopify product's real photos, replacing what's there.
+      if (newUrls.length === 0) {
+        newUrls.push(...await shopifyImagesForSku(shopDomain, accessToken, sku));
+        action.replace_images = true;
+      }
+      if (newUrls.length === 0) throw new Error('No photo to use: this SKU has no matching Shopify product with photos, so give the exact public image link.');
+      const checkedUrls = await verifiedImageUrls(newUrls);
+      if (checkedUrls.length === 0) throw new Error('None of those image links load as a picture, so eBay would show no photo. Use the real image link (for a Shopify product, Tandril can use its photos automatically — leave the link out and give the SKU).');
+      newUrls.splice(0, newUrls.length, ...checkedUrls);
 
       const getRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, { headers: ebayHeaders });
       if (!getRes.ok) throw new Error(`eBay item not found for SKU "${sku}": ${await getRes.text()}`);
@@ -3388,6 +3450,13 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         }
       }
 
+      // Photos: the matching Shopify product's real images when there is one,
+      // otherwise only Orion-supplied links that actually load as images.
+      const validImageUrl = (url: string) => url && /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(url);
+      const suppliedUrls: string[] = action.image_urls?.filter(validImageUrl) || (action.image_url && validImageUrl(action.image_url) ? [action.image_url] : []);
+      let listingImageUrls = await shopifyImagesForSku(shopDomain, accessToken, sku);
+      if (listingImageUrls.length === 0) listingImageUrls = await verifiedImageUrls(suppliedUrls);
+
       // Step 1: Create/update inventory item
       const inventoryItemBody: any = {
         availability: {
@@ -3403,11 +3472,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         product: {
           title: action.title.length > 80 ? action.title.slice(0, 77) + '...' : action.title,
           description: action.description || `${action.title || action.product_name || 'Product'}. Available in multiple sizes and colors. High quality print-on-demand item. Ships fast. Great gift idea.`,
-          ...((() => {
-            const validImageUrl = (url: string) => url && /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(url);
-            const urls = action.image_urls?.filter(validImageUrl) || (action.image_url && validImageUrl(action.image_url) ? [action.image_url] : []);
-            return urls.length ? { imageUrls: urls } : {};
-          })()),
+          ...(listingImageUrls.length ? { imageUrls: listingImageUrls } : {}),
           aspects: {
             ...(action.aspects || {}),
             ...(resolvedColor && !action.aspects?.Color ? { Color: [resolvedColor] } : {}),
@@ -8124,6 +8189,23 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return { message: `Unlinked SKU ${action.sku} from ${data.map((d: any) => d.platform_type).join(', ')}. Stock for it no longer syncs between those stores.` };
     }
 
+    case 'set_keep_stocked': {
+      const qty = Number(action.quantity);
+      if (!action.sku || !Number.isInteger(qty) || qty < 1 || qty > 999) throw new Error('set_keep_stocked needs a "sku" and a whole-number "quantity" from 1 to 999.');
+      const { data, error } = await supabaseClient.from('platform_product_links')
+        .update({ keep_stocked_at: qty })
+        .eq('user_id', userId).eq('sku', action.sku).eq('platform_type', 'shopify').eq('made_to_order', true)
+        .select('id');
+      if (error) throw new Error(`Could not save: ${error.message}`);
+      if (!data?.length) return { message: `SKU ${action.sku} isn't a made-to-order (print-on-demand) product on Shopify, so there's no top-up level to set — its stock syncs normally.` };
+      let note = '';
+      try {
+        const r = await callSyncInventory({ user_id: userId, sku: action.sku, mode: 'lowest', triggered_by: 'orion_sync' });
+        note = r.total ? ` Updated ${r.synced}/${r.total} store(s) to ${qty} now.` : ` Other stores are already at ${qty}.`;
+      } catch (e: any) { note = ` Couldn't apply it right away (${e.message}); the hourly check will.`; }
+      return { message: `SKU ${action.sku} will be kept at ${qty} on your other stores.${note}` };
+    }
+
     case 'sync_product': {
       let skus: string[] = [];
       if (action.sku) skus = [String(action.sku)];
@@ -8138,7 +8220,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         try {
           const r = await callSyncInventory({ user_id: userId, sku, mode: 'lowest', triggered_by: 'orion_sync' });
           if (r.total && r.synced < r.total) failed++;
-          out.push(`${sku}: ${r.total ? `${r.synced}/${r.total} store(s) updated` : 'already matching'}`);
+          const mot = r.made_to_order || (r.results || []).some((x: any) => x.made_to_order);
+          out.push(`${sku}: ${r.total ? `${r.synced}/${r.total} store(s) updated` : 'already matching'}${mot ? ` (made to order on Shopify — other stores kept at ${r.keep_stocked_at ?? 'the set level'})` : ''}`);
         } catch (e: any) {
           failed++;
           out.push(`${sku}: failed — ${e.message}`);
@@ -9069,7 +9152,7 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
   // ── Cross-platform sync context ──────────────────────────────────────────────
   const { data: syncLinks } = await supabaseClient
     .from('platform_product_links')
-    .select('sku, platform_type, last_synced_at, last_synced_quantity, last_sync_error, last_sync_failed_at')
+    .select('sku, platform_type, last_synced_at, last_synced_quantity, last_sync_error, last_sync_failed_at, made_to_order, keep_stocked_at')
     .eq('user_id', userId);
 
   const { data: recentSyncLog } = await supabaseClient
@@ -9103,6 +9186,8 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
       last_synced_quantity: l.last_synced_quantity,
       has_error: !!l.last_sync_error,
       error: l.last_sync_error ?? null,
+      made_to_order: !!l.made_to_order,
+      keep_stocked_at: l.keep_stocked_at ?? null,
     })),
     recent_syncs: (recentSyncLog || []).map((s: any) => ({
       sku: s.sku,
@@ -9292,6 +9377,8 @@ async function chatWithClaude(
       const links = sync.platform_links.filter((l: any) => l.sku === sku);
       const where = [...new Set(links.map((l: any) => l.platform))].join(' + ');
       const qty = links.find((l: any) => l.last_synced_quantity != null)?.last_synced_quantity;
+      const mot = links.find((l: any) => l.made_to_order);
+      if (mot) return `  - SKU ${sku}: linked on ${where} — made to order on Shopify (print-on-demand, shows 9999); other stores kept at ${mot.keep_stocked_at ?? 5}`;
       return `  - SKU ${sku}: linked on ${where}${qty != null ? ` (last synced qty ${qty})` : ''}`;
     }).join('\n');
 
@@ -9359,6 +9446,8 @@ Actions:
   • link_products — { type, sku, product_name, items: [ { platform, platform_id?, product_id?, variant_id?, sku? }, ... ] } links one item across stores and immediately matches stock (lowest count kept). sku = the shared SKU (normally the SKU the listings already use). For Shopify, give product_id (and variant_id if you have it) — Tandril finds the right variant; if you only have the SKU it searches by SKU. For eBay the SKU is the product id. Use the ids from suggest_product_links results when you have them.
   • unlink_product — { type, sku, platform? } stops syncing that SKU (all stores, or just one).
   • sync_product — { type, sku? } brings a linked item's stock into line now (lowest count wins). Omit sku to sync every linked item.
+  • set_keep_stocked — { type, sku, quantity } for a MADE-TO-ORDER product only (marked "made to order" in the sync status above): the number Tandril keeps its other stores (eBay etc.) topped up to after sales. Default is 5.
+  Made-to-order products (print-on-demand, e.g. Printful): Shopify shows 9999 because the POD app makes each one to order — Tandril can't and doesn't change that, and never copies 9999 to other stores. Instead it tops the other stores back up to the keep-stocked number after each sale and every hour. Explain it this way if asked why Shopify shows 9999.
 Rules:
   - Never link on a guess. Same-SKU matches: list them and ask "link these?" (one confirmation can cover the whole list). Similar-title matches: ask about each one.
   - Not everything should sync. If the seller says some listings are separate (e.g. "the eBay video games are my son's"), don't suggest those again and offer to save that with remember.
@@ -9450,7 +9539,7 @@ NEVER say phrases like "I cannot directly upload", "I do not have the capability
   • ebay_update_price      ← update the price on an eBay listing
   • ebay_update_title      ← update the listing title on eBay
   • ebay_update_description← update the listing description on eBay
-  • ebay_update_image      ← update/add images on an eBay listing (requires public image URL)
+  • ebay_update_image      ← fix/replace/add photos on an eBay listing. Leave image_url OUT to replace the photos with the matching Shopify product's real photos (by SKU) — use this to fix a missing/broken eBay photo. Only pass image_url when the user gave you the exact link — never invent one; links that don't load are rejected.
   • ebay_end_listing             ← remove a listing from eBay (keeps inventory, can relist)
   • ebay_relist                  ← re-publish a previously ended eBay listing
   • ebay_update_item_specifics   ← update item specifics/attributes (Brand, Size, Material, etc.) for eBay SEO and buyer filtering
@@ -9756,7 +9845,8 @@ To set a Shopify product status (active = live, draft = hidden, archived = remov
 — eBay Actions —
 
 To create a new eBay listing (creates inventory item + offer + publishes in one step):
-[ORION_ACTION:{"type":"ebay_create_listing","title":"Vintage Wool Sweater - Size M","sku":"SWEATER-001","price":29.99,"quantity":1,"description":"Beautiful vintage wool sweater in excellent condition.","condition":"USED_EXCELLENT","category_id":"11484","color":"Charcoal Grey","image_urls":["https://your-image-url.jpg"]}]
+[ORION_ACTION:{"type":"ebay_create_listing","title":"Vintage Wool Sweater - Size M","sku":"SWEATER-001","price":29.99,"quantity":1,"description":"Beautiful vintage wool sweater in excellent condition.","condition":"USED_EXCELLENT","category_id":"11484","color":"Charcoal Grey"}]
+PHOTOS: never write image links yourself — you can't see images and made-up links show up on eBay as a missing photo. For a product that's on Shopify, leave image_urls out: Tandril uses the Shopify product's real photos (matched by SKU) automatically. Only include image_urls when the user gave you the exact link.
 Note: condition options: NEW, LIKE_NEW, NEW_OTHER, NEW_WITH_DEFECTS, MANUFACTURER_REFURBISHED, CERTIFIED_REFURBISHED, EXCELLENT_REFURBISHED, VERY_GOOD_REFURBISHED, GOOD_REFURBISHED, SELLER_REFURBISHED, USED_EXCELLENT, USED_VERY_GOOD, USED_GOOD, USED_ACCEPTABLE, FOR_PARTS_OR_NOT_WORKING. category_id is optional but recommended.
 ⚠️ BEFORE generating an ebay_create_listing action, do a complete preflight check. Gather ALL of the following — if anything is missing, ask the user for everything that's missing IN ONE MESSAGE before creating the action. Never create the listing and then discover a missing field mid-flight.
 
@@ -9837,7 +9927,7 @@ To update an eBay listing description:
 [ORION_ACTION:{"type":"ebay_update_description","product_name":"Vintage Wool Sweater","sku":"SWEATER-001","description":"Beautiful vintage cable knit wool sweater. Size M. No stains or damage. Ships within 1 business day."}]
 
 To update eBay listing images (provide a public HTTPS URL — replace_images: true swaps all, false appends):
-[ORION_ACTION:{"type":"ebay_update_image","product_name":"Vintage Wool Sweater","sku":"SWEATER-001","image_url":"https://your-image-url.jpg","replace_images":false}]
+[ORION_ACTION:{"type":"ebay_update_image","product_name":"Vintage Wool Sweater","sku":"SWEATER-001","image_url":"<the exact link the user gave>","replace_images":false}]
 
 To end (remove) an eBay listing — listing is removed from eBay but inventory is preserved and it can be relisted:
 [ORION_ACTION:{"type":"ebay_end_listing","product_name":"Vintage Wool Sweater","sku":"SWEATER-001"}]
@@ -9957,7 +10047,7 @@ To deactivate or reactivate a TikTok Shop listing:
 
 To create a new TikTok Shop product (category_id and at least one image URL required):
 Note: category_id is required by TikTok. Common IDs: 601079 = Clothing, 601105 = Shoes, 601191 = Home & Living, 601145 = Beauty & Personal Care, 601165 = Sports & Outdoors, 601217 = Electronics. If unsure, ask the user.
-[ORION_ACTION:{"type":"tiktok_create_product","title":"Handmade Ceramic Mug","description":"Beautiful handcrafted ceramic mug, 12oz, microwave safe.","price":24.99,"quantity":10,"sku":"MUG-001","category_id":"601191","images":["https://your-image-url.jpg"]}]
+[ORION_ACTION:{"type":"tiktok_create_product","title":"Handmade Ceramic Mug","description":"Beautiful handcrafted ceramic mug, 12oz, microwave safe.","price":24.99,"quantity":10,"sku":"MUG-001","category_id":"601191","images":["<the exact link the user gave>"]}]
 
 — Etsy Shop Actions —
 

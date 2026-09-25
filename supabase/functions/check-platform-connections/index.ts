@@ -290,10 +290,33 @@ serve(async (req) => {
       }
     }
 
+    // ── 5: Made-to-order (e.g. Printful) products: top the other stores back up to
+    // keep_stocked_at after sales. Their instant sale alerts can't be relied on
+    // (eBay's in particular), so this hourly pass is what guarantees it.
+    const { data: motLinks } = await supabase
+      .from('platform_product_links')
+      .select('user_id, sku')
+      .eq('made_to_order', true);
+    const motSkus = [...new Map((motLinks || []).map((l: any) => [`${l.user_id}|${l.sku}`, l])).values()];
+    let toppedUp = 0;
+    for (const l of motSkus as any[]) {
+      try {
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/sync-inventory-levels`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${serviceKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: l.user_id, sku: l.sku, mode: 'lowest', triggered_by: 'keep_stocked' }),
+        });
+        const out = await res.json().catch(() => ({}));
+        if ((out?.synced ?? 0) > 0) toppedUp++;
+      } catch (err: any) {
+        console.warn(`[check-platform-connections] top-up failed for SKU=${l.sku}: ${err.message}`);
+      }
+    }
+
     const flagged = results.filter((r) => r.needs_reconnect).length;
     console.log(`[check-platform-connections] Checked ${results.length} connections, ${flagged} need reconnect, ${emailsSent} emails sent, ${caughtUp} restored stores caught up`);
     return new Response(JSON.stringify({
-      success: true, checked: results.length, needs_reconnect: flagged, emails_sent: emailsSent, restored_caught_up: caughtUp, results,
+      success: true, checked: results.length, needs_reconnect: flagged, emails_sent: emailsSent, restored_caught_up: caughtUp, made_to_order_topped_up: toppedUp, results,
     }), { status: 200 });
   } catch (e: any) {
     console.error('[check-platform-connections] Error:', e.message);

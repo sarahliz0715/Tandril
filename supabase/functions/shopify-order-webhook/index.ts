@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { isExternallyManagedLocation } from '../_shared/shopifyStock.ts';
 
 // --- Inlined encryption helpers ---
 const ALGORITHM = 'AES-GCM';
@@ -62,6 +63,20 @@ async function verifyShopifyHmac(body: string, hmacHeader: string, secret: strin
   const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
   const computed = btoa(String.fromCharCode(...new Uint8Array(sig)));
   return computed === hmacHeader;
+}
+
+// Sum "available" stock over the locations the store itself manages. Returns null when
+// every level belongs to a fulfillment app (e.g. Printful's 9999 = made to order), whose
+// number must never be copied to other stores.
+async function storeManagedQty(shopDomain: string, token: string, inventoryItemGid: string, edges: any[]): Promise<number | null> {
+  let total = 0, counted = 0;
+  for (const e of edges) {
+    const qty = e.node.quantities?.find((q: any) => q.name === 'available')?.quantity ?? 0;
+    if (e.node.location?.id && await isExternallyManagedLocation(shopDomain, token, e.node.location.id, inventoryItemGid, qty)) continue;
+    total += qty;
+    counted++;
+  }
+  return counted === 0 && edges.length > 0 ? null : total;
 }
 
 serve(async (req) => {
@@ -131,7 +146,7 @@ serve(async (req) => {
           inventoryItem(id: $id) {
             sku
             inventoryLevels(first: 10) {
-              edges { node { quantities(names: ["available"]) { name quantity } } }
+              edges { node { location { id } quantities(names: ["available"]) { name quantity } } }
             }
           }
         }
@@ -139,8 +154,11 @@ serve(async (req) => {
 
       const sku = invData?.inventoryItem?.sku;
       if (!sku) return new Response('ok', { status: 200 });
-      const totalQty = (invData.inventoryItem.inventoryLevels.edges || []).reduce((sum: number, e: any) =>
-        sum + (e.node.quantities?.find((q: any) => q.name === 'available')?.quantity ?? 0), 0);
+      const totalQty = await storeManagedQty(shopDomain, token, toShopifyGid('InventoryItem', payload.inventory_item_id), invData.inventoryItem.inventoryLevels.edges || []);
+      if (totalQty === null) {
+        console.log(`[shopify-order-webhook] SKU=${sku} stock is managed by a fulfillment app (e.g. Printful) — not syncing`);
+        return new Response('ok', { status: 200 });
+      }
 
       // Only linked SKUs sync anywhere. If the link already holds this quantity, the change
       // is either Tandril's own write echoing back or already propagated (e.g. by the
@@ -193,6 +211,7 @@ serve(async (req) => {
             inventoryLevels(first: 10) {
               edges {
                 node {
+                  location { id }
                   quantities(names: ["available"]) { name quantity }
                 }
               }
@@ -203,10 +222,11 @@ serve(async (req) => {
 
       if (!invData?.inventoryItem) continue;
 
-      const totalQty = (invData.inventoryItem.inventoryLevels.edges || []).reduce((sum: number, e: any) => {
-        const avail = e.node.quantities?.find((q: any) => q.name === 'available')?.quantity ?? 0;
-        return sum + avail;
-      }, 0);
+      const totalQty = await storeManagedQty(shopDomain, token, inventoryItemId, invData.inventoryItem.inventoryLevels.edges || []);
+      if (totalQty === null) {
+        console.log(`[shopify-order-webhook] SKU=${sku} stock is managed by a fulfillment app (e.g. Printful) — not syncing`);
+        continue;
+      }
 
       skuUpdates.push({ sku, quantity: totalQty });
     }

@@ -271,7 +271,7 @@ serve(async (req) => {
         const newLevel = currentLevel + item.quantity_ordered;
 
         // Adjust inventory via GraphQL mutation
-        await shopifyGraphQL(shopDomain, accessToken, `
+        const invAdjRes = await shopifyGraphQL(shopDomain, accessToken, `
           mutation($input: InventoryAdjustQuantitiesInput!) {
             inventoryAdjustQuantities(input: $input) {
               inventoryAdjustmentGroup { reason }
@@ -289,6 +289,8 @@ serve(async (req) => {
             }],
           },
         });
+        const invErrs = invAdjRes?.inventoryAdjustQuantities?.userErrors || [];
+        if (invErrs.length) throw new Error(`Shopify rejected the stock update: ${invErrs.map((e: any) => e.message).join('; ')}`);
 
         console.log(`[Inventory Sync] Updated ${item.product_name}: ${currentLevel} -> ${newLevel}`);
 
