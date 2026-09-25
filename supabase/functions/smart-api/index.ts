@@ -398,7 +398,11 @@ serve(async (req) => {
         try {
           const wf = execute_action;
           // Older cards put a single step and the cron at the top level
-          const triggerConfig = wf.trigger_config || (wf.cron ? { cron: wf.cron } : {});
+          let triggerConfig = wf.trigger_config || (wf.cron ? { cron: wf.cron } : {});
+          if (wf.schedule && !triggerConfig.cron) {
+            const tz = typeof rawBody.timezone === 'string' && rawBody.timezone ? rawBody.timezone : 'America/New_York';
+            triggerConfig = { ...triggerConfig, cron: localScheduleToCron(wf.schedule, tz), local_schedule: { ...wf.schedule, timezone: tz } };
+          }
           const triggerType = wf.trigger_type || (triggerConfig.cron ? 'schedule' : 'manual');
           const steps: any[] = wf.steps || wf.actions
             || (wf.action_type ? [{ type: 'action', config: {
@@ -1594,6 +1598,34 @@ async function resolveLinkTarget(supabaseClient: any, userId: string, platforms:
     }
   }
   throw new Error(`${platform.platform_type} can't be linked for inventory sync yet.`);
+}
+
+// Orion writes workflow schedules in the seller's own clock ("monday", "09:00");
+// this turns that into the UTC cron the scheduler runs on, using the seller's
+// real time zone (daylight saving included) instead of making the model do the math.
+const DAY_INDEX: Record<string, number> = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+function tzOffsetMinutes(tz: string, at = new Date()): number {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  }).formatToParts(at).map((x) => [x.type, x.value]));
+  const asUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute);
+  return Math.round((asUtc - Math.floor(at.getTime() / 60000) * 60000) / 60000);
+}
+export function localScheduleToCron(schedule: any, tz: string): string {
+  const [hh, mm] = String(schedule?.time || '09:00').split(':').map((n) => parseInt(n, 10));
+  if (!Number.isFinite(hh) || hh < 0 || hh > 23) throw new Error(`Schedule time "${schedule?.time}" isn't a valid time like "09:00".`);
+  let total = hh * 60 + (Number.isFinite(mm) ? mm : 0) - tzOffsetMinutes(tz);
+  const dayShift = Math.floor(total / 1440);
+  total = ((total % 1440) + 1440) % 1440;
+  const days: string[] = Array.isArray(schedule?.days) ? schedule.days : schedule?.days ? [schedule.days] : [];
+  const daily = days.length === 0 || days.some((d) => /^(daily|every ?day)$/i.test(String(d)));
+  let dow = '*';
+  if (!daily) {
+    const idx = days.map((d) => DAY_INDEX[String(d).toLowerCase().slice(0, 3)]);
+    if (idx.some((i) => i === undefined)) throw new Error(`Unknown day in schedule: ${days.join(', ')}`);
+    dow = [...new Set(idx.map((i) => ((i + dayShift) % 7 + 7) % 7))].sort().join(',');
+  }
+  return `${total % 60} ${Math.floor(total / 60)} * * ${dow}`;
 }
 
 // eBay only accepts public image links, and Orion can't see images — it has
@@ -9443,17 +9475,6 @@ Examples:
   const syncStoreNames = storeContext.platforms
     .filter((p: any) => ['shopify', 'ebay', 'woocommerce', 'etsy'].includes(p.platform_type))
     .map((p: any) => `${p.platform_type} (${p.shop_name || p.shop_domain || p.name || 'store'})`);
-  const sellerTz: string | undefined = (storeContext as any).seller_timezone;
-  let tzLine = 'Seller time zone unknown — use US Eastern and say so.';
-  if (sellerTz) {
-    try {
-      const now = new Date();
-      const parts = new Intl.DateTimeFormat('en-US', { timeZone: sellerTz, timeZoneName: 'shortOffset', hour: 'numeric', minute: '2-digit', weekday: 'long' }).formatToParts(now);
-      const off = parts.find((p) => p.type === 'timeZoneName')?.value || '';
-      const local = parts.filter((p) => p.type !== 'timeZoneName').map((p) => p.value).join('');
-      tzLine = `Seller time zone: ${sellerTz} — currently ${off} (their local time now: ${local}). Convert their times to UTC with that offset (e.g. at GMT-5, 9am local = hour 14 UTC).`;
-    } catch { /* unknown zone name — keep the fallback */ }
-  }
   const linkingSection = `
 **Cross-store product linking (inventory sync) — you can do this for the seller:**
 A "link" tells Tandril that listings on different stores are the same physical item, so a sale on one lowers stock on the others. Syncing stores connected: ${syncStoreNames.join(', ') || 'none'}.${syncStoreNames.length < 2 ? ' Linking needs at least two of Shopify / eBay / WooCommerce / Etsy — say so if they ask.' : ''}
@@ -9477,7 +9498,7 @@ Examples:
 **Workflows — you can build these for the seller:**
 Use create_workflow when they want something automated, scheduled, repeated, or multi-step with delays ("every Monday…", "drop the price Friday and put it back Sunday", "email me when…"). A single immediate change is a normal action, not a workflow.
 [ORION_ACTION:{"type":"create_workflow","workflow_name":"Weekend Tote Sale","description":"Tote to $19 Friday, back to $29 Sunday","trigger_type":"manual","steps":[{"type":"action","config":{"action_type":"update_price","platform":"shopify","product_name":"Skeleton Halloween Tote","price":19}},{"type":"wait","duration":2,"unit":"days"},{"type":"action","config":{"action_type":"update_price","platform":"shopify","product_name":"Skeleton Halloween Tote","price":29}}]}]
-  Fields: workflow_name (required), description, trigger_type "manual" (runs when they press Run Now) or "schedule" with trigger_config {"cron":"M H * * D"} (UTC; e.g. "0 14 * * 1" = Mondays 14:00 UTC — convert from the seller's time and say which time you used), steps (required, in order).
+  Fields: workflow_name (required), description, trigger_type "manual" (runs when they press Run Now) or "schedule" with "schedule":{"days":["monday"],"time":"09:00"} — days = weekday names or ["daily"], time = 24-hour clock in the SELLER'S OWN local time, exactly as they said it ("9am" → "09:00"). NEVER write a cron and never convert time zones yourself: Tandril converts it using their real time zone. steps (required, in order).
   Step types:
     - Any store action you can do in chat, as {"type":"action","config":{"action_type":"<action type>", ...same fields as the chat action}} — e.g. update_price, update_inventory, flash_sale, sync_product, link_products, smart_restock.
     - {"type":"wait","duration":2,"unit":"hours"|"days"|"minutes"} — pauses; the scheduler checks hourly so waits are at least ~1 hour.
@@ -9485,8 +9506,7 @@ Use create_workflow when they want something automated, scheduled, repeated, or 
     - {"type":"action","config":{"action_type":"send_email","email_subject":"...","email_body":""}} — add "email_recipient" only for someone other than the seller; left out, it goes to the seller's account email.
     - {"type":"action","config":{"action_type":"inventory_email","threshold":5}} — low-stock report email (items at or below threshold), to the seller's account email unless "recipient" is given.
     - {"type":"action","config":{"action_type":"send_alert","alert_title":"...","alert_message":"...","alert_priority":"high"}} — shows in Tandril's notification bell.
-  ${tzLine}
-  Rules: "email me" = leave the recipient out (it goes to their account email). The cron is in UTC but the seller thinks in their own time: "9am" means 9am THEIR time, never 9am UTC. If you don't know their time zone, use US Eastern (9am Eastern = "0 13 * * 1") and say "9am Eastern — tell me your time zone if that's wrong". Until the seller confirms the card, say you've "drafted" or "set up the card for" the workflow — never "created" or "workflow created". Ask only for things that change money or other people (a restore price, someone else's email address). Workflows are saved switched OFF — after it's approved, tell them to review it on the Workflows page and turn it on (manual ones can be run with Run Now). Never say a workflow is running until they've turned it on.
+  Rules: "email me" = leave the recipient out (it goes to their account email). Times are always the seller's local time — say them back as they said them ("Mondays at 9am your time"), with no time zone abbreviation or UTC. No time given → use "09:00" and say so. BEFORE the seller clicks Confirm nothing exists yet: say "Here's the workflow — confirm the card below to save it". NEVER write "Workflow Created", "✅", "set", "done" or "ready" about a workflow the seller hasn't confirmed. Ask only for things that change money or other people (a restore price, someone else's email address). Workflows are saved switched OFF — after it's approved, tell them to review it on the Workflows page and turn it on (manual ones can be run with Run Now). Never say a workflow is running until they've turned it on.
 `;
 
   const needsReconnect = storeContext.platforms.filter((p: any) => p.status === 'needs_reconnect');
