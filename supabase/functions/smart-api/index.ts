@@ -1591,6 +1591,55 @@ async function resolveLinkTarget(supabaseClient: any, userId: string, platforms:
   throw new Error(`${platform.platform_type} can't be linked for inventory sync yet.`);
 }
 
+// eBay only accepts public image links, and Orion can't see images — it has
+// invented placeholder URLs before (a Sept 5 listing got a fake cdn.shopify.com
+// link and showed no photo). Keep only links that actually load as an image.
+async function verifiedImageUrls(urls: string[]): Promise<string[]> {
+  const ok: string[] = [];
+  for (const url of urls.slice(0, 12)) {
+    if (!/^https:\/\//i.test(url || '')) continue;
+    try {
+      const res = await fetch(url, { method: 'GET', headers: { Range: 'bytes=0-0' } });
+      const type = res.headers.get('content-type') || '';
+      await res.body?.cancel();
+      if (res.ok && type.startsWith('image/')) ok.push(url);
+      else console.warn(`[verifiedImageUrls] dropped ${url}: ${res.status} ${type}`);
+    } catch (e: any) {
+      console.warn(`[verifiedImageUrls] dropped ${url}: ${e.message}`);
+    }
+  }
+  return ok;
+}
+
+// The real photos of the Shopify product with this SKU, if there is one.
+async function shopifyImagesForSku(shopDomain: string, accessToken: string, sku: string): Promise<string[]> {
+  if (!shopDomain || !accessToken || !sku) return [];
+  try {
+    const v = await resolveShopifyVariant(shopDomain, accessToken, { sku });
+    const data = await shopifyGraphQL(shopDomain, accessToken,
+      `query($id: ID!) { product(id: $id) { images(first: 12) { edges { node { url } } } } }`,
+      { id: toShopifyGid('Product', v.productId) });
+    return (data.product?.images?.edges || []).map((e: any) => e.node.url).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+// An eBay offer created with its own availableQuantity overrides the inventory
+// item for that listing, so changing only the inventory item leaves buyers seeing
+// the old number. Bring every such offer for the SKU in line.
+async function syncEbayOfferQuantities(apiBase: string, headers: Record<string, string>, sku: string, qty: number) {
+  const res = await fetch(`${apiBase}/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`, { headers });
+  if (!res.ok) return;
+  for (const offer of (await res.json()).offers || []) {
+    if (typeof offer.availableQuantity !== 'number' || offer.availableQuantity === qty) continue;
+    const { offerId, listing: _l, status: _s, ...offerBody } = offer;
+    offerBody.availableQuantity = qty;
+    const putRes = await fetch(`${apiBase}/sell/inventory/v1/offer/${offerId}`, { method: 'PUT', headers, body: JSON.stringify(offerBody) });
+    if (!putRes.ok) throw new Error(`eBay listing quantity update failed: ${await putRes.text()}`);
+  }
+}
+
 async function executeStoreAction(supabaseClient: any, userId: string, action: any) {
   // Normalize generic action types to platform-specific ones based on action.platform.
   // This lets Orion always use e.g. "update_price" and just set "platform": "ebay"
@@ -3165,6 +3214,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         body: JSON.stringify(updatedItem),
       });
       if (!putRes.ok) throw new Error(`eBay inventory update failed: ${await putRes.text()}`);
+      await syncEbayOfferQuantities(apiBase, ebayHeaders, sku, Number(action.quantity));
       return { message: `Updated eBay inventory for "${action.product_name || sku}" to ${action.quantity} units` };
     }
 
@@ -3244,7 +3294,15 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const sku = action.sku;
       if (!sku) throw new Error('sku is required for ebay_update_image.');
       const newUrls: string[] = action.image_urls || (action.image_url ? [action.image_url] : []);
-      if (newUrls.length === 0) throw new Error('image_url or image_urls is required for ebay_update_image. Provide a public HTTPS URL.');
+      // No link given: use the matching Shopify product's real photos, replacing what's there.
+      if (newUrls.length === 0) {
+        newUrls.push(...await shopifyImagesForSku(shopDomain, accessToken, sku));
+        action.replace_images = true;
+      }
+      if (newUrls.length === 0) throw new Error('No photo to use: this SKU has no matching Shopify product with photos, so give the exact public image link.');
+      const checkedUrls = await verifiedImageUrls(newUrls);
+      if (checkedUrls.length === 0) throw new Error('None of those image links load as a picture, so eBay would show no photo. Use the real image link (for a Shopify product, Tandril can use its photos automatically — leave the link out and give the SKU).');
+      newUrls.splice(0, newUrls.length, ...checkedUrls);
 
       const getRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, { headers: ebayHeaders });
       if (!getRes.ok) throw new Error(`eBay item not found for SKU "${sku}": ${await getRes.text()}`);
@@ -3392,6 +3450,13 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         }
       }
 
+      // Photos: the matching Shopify product's real images when there is one,
+      // otherwise only Orion-supplied links that actually load as images.
+      const validImageUrl = (url: string) => url && /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(url);
+      const suppliedUrls: string[] = action.image_urls?.filter(validImageUrl) || (action.image_url && validImageUrl(action.image_url) ? [action.image_url] : []);
+      let listingImageUrls = await shopifyImagesForSku(shopDomain, accessToken, sku);
+      if (listingImageUrls.length === 0) listingImageUrls = await verifiedImageUrls(suppliedUrls);
+
       // Step 1: Create/update inventory item
       const inventoryItemBody: any = {
         availability: {
@@ -3407,11 +3472,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         product: {
           title: action.title.length > 80 ? action.title.slice(0, 77) + '...' : action.title,
           description: action.description || `${action.title || action.product_name || 'Product'}. Available in multiple sizes and colors. High quality print-on-demand item. Ships fast. Great gift idea.`,
-          ...((() => {
-            const validImageUrl = (url: string) => url && /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(url);
-            const urls = action.image_urls?.filter(validImageUrl) || (action.image_url && validImageUrl(action.image_url) ? [action.image_url] : []);
-            return urls.length ? { imageUrls: urls } : {};
-          })()),
+          ...(listingImageUrls.length ? { imageUrls: listingImageUrls } : {}),
           aspects: {
             ...(action.aspects || {}),
             ...(resolvedColor && !action.aspects?.Color ? { Color: [resolvedColor] } : {}),
@@ -9478,7 +9539,7 @@ NEVER say phrases like "I cannot directly upload", "I do not have the capability
   • ebay_update_price      ← update the price on an eBay listing
   • ebay_update_title      ← update the listing title on eBay
   • ebay_update_description← update the listing description on eBay
-  • ebay_update_image      ← update/add images on an eBay listing (requires public image URL)
+  • ebay_update_image      ← fix/replace/add photos on an eBay listing. Leave image_url OUT to replace the photos with the matching Shopify product's real photos (by SKU) — use this to fix a missing/broken eBay photo. Only pass image_url when the user gave you the exact link — never invent one; links that don't load are rejected.
   • ebay_end_listing             ← remove a listing from eBay (keeps inventory, can relist)
   • ebay_relist                  ← re-publish a previously ended eBay listing
   • ebay_update_item_specifics   ← update item specifics/attributes (Brand, Size, Material, etc.) for eBay SEO and buyer filtering
@@ -9784,7 +9845,8 @@ To set a Shopify product status (active = live, draft = hidden, archived = remov
 — eBay Actions —
 
 To create a new eBay listing (creates inventory item + offer + publishes in one step):
-[ORION_ACTION:{"type":"ebay_create_listing","title":"Vintage Wool Sweater - Size M","sku":"SWEATER-001","price":29.99,"quantity":1,"description":"Beautiful vintage wool sweater in excellent condition.","condition":"USED_EXCELLENT","category_id":"11484","color":"Charcoal Grey","image_urls":["https://your-image-url.jpg"]}]
+[ORION_ACTION:{"type":"ebay_create_listing","title":"Vintage Wool Sweater - Size M","sku":"SWEATER-001","price":29.99,"quantity":1,"description":"Beautiful vintage wool sweater in excellent condition.","condition":"USED_EXCELLENT","category_id":"11484","color":"Charcoal Grey"}]
+PHOTOS: never write image links yourself — you can't see images and made-up links show up on eBay as a missing photo. For a product that's on Shopify, leave image_urls out: Tandril uses the Shopify product's real photos (matched by SKU) automatically. Only include image_urls when the user gave you the exact link.
 Note: condition options: NEW, LIKE_NEW, NEW_OTHER, NEW_WITH_DEFECTS, MANUFACTURER_REFURBISHED, CERTIFIED_REFURBISHED, EXCELLENT_REFURBISHED, VERY_GOOD_REFURBISHED, GOOD_REFURBISHED, SELLER_REFURBISHED, USED_EXCELLENT, USED_VERY_GOOD, USED_GOOD, USED_ACCEPTABLE, FOR_PARTS_OR_NOT_WORKING. category_id is optional but recommended.
 ⚠️ BEFORE generating an ebay_create_listing action, do a complete preflight check. Gather ALL of the following — if anything is missing, ask the user for everything that's missing IN ONE MESSAGE before creating the action. Never create the listing and then discover a missing field mid-flight.
 
@@ -9865,7 +9927,7 @@ To update an eBay listing description:
 [ORION_ACTION:{"type":"ebay_update_description","product_name":"Vintage Wool Sweater","sku":"SWEATER-001","description":"Beautiful vintage cable knit wool sweater. Size M. No stains or damage. Ships within 1 business day."}]
 
 To update eBay listing images (provide a public HTTPS URL — replace_images: true swaps all, false appends):
-[ORION_ACTION:{"type":"ebay_update_image","product_name":"Vintage Wool Sweater","sku":"SWEATER-001","image_url":"https://your-image-url.jpg","replace_images":false}]
+[ORION_ACTION:{"type":"ebay_update_image","product_name":"Vintage Wool Sweater","sku":"SWEATER-001","image_url":"<the exact link the user gave>","replace_images":false}]
 
 To end (remove) an eBay listing — listing is removed from eBay but inventory is preserved and it can be relisted:
 [ORION_ACTION:{"type":"ebay_end_listing","product_name":"Vintage Wool Sweater","sku":"SWEATER-001"}]
@@ -9985,7 +10047,7 @@ To deactivate or reactivate a TikTok Shop listing:
 
 To create a new TikTok Shop product (category_id and at least one image URL required):
 Note: category_id is required by TikTok. Common IDs: 601079 = Clothing, 601105 = Shoes, 601191 = Home & Living, 601145 = Beauty & Personal Care, 601165 = Sports & Outdoors, 601217 = Electronics. If unsure, ask the user.
-[ORION_ACTION:{"type":"tiktok_create_product","title":"Handmade Ceramic Mug","description":"Beautiful handcrafted ceramic mug, 12oz, microwave safe.","price":24.99,"quantity":10,"sku":"MUG-001","category_id":"601191","images":["https://your-image-url.jpg"]}]
+[ORION_ACTION:{"type":"tiktok_create_product","title":"Handmade Ceramic Mug","description":"Beautiful handcrafted ceramic mug, 12oz, microwave safe.","price":24.99,"quantity":10,"sku":"MUG-001","category_id":"601191","images":["<the exact link the user gave>"]}]
 
 — Etsy Shop Actions —
 

@@ -471,7 +471,13 @@ async function fetchCurrentQty(platform: any, link: any, token: string): Promise
         throw new Error(`eBay inventory fetch failed: ${res.status}${errorBody ? ` - ${errorBody}` : ''}`);
       }
       const data = await res.json();
-      return data.availability?.shipToLocationAvailability?.quantity ?? 0;
+      const itemQty = data.availability?.shipToLocationAvailability?.quantity ?? 0;
+      // A listing's offer can carry its own availableQuantity, which is what buyers
+      // actually see — use it when set, so a stale listing count isn't missed.
+      const offers = await getEbayOffers(apiBase, headers, sku);
+      const offerQtys = offers.map((o: any) => o.availableQuantity).filter((q: any) => typeof q === 'number');
+      console.log(`[sync-inventory-levels] eBay SKU=${sku} item qty=${itemQty} images=${JSON.stringify(data.product?.imageUrls ?? [])} offers=${JSON.stringify(offers.map((o: any) => ({ id: o.offerId, status: o.status, availableQuantity: o.availableQuantity ?? null, listingId: o.listing?.listingId ?? null })))}`);
+      return offerQtys.length ? Math.min(itemQty, ...offerQtys) : itemQty;
     }
     case 'etsy': {
       const etsyTok = platform.credentials?.access_token;
@@ -652,7 +658,30 @@ async function syncEbay(platform: any, link: any, qty: number, supabase: any, re
     body: JSON.stringify(updated),
   });
   if (!putRes.ok) throw new Error(`eBay inventory update failed: ${putRes.status} ${await putRes.text()}`);
+
+  // An offer with its own availableQuantity overrides the inventory item for that
+  // listing (buyers would still see the old number), so bring those in line too.
+  for (const offer of await getEbayOffers(apiBase, headers, sku)) {
+    if (typeof offer.availableQuantity !== 'number' || offer.availableQuantity === qty) continue;
+    const { offerId, listing: _l, status: _s, ...offerBody } = offer;
+    offerBody.availableQuantity = qty;
+    const offerRes = await fetch(`${apiBase}/sell/inventory/v1/offer/${offerId}`, {
+      method: 'PUT', headers, body: JSON.stringify(offerBody),
+    });
+    if (!offerRes.ok) throw new Error(`eBay listing quantity update failed: ${offerRes.status} ${await offerRes.text()}`);
+    console.log(`[sync-inventory-levels] eBay SKU=${sku} offer ${offerId} availableQuantity ${offer.availableQuantity} → ${qty}`);
+  }
   return { ...result, success: true };
+}
+
+async function getEbayOffers(apiBase: string, headers: Record<string, string>, sku: string): Promise<any[]> {
+  const res = await fetch(`${apiBase}/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`, { headers });
+  if (res.status === 404) return [];
+  if (!res.ok) {
+    console.warn(`[sync-inventory-levels] eBay offer lookup for SKU=${sku} failed: ${res.status} ${await res.text().catch(() => '')}`);
+    return [];
+  }
+  return (await res.json()).offers || [];
 }
 
 async function syncEtsy(platform: any, link: any, qty: number, result: any) {
