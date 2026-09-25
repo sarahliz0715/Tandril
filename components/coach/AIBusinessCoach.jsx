@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { describeCron, describeLocalSchedule } from '@/lib/workflowSchedule';
 import ReactMarkdown from 'react-markdown';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -33,38 +34,6 @@ import {
 import { toast } from 'sonner';
 import { api } from '@/lib/apiClient';
 import { supabase } from '@/lib/supabaseClient';
-
-// Workflow schedules are stored as a UTC cron ("M H * * D"). Show them in the
-// seller's own time zone, e.g. "Mondays at 9:00 AM CDT".
-function describeCron(cron) {
-  const [m, h, dom, mon, dow] = String(cron).trim().split(/\s+/);
-  const num = (v) => /^\d+$/.test(v || '');
-  try {
-    if (num(m) && h === '*' && dom === '*' && mon === '*' && (dow === '*' || !dow)) {
-      return `Every hour at :${String(m).padStart(2, '0')}`;
-    }
-    if (num(m) && num(h) && dom === '*' && mon === '*') {
-      const d = new Date();
-      d.setUTCHours(Number(h), Number(m), 0, 0);
-      if (num(dow)) d.setUTCDate(d.getUTCDate() + ((Number(dow) - d.getUTCDay() + 7) % 7));
-      const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
-      const day = num(dow) ? d.toLocaleDateString([], { weekday: 'long' }) + 's' : 'Every day';
-      return `${day} at ${time}`;
-    }
-  } catch { /* fall through */ }
-  return `On a schedule (${cron}, UTC)`;
-}
-
-// Orion's schedules are in the seller's own clock: {"days":["monday"],"time":"09:00"}.
-function describeLocalSchedule(schedule) {
-  const days = Array.isArray(schedule.days) ? schedule.days : schedule.days ? [schedule.days] : [];
-  const daily = days.length === 0 || days.some((d) => /^(daily|every ?day)$/i.test(String(d)));
-  const [h, m] = String(schedule.time || '09:00').split(':').map((n) => parseInt(n, 10));
-  const d = new Date(); d.setHours(h || 0, m || 0, 0, 0);
-  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
-  const label = daily ? 'Every day' : days.map((x) => String(x).charAt(0).toUpperCase() + String(x).slice(1).toLowerCase() + 's').join(', ');
-  return `${label} at ${time}`;
-}
 
 export default function AIBusinessCoach() {
   const [activeTab, setActiveTab] = useState('chat');
