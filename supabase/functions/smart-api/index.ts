@@ -188,7 +188,7 @@ function summarizeOrionAction(action: any): string {
     case 'instagram_update_inventory':  return `Updated Instagram Shopping inventory for "${name}" → ${action.quantity} units`;
     case 'draft_ad':            return `Drafted ad campaign: "${action.name}"`;
     case 'launch_ad':           return `Launched Meta ad campaign "${action.name}" ($${action.budget?.daily_amount || '?'}/day)`;
-    case 'pause_ad':            return `Paused ad campaign ${action.campaign_id}`;
+    case 'pause_ad':            return `Paused ad campaign ${action.name || action.campaign_id}`;
     case 'get_ad_performance':  return `Retrieved ad performance for ${action.campaign_id ? 'campaign ' + action.campaign_id : 'all campaigns'}`;
     case 'tiktok_update_title':         return `Updated TikTok Shop title for "${name}"`;
     case 'tiktok_update_description':   return `Updated TikTok Shop description for "${name}"`;
@@ -1140,14 +1140,77 @@ async function getMetaAdsPlatform(supabaseClient: any, userId: string) {
   return { platform, accessToken, pageId: platform.metadata?.page_id || '' };
 }
 
+// Resolves which Meta ad account to launch into when none was given: the one saved on
+// the connection, else the connection's only active ad account (saved for next time).
+// Multiple active accounts is ambiguous — ask the user rather than guess where to spend.
+async function resolveMetaAdAccountId(supabaseClient: any, platform: any, accessToken: string): Promise<string> {
+  if (platform.metadata?.ad_account_id) return String(platform.metadata.ad_account_id);
+
+  const res = await fetch(`https://graph.facebook.com/v19.0/me/adaccounts?fields=account_id,name,account_status&limit=50&access_token=${encodeURIComponent(accessToken)}`);
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(`Could not look up your Meta ad accounts: ${data.error?.message || res.status}`);
+
+  const active = (data.data || []).filter((a: any) => a.account_status === 1); // 1 = ACTIVE
+  if (active.length === 0) throw new Error('No active Meta ad account found on your Facebook connection. Set one up in Meta Ads Manager, then reconnect Facebook/Meta.');
+  if (active.length > 1) {
+    const list = active.map((a: any) => `${a.name} (${a.account_id})`).join(', ');
+    throw new Error(`You have more than one active Meta ad account: ${list}. Tell Orion which ad_account_id to use.`);
+  }
+
+  const adAccountId = String(active[0].account_id);
+  await supabaseClient.from('platforms').update({
+    metadata: { ...(platform.metadata || {}), ad_account_id: adAccountId, ad_account_name: active[0].name },
+  }).eq('id', platform.id);
+  return adAccountId;
+}
+
+// Looks up a Shopify product by handle for an ad: its public product page (the ad's
+// destination link) and main image. Returns null if Shopify isn't connected or no match.
+async function resolveShopifyProductForAd(shopDomain: string, accessToken: string, handle: string) {
+  if (!shopDomain || !accessToken || !handle) return null;
+  try {
+    const data = await shopifyGraphQL(shopDomain, accessToken, `
+      query($q: String!) {
+        products(first: 1, query: $q) {
+          edges { node { id title handle onlineStoreUrl featuredImage { url } } }
+        }
+      }
+    `, { q: `handle:${handle}` });
+    const node = data.products?.edges?.[0]?.node;
+    if (!node) return null;
+    return {
+      product_id: fromShopifyGid(node.id),
+      title: node.title,
+      // onlineStoreUrl is null when the product isn't published to the Online Store;
+      // the myshopify.com product URL still redirects to the store's primary domain.
+      url: node.onlineStoreUrl || `https://${shopDomain}/products/${node.handle}`,
+      image_url: node.featuredImage?.url || null,
+    };
+  } catch (e: any) {
+    console.warn('[smart-api] Shopify product lookup for ad failed:', e.message);
+    return null;
+  }
+}
+
+// Fills an ad action's destination link, image and linked product from action.product_handle,
+// without overwriting anything Orion or the user set explicitly.
+async function enrichAdActionFromProduct(action: any, shopDomain: string, accessToken: string) {
+  if (!action.product_handle) return action;
+  const product = await resolveShopifyProductForAd(shopDomain, accessToken, action.product_handle);
+  if (!product) throw new Error(`Couldn't find a Shopify product with handle "${action.product_handle}".`);
+  const creative = { ...(action.creative || {}) };
+  if (!creative.link) creative.link = product.url;
+  if (!creative.media_urls?.length && product.image_url) creative.media_urls = [product.image_url];
+  return { ...action, creative, linked_product_id: action.linked_product_id || product.product_id };
+}
+
 // Creates a real Meta Marketing API campaign → ad set → ad creative → ad, in that order.
 // If a later step fails, best-effort pauses whatever was already created so a partial
 // failure doesn't leave a live, unmanaged campaign spending money.
 async function launchMetaCampaign(supabaseClient: any, userId: string, campaignRow: any) {
-  const { accessToken, pageId } = await getMetaAdsPlatform(supabaseClient, userId);
+  const { platform: metaPlatform, accessToken, pageId } = await getMetaAdsPlatform(supabaseClient, userId);
 
-  const adAccountId = String(campaignRow.ad_account_id || '').replace(/^act_/, '');
-  if (!adAccountId) throw new Error('ad_account_id is required to launch a Meta ad campaign.');
+  const adAccountId = String(campaignRow.ad_account_id || await resolveMetaAdAccountId(supabaseClient, metaPlatform, accessToken)).replace(/^act_/, '');
   if (!pageId) throw new Error('No Facebook Page found on your Meta connection. A Page is required to run ads — reconnect Facebook/Meta after creating or claiming a Page.');
 
   const objective = campaignRow.objective || 'LINK_CLICKS';
@@ -1243,7 +1306,7 @@ async function launchMetaCampaign(supabaseClient: any, userId: string, campaignR
     throw err;
   }
 
-  return { metaCampaignId, metaAdSetId, metaCreativeId, metaAdId };
+  return { metaCampaignId, metaAdSetId, metaCreativeId, metaAdId, adAccountId };
 }
 
 // Looks up a TikTok product by keyword (SKU first, then product name) and returns
@@ -7737,6 +7800,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
 
     case 'draft_ad': {
       if (!action.name) throw new Error('name is required for draft_ad.');
+      action = await enrichAdActionFromProduct(action, shopDomain, accessToken);
       const { data: draftRow, error: draftErr } = await supabaseClient
         .from('ad_campaigns')
         .insert({
@@ -7758,6 +7822,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     }
 
     case 'launch_ad': {
+      action = await enrichAdActionFromProduct(action, shopDomain, accessToken);
       let campaignRow: any;
 
       if (action.campaign_id) {
@@ -7808,7 +7873,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         name: campaignRow.name,
         status: 'active',
         objective: campaignRow.objective,
-        ad_account_id: campaignRow.ad_account_id,
+        ad_account_id: launchResult.adAccountId,
         platform_campaign_id: launchResult.metaCampaignId,
         platform_adset_id: launchResult.metaAdSetId,
         platform_ad_id: launchResult.metaAdId,
@@ -8725,10 +8790,34 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
     velocityMap[key].daily_velocity = parseFloat((velocityMap[key].units_sold / 30).toFixed(3));
   }
 
+  // ── Meta Ads: connection status + recent campaigns, so Orion can report on / pause them ──
+  const metaAdsPlatform = (platforms || []).find((p: any) => p.platform_type === 'meta_ads');
+  let adCampaigns: any[] = [];
+  if (metaAdsPlatform) {
+    const { data: campaignRows } = await supabaseClient
+      .from('ad_campaigns')
+      .select('id, name, status, objective, budget, performance_metrics, launched_at, last_synced_at, linked_product_id, error_message')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(10);
+    adCampaigns = campaignRows || [];
+  }
+  const metaAds = metaAdsPlatform ? {
+    connected: true,
+    page_name: metaAdsPlatform.metadata?.page_name || null,
+    has_page: !!metaAdsPlatform.metadata?.page_id,
+    ad_account_id: metaAdsPlatform.metadata?.ad_account_id || null,
+    token_expired: metaAdsPlatform.metadata?.token_expires_at
+      ? Date.now() > new Date(metaAdsPlatform.metadata.token_expires_at).getTime()
+      : false,
+  } : { connected: false };
+
   return {
     platforms: platforms || [],
     products,
     total_products: productCount,
+    meta_ads: metaAds,
+    ad_campaigns: adCampaigns,
     orders,
     total_orders: totalOrders,
     low_stock_products: lowStockProducts,
@@ -8856,6 +8945,49 @@ async function chatWithClaude(
 ${recentLines ? `Recent sync events:\n${recentLines}` : 'No recent syncs on record.'}${failedLines ? `\nLinks with errors:\n${failedLines}` : ''}
 SYNC RULES: When a user asks "are my inventories in sync?", "when did my last sync happen?", "why did my stock change?", or anything about inventory sync health, answer directly using the data above. If sync.pending_retries > 0 proactively mention it. If sync.failed_links > 0, name the specific SKUs and platforms that are failing and suggest they check the Inventory → Sync Links tab.\n`;
   })() : '';
+
+  const metaAds = storeContext.meta_ads || { connected: false };
+  const adCampaigns: any[] = storeContext.ad_campaigns || [];
+  const shopifyDomain = storeContext.platforms.find((p: any) => p.platform_type === 'shopify')?.shop_domain || '';
+  const formatCampaigns = () => adCampaigns.length === 0 ? '  (none yet)' : adCampaigns.map((c: any) => {
+    const m = c.performance_metrics || {};
+    const perf = c.launched_at ? ` | spend $${Number(m.spend || 0).toFixed(2)}, ${m.impressions || 0} impressions, ${m.clicks || 0} clicks${c.last_synced_at ? ` (as of ${new Date(c.last_synced_at).toLocaleString()})` : ''}` : '';
+    return `  - "${c.name}" | id: ${c.id} | status: ${c.status} | $${c.budget?.daily_amount ?? '?'}/day | ${c.objective || 'LINK_CLICKS'}${perf}${c.error_message ? ` | last error: ${c.error_message}` : ''}`;
+  }).join('\n');
+
+  const adsSection = !metaAds.connected
+    ? `\n**Meta (Facebook/Instagram) Ads:** Not connected. If the user asks to run, launch, or draft a Facebook/Instagram ad, tell them to connect it first: Platforms tab → "Connect Facebook / Meta". Do NOT generate ad action blocks until it's connected.\n`
+    : `\n**Meta (Facebook/Instagram) Ads — connected${metaAds.page_name ? ` (Facebook Page: ${metaAds.page_name})` : ''}:**${metaAds.token_expired ? '\n⚠️ The Meta connection has EXPIRED. Tell the user to reconnect Facebook/Meta in the Platforms tab before any ad action — ad actions will fail until they do.' : ''}${!metaAds.has_page ? '\n⚠️ No Facebook Page is linked to this connection, so ads cannot launch. Tell the user to create or claim a Facebook Page, then disconnect and reconnect Facebook/Meta.' : ''}
+Recent campaigns:
+${formatCampaigns()}
+
+Ad actions:
+  • draft_ad — saves a campaign as a DRAFT in Tandril. Spends nothing, nothing goes to Meta.
+    { type, name, product_handle?, objective?, budget: { daily_amount }, targeting?, creative: { headline, primary_text, link?, media_urls? } }
+  • launch_ad — creates the REAL campaign on Meta and starts spending immediately.
+    Same fields as draft_ad, OR { type, campaign_id, name } to launch an existing draft from the list above.
+  • pause_ad — { type, campaign_id, name } stops a live campaign. campaign_id is the Tandril id from the list above; name is shown on the confirmation card.
+  • get_ad_performance — { type, campaign_id? } pulls fresh spend/impressions/clicks/reach from Meta (omit campaign_id for all).
+  Field rules:
+    - product_handle: the Shopify product's Handle from the product list above. Tandril fills in the product page link and main image automatically — prefer this for any Shopify product.${shopifyDomain ? '' : ' (No Shopify store is connected, so product_handle won\'t work — ask the user for the page URL and put it in creative.link.)'}
+    - For non-Shopify products, ask the user for the product page URL and put it in creative.link. Never invent a URL.
+    - objective: "LINK_CLICKS" (Traffic — default) or "REACH". NEVER "CONVERSIONS" — Tandril has no Meta Pixel, so it would waste their money.
+    - budget.daily_amount: dollars per day, e.g. 20. NEVER invent a budget — if the user didn't give one, ask.
+    - targeting (optional): { "locations": { "countries": ["US"] }, "age_min": 18, "age_max": 65 } — these are the defaults; only include what the user asked for.
+    - creative.headline (keep under 40 characters) and creative.primary_text (keep under 125 characters): YOU write these — punchy, specific to the product, no fake claims or made-up discounts.
+    - Ad account: found automatically. Only if a launch fails saying there are several ad accounts, ask which one and add ad_account_id.
+Examples:
+[ORION_ACTION:{"type":"draft_ad","name":"Halloween Tote — Traffic","product_handle":"halloween-tote","objective":"LINK_CLICKS","budget":{"daily_amount":15},"creative":{"headline":"The Tote Made for Spooky Season","primary_text":"Hand-printed Halloween tote, roomy enough for every treat. Grab yours before the 31st."}}]
+[ORION_ACTION:{"type":"launch_ad","campaign_id":"<id from the campaign list>","name":"<that campaign's name>"}]
+[ORION_ACTION:{"type":"pause_ad","campaign_id":"<id from the campaign list>","name":"<that campaign's name>"}]
+[ORION_ACTION:{"type":"get_ad_performance"}]
+
+**Ad Workflow:**
+1. "Run an ad for X", "advertise X", "help me move this inventory with ads" → confirm the product and the daily budget (ask if missing), then write the copy and emit a draft_ad block. Default to DRAFT.
+2. Use launch_ad ONLY when the user explicitly says to launch, go live, start it, or publish it — either on a draft ("launch the tote ad") or directly ("launch a $20/day ad for the tote right now"). When you emit launch_ad, say plainly in the same message: "This will start spending up to $X/day on your Meta ad account as soon as you confirm."
+3. "How are my ads doing?" → if the numbers above are recent enough, answer from them; otherwise emit get_ad_performance. Report spend, clicks and cost per click (spend ÷ clicks) in plain language.
+4. "Stop/pause the X ad" → pause_ad with that campaign's id. There is no resume action yet — if asked to restart a paused campaign, tell them to turn it back on in Meta Ads Manager.
+5. One ad action block per response. Never claim an ad is live, launched, or paused until the user has confirmed the card and you've seen the result.\n`;
 
   const workflowPrefix = isWorkflowCall
     ? `**AUTOMATED WORKFLOW MODE:** You are running as a step in an automated workflow, not in a live chat. The user is not present. Your response will be emailed to them automatically. Rules for this mode:
@@ -9831,7 +9963,7 @@ Action grouping — choose the most efficient approach:
 - Revenue last 30 days: $${(storeContext.metrics.revenue_last_30d || 0).toFixed(2)} (${storeContext.metrics.orders_last_30d || 0} orders)
 - Average Order Value (last 30d): $${storeContext.metrics.orders_last_30d > 0 ? (storeContext.metrics.revenue_last_30d / storeContext.metrics.orders_last_30d).toFixed(2) : '0.00'}
 ${storeContext.metrics.revenue_by_platform_30d ? `- Revenue by platform (last 30d): ${storeContext.metrics.revenue_by_platform_30d}` : ''}
-${lowStockSection}${ebayErrorSection}${memorySection}${syncSection}
+${lowStockSection}${ebayErrorSection}${memorySection}${syncSection}${mode !== 'demo/test' ? adsSection : ''}
 ${mode !== 'demo/test' ? `**Product Inventory (${storeContext.products.length} of ${storeContext.total_products} products):**
 ${formatProducts(storeContext.products)}
 
