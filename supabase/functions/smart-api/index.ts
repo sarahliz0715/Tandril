@@ -2338,21 +2338,17 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         : invProduct.variants?.[0];
       if (!targetVariant) throw new Error(`Product "${invProduct.title}" has no variants.`);
 
-      // Get location ID via GraphQL locations query
-      const locGqlData = await shopifyGraphQL(shopDomain, accessToken, `
-        query {
-          locations(first: 10) {
-            edges {
-              node { id name }
-            }
-          }
-        }
-      `);
-      const locations = locGqlData.locations.edges.map((e: any) => ({
-        id: fromShopifyGid(e.node.id),
-        name: e.node.name,
-      }));
-      const locationId = locations[0]?.id;
+      // Location the item is stocked at (ids only — the app has no read_locations
+      // scope, so asking for a location's name is rejected by Shopify)
+      const levelData = await shopifyGraphQL(shopDomain, accessToken, `
+        query($id: ID!) { inventoryItem(id: $id) { inventoryLevels(first: 10) { edges { node { location { id } } } } } }
+      `, { id: toShopifyGid('InventoryItem', targetVariant.inventory_item_id) });
+      let locationGid = levelData.inventoryItem?.inventoryLevels?.edges?.[0]?.node?.location?.id;
+      if (!locationGid) {
+        const locGqlData = await shopifyGraphQL(shopDomain, accessToken, `query { locations(first: 1) { edges { node { id } } } }`);
+        locationGid = locGqlData.locations?.edges?.[0]?.node?.id;
+      }
+      const locationId = locationGid ? fromShopifyGid(locationGid) : null;
       if (!locationId) throw new Error('Could not find inventory location for this product.');
 
       await shopifyGraphQL(shopDomain, accessToken, `
@@ -4115,9 +4111,9 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         };
         // Get locations via GraphQL
         const locGqlData = await shopifyGraphQL(shopDomain, tok, `
-          query { locations(first: 10) { edges { node { id name } } } }
+          query { locations(first: 10) { edges { node { id } } } }
         `);
-        const fulfillLocations = locGqlData.locations.edges.map((e: any) => ({ id: fromShopifyGid(e.node.id), name: e.node.name }));
+        const fulfillLocations = locGqlData.locations.edges.map((e: any) => ({ id: fromShopifyGid(e.node.id) }));
         const locationId = fulfillLocations[0]?.id;
 
         const shopH = { 'X-Shopify-Access-Token': tok, 'Content-Type': 'application/json' };

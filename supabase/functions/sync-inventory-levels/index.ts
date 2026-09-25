@@ -398,20 +398,23 @@ async function syncShopify(platform: any, link: any, qty: number, token: string,
     query($id: ID!) {
       productVariant(id: $id) {
         id inventoryQuantity
-        inventoryItem { id }
+        inventoryItem { id inventoryLevels(first: 10) { edges { node { location { id } } } } }
       }
     }
   `, { id: toShopifyGid('ProductVariant', link.platform_variant_id) });
+  if (!varData.productVariant) throw new Error(`Shopify variant ${link.platform_variant_id} not found`);
   const inventoryItemId = fromShopifyGid(varData.productVariant.inventoryItem.id);
 
-  const locData = await shopifyGraphQL(shopDomain, token, `
-    query { locations(first: 10) { edges { node { id name } } } }
-  `);
-  const locations = locData.locations.edges.map((e: any) => ({
-    id: fromShopifyGid(e.node.id),
-    name: e.node.name,
-  }));
-  const locationId = locations?.[0]?.id;
+  // Use the location the item is stocked at. Only location ids are requested:
+  // the app has no read_locations scope, and asking for a location's name fails.
+  let locationId = varData.productVariant.inventoryItem.inventoryLevels?.edges?.[0]?.node?.location?.id
+    ? fromShopifyGid(varData.productVariant.inventoryItem.inventoryLevels.edges[0].node.location.id)
+    : null;
+  if (!locationId) {
+    const locData = await shopifyGraphQL(shopDomain, token, `query { locations(first: 1) { edges { node { id } } } }`);
+    const first = locData.locations?.edges?.[0]?.node?.id;
+    locationId = first ? fromShopifyGid(first) : null;
+  }
   if (!locationId) throw new Error('No Shopify location found');
 
   await shopifyGraphQL(shopDomain, token, `
