@@ -15,6 +15,8 @@ const ACTION_TYPES = [
     { value: 'run_ai_command',       label: 'Run AI Command',        icon: Sparkles,   category: 'AI' },
     { value: 'send_email',           label: 'Send Email',             icon: Mail,       category: 'Communication' },
     { value: 'send_alert',           label: 'Send Alert',             icon: Bell,       category: 'Communication' },
+    { value: 'inventory_email',      label: 'Email Inventory Report', icon: Package,    category: 'Reports' },
+    { value: 'photo_check_email',    label: 'Email Photo Check',      icon: Mail,       category: 'Reports' },
     { value: 'update_inventory',     label: 'Update Inventory',       icon: Package,    category: 'Products' },
     { value: 'update_price',         label: 'Update Price',           icon: DollarSign, category: 'Products' },
     { value: 'bulk_update_products', label: 'Bulk Update Products',   icon: Package,    category: 'Products' },
@@ -50,6 +52,26 @@ const ActionConfigForm = ({ actionType, config, onChange }) => {
                         />
                         <p className="text-xs text-slate-500 mt-1">Use &#123;&#123;variable&#125;&#125; for dynamic values</p>
                     </div>
+                </div>
+            );
+
+        case 'inventory_email':
+        case 'photo_check_email':
+            return (
+                <div className="space-y-4">
+                    <div>
+                        <Label>Send to</Label>
+                        <Input placeholder="Leave blank for your account email" value={config.recipient || ''} onChange={e => set('recipient', e.target.value)} />
+                    </div>
+                    {actionType === 'inventory_email' ? (
+                        <div>
+                            <Label>Low stock means</Label>
+                            <Input type="number" placeholder="5" value={config.threshold ?? ''} onChange={e => set('threshold', e.target.value === '' ? undefined : Number(e.target.value))} />
+                            <p className="text-xs text-slate-500 mt-1">Items at or below this number are listed as low stock.</p>
+                        </div>
+                    ) : (
+                        <p className="text-xs text-slate-500">Emails every active Shopify product and eBay listing that has no photo.</p>
+                    )}
                 </div>
             );
 
