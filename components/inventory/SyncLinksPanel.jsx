@@ -10,13 +10,20 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Link2, Plus, Trash2, RefreshCw, CheckCircle, XCircle, Loader2, Clock, AlertTriangle, PauseCircle } from 'lucide-react';
+import { Link2, Plus, Trash2, RefreshCw, CheckCircle, XCircle, Loader2, Clock, AlertTriangle, PauseCircle, X } from 'lucide-react';
+
+// Matches process-sync-retries: a retry only "gave up" after this many attempts.
+const MAX_RETRY_ATTEMPTS = 5;
+const DISMISSED_KEY = 'tandril.dismissedSyncFailures';
 
 export default function SyncLinksPanel() {
     const [links, setLinks] = useState([]);
     const [platforms, setPlatforms] = useState([]);
     const [syncLog, setSyncLog] = useState([]);
     const [retryQueue, setRetryQueue] = useState([]);
+    const [dismissedFailures, setDismissedFailures] = useState(() => {
+        try { return JSON.parse(localStorage.getItem(DISMISSED_KEY) || '[]'); } catch { return []; }
+    });
     const [pausedLinks, setPausedLinks] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [showAddModal, setShowAddModal] = useState(false);
@@ -57,7 +64,7 @@ export default function SyncLinksPanel() {
                     .limit(20),
                 supabase
                     .from('sync_retry_queue')
-                    .select('target_platform_id, sku, last_error, last_attempted_at, attempt_count, resolved_at')
+                    .select('id, target_platform_id, sku, last_error, last_attempted_at, attempt_count, resolved_at')
                     .eq('user_id', user.id)
                     .or('resolved_at.is.null,and(resolved_at.not.is.null,last_error.not.is.null)'),
                 // Links saved when a store was disconnected; restored when it reconnects
@@ -296,8 +303,23 @@ export default function SyncLinksPanel() {
                         ));
                     })()}
                     {retryQueue.length > 0 && (() => {
-                        const gaveUp = retryQueue.filter(r => r.resolved_at && r.last_error);
+                        // A later successful sync of the same link also resolves a retry but leaves
+                        // its old error text — those are fixed, not "gave up". Only count retries
+                        // that ran out of attempts and haven't been followed by a successful sync.
+                        const linkFor = (r) => links.find(l => l.platform_id === r.target_platform_id && l.sku === r.sku);
+                        const syncedSince = (r) => {
+                            const l = linkFor(r);
+                            return l?.last_synced_at && new Date(l.last_synced_at) > new Date(r.resolved_at || r.last_attempted_at);
+                        };
+                        const gaveUp = retryQueue.filter(r =>
+                            r.resolved_at && r.last_error && (r.attempt_count ?? 0) >= MAX_RETRY_ATTEMPTS
+                            && !syncedSince(r) && !dismissedFailures.includes(r.id));
                         const retrying = retryQueue.filter(r => !r.resolved_at);
+                        const dismissGaveUp = () => {
+                            const next = [...new Set([...dismissedFailures, ...gaveUp.map(r => r.id)])].slice(-200);
+                            setDismissedFailures(next);
+                            try { localStorage.setItem(DISMISSED_KEY, JSON.stringify(next)); } catch { /* storage unavailable */ }
+                        };
                         return (
                             <>
                                 {retrying.length > 0 && (
@@ -309,7 +331,10 @@ export default function SyncLinksPanel() {
                                 {gaveUp.length > 0 && (
                                     <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
                                         <XCircle className="w-4 h-4 flex-shrink-0" />
-                                        <span>{gaveUp.length} sync{gaveUp.length !== 1 ? 's' : ''} failed after all retry attempts. Click <strong>Reconcile All</strong> to try again manually.</span>
+                                        <span className="flex-1">{gaveUp.length} sync{gaveUp.length !== 1 ? 's' : ''} failed after all retry attempts. Click <strong>Reconcile All</strong> to try again manually.</span>
+                                        <button onClick={dismissGaveUp} className="text-red-400 hover:text-red-700" title="Dismiss" aria-label="Dismiss">
+                                            <X className="w-4 h-4" />
+                                        </button>
                                     </div>
                                 )}
                             </>
@@ -345,7 +370,7 @@ export default function SyncLinksPanel() {
                                     <div className="flex flex-wrap gap-2">
                                         {skuLinks.map(link => {
                                             const hasPendingRetry = retryQueue.some(
-                                                r => r.target_platform_id === link.platform_id && r.sku === link.sku
+                                                r => !r.resolved_at && r.target_platform_id === link.platform_id && r.sku === link.sku
                                             );
                                             const hasError = !!link.last_sync_error;
                                             return (
