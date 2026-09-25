@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { InventoryItem, User } from '@/lib/entities';
-import { getShopifyInventory } from '@/lib/supabaseFunctions';
+import { getInventoryWithStatus } from '@/lib/supabaseFunctions';
+import { supabase } from '@/lib/supabaseClient';
+import ReconnectBanner, { storesNeedingReconnect } from '@/components/platforms/ReconnectBanner';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -41,6 +43,7 @@ export default function Inventory() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
+  const [reconnectStores, setReconnectStores] = useState([]);
   const { isOpen, config, confirm, cancel } = useConfirmDialog();
 
   useEffect(() => {
@@ -55,11 +58,17 @@ export default function Inventory() {
 
       // Try to load live inventory from Shopify first
       let items = [];
+      let connectionIssues = [];
       try {
-        items = await getShopifyInventory();
+        ({ inventory: items, connectionIssues } = await getInventoryWithStatus());
       } catch (e) {
         console.warn('Shopify inventory fetch failed, falling back to local:', e.message);
       }
+      // Stores whose login was rejected — show a reconnect warning instead of a silently short list
+      const { data: flagged } = await supabase
+        .from('platforms').select('id, name, platform_type, status, shop_name, shop_domain')
+        .eq('user_id', user?.id).eq('status', 'needs_reconnect');
+      setReconnectStores(storesNeedingReconnect(flagged || [], connectionIssues));
 
       // Fall back to local/mock data if nothing came back from Shopify
       if (!items || items.length === 0) {
@@ -233,6 +242,7 @@ export default function Inventory() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      <ReconnectBanner stores={reconnectStores} />
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Inventory Management</h1>

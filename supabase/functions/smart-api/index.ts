@@ -4,6 +4,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
+import { isAuthFailure, markNeedsReconnect, markHealthy } from '../_shared/platformHealth.ts';
 
 // --- Inlined from _shared/awsSigV4.ts ---
 async function _sha256hex(data: string | Uint8Array): Promise<string> {
@@ -1454,6 +1455,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     .eq('user_id', userId)
     .eq('platform_type', 'shopify')
     .or('is_active.eq.true,status.eq.connected')
+    .order('updated_at', { ascending: false })
     .limit(1);
 
   // flash_sale, smart_restock, get_inventory, Instagram, and Meta Ads actions operate independently of Shopify
@@ -1486,6 +1488,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       // Returns live Shopify + eBay products normalized for the Inventory page
       const LOW_STOCK_THRESHOLD = 10;
       const inventory: any[] = [];
+      // Stores whose credentials were rejected — the UI shows a "reconnect" warning for these
+      const connectionIssues: any[] = [];
 
       // Fetch Shopify products (only if Shopify is connected) — paginated to handle >250 products
       let shopifyProducts: any[] = [];
@@ -1533,8 +1537,13 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             hasNextPage = page.pageInfo?.hasNextPage ?? false;
             cursor = page.pageInfo?.endCursor ?? null;
           }
+          await markHealthy(supabaseClient, platform);
         } catch (e: any) {
           console.warn('[Orion] get_inventory GraphQL fetch failed:', e.message);
+          if (isAuthFailure(e)) {
+            await markNeedsReconnect(supabaseClient, platform, `Shopify rejected Tandril's access: ${e.message}`);
+            connectionIssues.push({ platform_type: 'shopify', platform_id: platform.id, shop: platform.shop_name || shopDomain });
+          }
         }
       }
       for (const p of shopifyProducts) {
@@ -2252,7 +2261,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         console.warn('[smart-api] Instagram inventory fetch failed:', e.message);
       }
 
-      return { inventory };
+      return { inventory, connection_issues: connectionIssues };
     }
 
     case 'create_product': {
@@ -8325,6 +8334,7 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
       productCount = products.length;
     } catch (e: any) {
       console.warn('[Orion] Shopify live product fetch failed, falling back to local DB:', e.message);
+      if (isAuthFailure(e)) await markNeedsReconnect(supabaseClient, shopifyPlatform, `Shopify rejected Tandril's access: ${e.message}`);
     }
   }
 
@@ -8988,6 +8998,11 @@ Examples:
 3. "How are my ads doing?" → if the numbers above are recent enough, answer from them; otherwise emit get_ad_performance. Report spend, clicks and cost per click (spend ÷ clicks) in plain language.
 4. "Stop/pause the X ad" → pause_ad with that campaign's id. There is no resume action yet — if asked to restart a paused campaign, tell them to turn it back on in Meta Ads Manager.
 5. One ad action block per response. Never claim an ad is live, launched, or paused until the user has confirmed the card and you've seen the result.\n`;
+
+  const needsReconnect = storeContext.platforms.filter((p: any) => p.status === 'needs_reconnect');
+  const reconnectSection = needsReconnect.length > 0
+    ? `\n**⚠️ CONNECTION PROBLEM — tell the user this first, before answering anything else:** ${needsReconnect.map((p: any) => `${p.platform_type} (${p.shop_name || p.shop_domain || p.name || 'store'})`).join(', ')} rejected Tandril's saved login. Tandril can't read products or sync inventory for ${needsReconnect.length > 1 ? 'these stores' : 'this store'} until the user reconnects it: Platforms tab → Disconnect → Connect again. Any product data for ${needsReconnect.length > 1 ? 'them' : 'it'} below may be missing or stale — do not treat missing products as the store being empty.\n`
+    : '';
 
   const workflowPrefix = isWorkflowCall
     ? `**AUTOMATED WORKFLOW MODE:** You are running as a step in an automated workflow, not in a live chat. The user is not present. Your response will be emailed to them automatically. Rules for this mode:
@@ -9963,7 +9978,7 @@ Action grouping — choose the most efficient approach:
 - Revenue last 30 days: $${(storeContext.metrics.revenue_last_30d || 0).toFixed(2)} (${storeContext.metrics.orders_last_30d || 0} orders)
 - Average Order Value (last 30d): $${storeContext.metrics.orders_last_30d > 0 ? (storeContext.metrics.revenue_last_30d / storeContext.metrics.orders_last_30d).toFixed(2) : '0.00'}
 ${storeContext.metrics.revenue_by_platform_30d ? `- Revenue by platform (last 30d): ${storeContext.metrics.revenue_by_platform_30d}` : ''}
-${lowStockSection}${ebayErrorSection}${memorySection}${syncSection}${mode !== 'demo/test' ? adsSection : ''}
+${reconnectSection}${lowStockSection}${ebayErrorSection}${memorySection}${syncSection}${mode !== 'demo/test' ? adsSection : ''}
 ${mode !== 'demo/test' ? `**Product Inventory (${storeContext.products.length} of ${storeContext.total_products} products):**
 ${formatProducts(storeContext.products)}
 

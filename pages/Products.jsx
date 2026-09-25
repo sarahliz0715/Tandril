@@ -13,7 +13,8 @@ import {
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabaseClient';
 import { handleAuthError } from '@/utils/authHelpers';
-import { getShopifyInventory } from '@/lib/supabaseFunctions';
+import { getInventoryWithStatus } from '@/lib/supabaseFunctions';
+import ReconnectBanner, { storesNeedingReconnect } from '@/components/platforms/ReconnectBanner';
 
 const PLATFORM_CONFIG = {
   shopify:     { label: 'Shopify',      light: 'bg-green-50 border-green-200',    badge: 'bg-green-100 text-green-800' },
@@ -51,6 +52,7 @@ export default function Products() {
   const navigate = useNavigate();
   const [products, setProducts] = useState([]);
   const [platforms, setPlatforms] = useState([]);
+  const [reconnectStores, setReconnectStores] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -64,13 +66,14 @@ export default function Products() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      const [{ data: platformData }, { data: dbProducts }, liveItems] = await Promise.all([
-        supabase.from('platforms').select('id, name, platform_type').eq('user_id', user.id).eq('is_active', true),
+      const [{ data: platformData }, { data: dbProducts }, { inventory: liveItems, connectionIssues }] = await Promise.all([
+        supabase.from('platforms').select('id, name, platform_type, status, shop_name, shop_domain').eq('user_id', user.id).eq('is_active', true),
         supabase.from('products').select('*').eq('user_id', user.id).limit(1000),
-        getShopifyInventory().catch(() => []),
+        getInventoryWithStatus().catch(() => ({ inventory: [], connectionIssues: [] })),
       ]);
 
       setPlatforms(platformData || []);
+      setReconnectStores(storesNeedingReconnect(platformData || [], connectionIssues));
 
       // Platform types handled by the live inventory fetch — pre-seed so that even if a
       // connected platform returns 0 active items (e.g. only listing was just ended), we
@@ -216,6 +219,8 @@ export default function Products() {
           Refresh
         </Button>
       </div>
+
+      <ReconnectBanner stores={reconnectStores} />
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
