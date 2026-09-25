@@ -55,6 +55,17 @@ function describeCron(cron) {
   return `On a schedule (${cron}, UTC)`;
 }
 
+// Orion's schedules are in the seller's own clock: {"days":["monday"],"time":"09:00"}.
+function describeLocalSchedule(schedule) {
+  const days = Array.isArray(schedule.days) ? schedule.days : schedule.days ? [schedule.days] : [];
+  const daily = days.length === 0 || days.some((d) => /^(daily|every ?day)$/i.test(String(d)));
+  const [h, m] = String(schedule.time || '09:00').split(':').map((n) => parseInt(n, 10));
+  const d = new Date(); d.setHours(h || 0, m || 0, 0, 0);
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+  const label = daily ? 'Every day' : days.map((x) => String(x).charAt(0).toUpperCase() + String(x).slice(1).toLowerCase() + 's').join(', ');
+  return `${label} at ${time}`;
+}
+
 export default function AIBusinessCoach() {
   const [activeTab, setActiveTab] = useState('chat');
   const [briefing, setBriefing] = useState(null);
@@ -767,7 +778,7 @@ export default function AIBusinessCoach() {
           fields: [
             { label: 'Name', value: action.workflow_name || action.name },
             action.description && { label: 'What it does', value: action.description },
-            { label: 'Runs', value: cron ? describeCron(cron) : 'When you press Run Now' },
+            { label: 'Runs', value: action.schedule ? describeLocalSchedule(action.schedule) : cron ? describeCron(cron) : 'When you press Run Now' },
             ...steps.map((st, i) => ({ label: `Step ${i + 1}`, value: stepLabel(st) })),
           ].filter(Boolean),
         };
