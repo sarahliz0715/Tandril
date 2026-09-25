@@ -1954,24 +1954,154 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         }
       } catch (e: any) { console.warn('[smart-api] Squarespace inventory fetch failed:', e.message); }
 
-      // Fetch BigCommerce products
+      // Fetch Ecwid products
       try {
-        const { data: bcPlats } = await supabaseClient.from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'bigcommerce').or('is_active.eq.true,status.eq.connected');
-        for (const bcPlat of (bcPlats || [])) {
-          const bcCr = bcPlat.credentials;
-          const bcHash = bcCr?.store_hash || bcPlat.metadata?.store_hash;
-          if (!bcCr?.access_token || !bcHash) continue;
-          const bcH = { 'X-Auth-Token': bcCr.access_token, 'Content-Type': 'application/json', 'Accept': 'application/json' };
-          const bcRes = await fetch(`https://api.bigcommerce.com/stores/${bcHash}/v3/catalog/products?limit=250`, { headers: bcH });
-          if (!bcRes.ok) continue;
-          for (const p of ((await bcRes.json()).data || [])) {
-            let status = p.is_visible ? 'active' : 'inactive';
-            if (status === 'active' && (p.inventory_quantity || 0) === 0) status = 'out_of_stock';
-            else if (status === 'active' && (p.inventory_quantity || 0) <= LOW_STOCK_THRESHOLD) status = 'low_stock';
-            inventory.push({ id: `bigcommerce-${p.id}`, product_name: p.name || 'BigCommerce Product', sku: p.sku || 'N/A', category: '', status, total_stock: p.inventory_quantity ?? 0, base_price: parseFloat(p.price || '0'), image_url: null, vendor: p.brand_name || '', tags: '', platform_listings: [{ listing_id: String(p.id), platform: 'BigCommerce' }], source: 'bigcommerce' });
+        const { data: ecwidPlats } = await supabaseClient.from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'ecwid').or('is_active.eq.true,status.eq.connected');
+        for (const ecwidPlat of (ecwidPlats || [])) {
+          const { store_id, access_token: ecwidTok } = ecwidPlat.credentials || {};
+          if (!store_id || !ecwidTok) continue;
+          let ecwidOffset = 0;
+          let ecwidTotal = Infinity;
+          while (ecwidOffset < ecwidTotal && ecwidOffset < 2000) { // safety cap: 2000 products
+            const ecwidRes = await fetch(`https://app.ecwid.com/api/v3/${store_id}/products?limit=100&offset=${ecwidOffset}`, { headers: { 'Authorization': `Bearer ${ecwidTok}` } });
+            if (!ecwidRes.ok) break;
+            const ecwidData = await ecwidRes.json();
+            const items = ecwidData.items || [];
+            for (const p of items) {
+              // Ecwid omits quantity when stock isn't tracked ("unlimited") — treat as in stock
+              const tracked = p.unlimited === false || p.quantity != null;
+              const qty = tracked ? (p.quantity ?? 0) : 0;
+              let status = p.enabled ? 'active' : 'inactive';
+              if (status === 'active' && tracked && qty === 0) status = 'out_of_stock';
+              else if (status === 'active' && tracked && qty <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+              inventory.push({ id: `ecwid-${p.id}`, product_name: p.name || 'Ecwid Product', sku: p.sku || 'N/A', category: '', status, total_stock: qty, base_price: parseFloat(p.price ?? '0') || 0, image_url: p.thumbnailUrl || p.imageUrl || null, vendor: '', tags: '', platform_listings: [{ listing_id: String(p.id), platform: 'Ecwid' }], source: 'ecwid' });
+            }
+            ecwidTotal = ecwidData.total ?? 0;
+            if (items.length === 0) break;
+            ecwidOffset += items.length;
           }
         }
-      } catch (e: any) { console.warn('[smart-api] BigCommerce inventory fetch failed:', e.message); }
+      } catch (e: any) { console.warn('[smart-api] Ecwid inventory fetch failed:', e.message); }
+
+      // Fetch Magento products
+      try {
+        const { data: magentoPlats } = await supabaseClient.from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'magento').or('is_active.eq.true,status.eq.connected');
+        for (const magentoPlat of (magentoPlats || [])) {
+          const magentoTok = magentoPlat.credentials?.access_token;
+          if (!magentoTok || !magentoPlat.store_url) continue;
+          const magentoBase = magentoPlat.store_url.replace(/\/$/, '');
+          const magentoH = { 'Authorization': `Bearer ${magentoTok}`, 'Content-Type': 'application/json' };
+          let magentoPage = 1;
+          let magentoHasMore = true;
+          while (magentoHasMore && magentoPage <= 20) { // safety cap: 2000 products
+            const magentoRes = await fetch(`${magentoBase}/rest/V1/products?searchCriteria[pageSize]=100&searchCriteria[currentPage]=${magentoPage}`, { headers: magentoH });
+            if (!magentoRes.ok) break;
+            const magentoData = await magentoRes.json();
+            const items = magentoData.items || [];
+            for (const p of items) {
+              const qty = p.extension_attributes?.stock_item?.qty ?? 0;
+              const img = (p.media_gallery_entries || [])[0]?.file;
+              let status = p.status === 1 ? 'active' : 'inactive';
+              if (status === 'active' && qty === 0) status = 'out_of_stock';
+              else if (status === 'active' && qty <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+              inventory.push({ id: `magento-${p.id}`, product_name: p.name || 'Magento Product', sku: p.sku || 'N/A', category: p.type_id || '', status, total_stock: qty, base_price: parseFloat(p.price ?? '0') || 0, image_url: img ? `${magentoBase}/media/catalog/product${img}` : null, vendor: '', tags: '', platform_listings: [{ listing_id: String(p.id), platform: 'Magento' }], source: 'magento' });
+            }
+            // Magento clamps currentPage to the last page instead of returning empty, so stop on total_count
+            magentoHasMore = items.length === 100 && magentoPage * 100 < (magentoData.total_count ?? 0);
+            magentoPage++;
+          }
+        }
+      } catch (e: any) { console.warn('[smart-api] Magento inventory fetch failed:', e.message); }
+
+      // Fetch PrestaShop products (+ product-level stock from stock_availables)
+      try {
+        const { data: psPlats } = await supabaseClient.from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'prestashop').or('is_active.eq.true,status.eq.connected');
+        for (const psPlat of (psPlats || [])) {
+          const psKey = psPlat.credentials?.api_key;
+          if (!psKey || !psPlat.store_url) continue;
+          const psBase = psPlat.store_url.replace(/\/$/, '');
+          const psH = { 'Authorization': `Basic ${btoa(`${psKey}:`)}` };
+          const psRes = await fetch(`${psBase}/api/products?output_format=JSON&display=[id,name,reference,price,active]&limit=0,2000`, { headers: psH });
+          if (!psRes.ok) continue;
+          const psProducts = (await psRes.json()).products || [];
+          // id_product_attribute=0 rows hold each product's total stock across combinations
+          const stockByProduct: Record<string, number> = {};
+          try {
+            const stockRes = await fetch(`${psBase}/api/stock_availables?output_format=JSON&display=[id_product,quantity]&filter[id_product_attribute]=0&limit=0,5000`, { headers: psH });
+            if (stockRes.ok) {
+              for (const sa of ((await stockRes.json()).stock_availables || [])) {
+                stockByProduct[String(sa.id_product)] = parseInt(sa.quantity) || 0;
+              }
+            }
+          } catch (_) { /* stock stays 0 if the API key lacks stock_availables access */ }
+          for (const p of psProducts) {
+            const name = Array.isArray(p.name) ? (p.name[0]?.value || 'PrestaShop Product') : (p.name || 'PrestaShop Product');
+            const qty = stockByProduct[String(p.id)] ?? 0;
+            let status = String(p.active) === '1' ? 'active' : 'inactive';
+            if (status === 'active' && qty === 0) status = 'out_of_stock';
+            else if (status === 'active' && qty <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+            inventory.push({ id: `prestashop-${p.id}`, product_name: name, sku: p.reference || 'N/A', category: '', status, total_stock: qty, base_price: parseFloat(p.price ?? '0') || 0, image_url: null, vendor: '', tags: '', platform_listings: [{ listing_id: String(p.id), platform: 'PrestaShop' }], source: 'prestashop' });
+          }
+        }
+      } catch (e: any) { console.warn('[smart-api] PrestaShop inventory fetch failed:', e.message); }
+
+      // Fetch Wish products
+      try {
+        const { data: wishPlats } = await supabaseClient.from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'wish').or('is_active.eq.true,status.eq.connected');
+        for (const wishPlat of (wishPlats || [])) {
+          const wishTok = wishPlat.credentials?.access_token;
+          if (!wishTok) continue;
+          let wishOffset = 0;
+          let wishHasMore = true;
+          while (wishHasMore && wishOffset < 2000) { // safety cap: 2000 products
+            const wishRes = await fetch(`https://merchant.wish.com/api/v3/product/multi-get?access_token=${encodeURIComponent(wishTok)}&limit=50&offset=${wishOffset}`);
+            if (!wishRes.ok) break;
+            const wishData = await wishRes.json();
+            if (wishData.code !== 0) break;
+            const items = wishData.data || [];
+            for (const p of items) {
+              const variants = p.variants || [];
+              const qty = variants.reduce((s: number, v: any) => s + (parseInt(v.inventory) || 0), 0);
+              let status = p.is_enabled ? 'active' : 'inactive';
+              if (status === 'active' && qty === 0) status = 'out_of_stock';
+              else if (status === 'active' && qty <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+              inventory.push({ id: `wish-${p.id}`, product_name: p.name || 'Wish Product', sku: variants[0]?.sku || 'N/A', category: '', status, total_stock: qty, base_price: parseFloat(variants[0]?.price ?? '0') || 0, image_url: p.main_image || null, vendor: '', tags: '', platform_listings: [{ listing_id: String(p.id), platform: 'Wish' }], source: 'wish' });
+            }
+            wishHasMore = items.length === 50;
+            wishOffset += 50;
+          }
+        }
+      } catch (e: any) { console.warn('[smart-api] Wish inventory fetch failed:', e.message); }
+
+      // Fetch Etsy active listings
+      try {
+        const etsyClientId = Deno.env.get('ETSY_CLIENT_ID');
+        const { data: etsyInvPlats } = await supabaseClient.from('platforms').select('*').eq('user_id', userId).eq('platform_type', 'etsy').or('is_active.eq.true,status.eq.connected');
+        for (const etsyPlat of (etsyInvPlats || [])) {
+          const etsyTok = etsyPlat.credentials?.access_token;
+          const etsyShopId = etsyPlat.metadata?.shop_id;
+          if (!etsyTok || !etsyShopId || !etsyClientId) continue;
+          const etsyH = { 'x-api-key': etsyClientId, 'Authorization': `Bearer ${etsyTok}` };
+          let etsyOffset = 0;
+          let etsyHasMore = true;
+          while (etsyHasMore && etsyOffset < 2000) { // safety cap: 2000 listings
+            const etsyRes = await fetch(`https://openapi.etsy.com/v3/application/shops/${etsyShopId}/listings/active?limit=100&offset=${etsyOffset}&includes=Images`, { headers: etsyH });
+            if (!etsyRes.ok) break;
+            const etsyData = await etsyRes.json();
+            const listings = etsyData.results || [];
+            for (const l of listings) {
+              const price = l.price?.amount != null ? l.price.amount / (l.price.divisor || 100) : 0;
+              const qty = l.quantity ?? 0;
+              let status = 'active';
+              if (qty === 0) status = 'out_of_stock';
+              else if (qty <= LOW_STOCK_THRESHOLD) status = 'low_stock';
+              inventory.push({ id: `etsy-${l.listing_id}`, product_name: l.title || 'Etsy Listing', sku: l.skus?.[0] || l.sku?.[0] || 'N/A', category: l.taxonomy_path?.[0] || '', status, total_stock: qty, base_price: price, image_url: l.images?.[0]?.url_570xN || null, vendor: '', tags: (l.tags || []).join(', '), platform_listings: [{ listing_id: String(l.listing_id), platform: 'Etsy' }], source: 'etsy' });
+            }
+            etsyHasMore = listings.length === 100;
+            etsyOffset += 100;
+          }
+        }
+      } catch (e: any) { console.warn('[smart-api] Etsy inventory fetch failed:', e.message); }
 
       // Fetch Faire products
       try {
