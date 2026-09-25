@@ -211,6 +211,7 @@ Outbound email is sent via Resend (resend.com). The `RESEND_FROM_EMAIL` Supabase
   - `shop-redact` also deletes the shop's `paused_product_links` (GDPR delete-for-good).
   - **Migration applied live Sept 25, 2026 right after PR #178 merged** (`apply_migration` name `pause_links_on_disconnect`; verified `paused_product_links` exists and both triggers are on `platforms`). Edge-function deploy run #147 succeeded; a manual `check-platform-connections` run returned `200 {"checked":4,"needs_reconnect":0,"restored_caught_up":0}`. Not yet exercised by a real disconnect/reconnect in the UI. Links deleted before this change (like the tote's Shopify half) are gone — re-link them once.
   - Known pre-existing gap noticed, not fixed: `sync-inventory-levels` trusts `user_id` from the request body with the service-role client and never checks it against the caller's JWT.
+- **Inventory page product table was always empty — fixed (Sept 25, 2026):** `pages/Inventory.jsx` rendered `<InventoryTable items={...}>` but `components/inventory/InventoryTable.jsx` reads an `inventory` prop, so the table always got `undefined` and showed "No products match your filters." even while the stat cards above it counted the real items (453 for Sarah). Prop renamed to `inventory`; also guarded `item.status.replace` against a missing status.
 ---
 
 ## How Flows Work
