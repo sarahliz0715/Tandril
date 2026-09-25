@@ -592,8 +592,15 @@ async function sendPhotoCheckEmail(userId: string, cfg: any, supabase: any): Pro
           if (!res.ok) throw new Error(`eBay listing fetch failed: ${res.status}`);
           const d = await res.json();
           for (const item of d.inventoryItems || []) {
+            // eBay keeps an inventory record after a listing ends, and a listing's
+            // own photos aren't always copied onto it — so only count SKUs that
+            // have a live (published) listing, and only flag those without photos.
+            if ((item.product?.imageUrls || []).length) { checked++; continue; }
+            const offersRes = await fetch(`${apiBase}/sell/inventory/v1/offer?sku=${encodeURIComponent(item.sku)}`, { headers });
+            const offers = offersRes.ok ? ((await offersRes.json()).offers || []) : [];
+            if (!offers.some((o: any) => o.status === 'PUBLISHED')) continue; // ended / inactive / never listed
             checked++;
-            if (!(item.product?.imageUrls || []).length) missing.push({ store: platform.shop_name || 'eBay', title: item.product?.title || item.sku, detail: `eBay · SKU ${item.sku}` });
+            missing.push({ store: platform.shop_name || 'eBay', title: item.product?.title || item.sku, detail: `eBay · SKU ${item.sku}` });
           }
           if (!d.next || !(d.inventoryItems || []).length) break;
         }
