@@ -1511,7 +1511,7 @@ export default function AIBusinessCoach() {
 
         {/* Chat Tab */}
         <TabsContent value="chat" className="space-y-4">
-          <Card className="h-[600px] flex flex-col">
+          <Card className="h-[calc(100dvh-160px)] min-h-[480px] flex flex-col">
             <CardHeader className="border-b">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base flex items-center gap-2">
