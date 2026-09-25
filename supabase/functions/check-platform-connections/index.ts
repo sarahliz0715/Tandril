@@ -258,10 +258,42 @@ serve(async (req) => {
       if (reconnectEmailDue(platform) && await sendReconnectEmail(supabase, platform)) emailsSent++;
     }
 
+    // ── 4: Catch-up sync for stores whose saved product links were restored on
+    // reconnect (migration 20260925000004). The Platforms page normally does this
+    // right away; this covers a seller who reconnected and closed the tab. Waits
+    // 10 minutes so it doesn't race the page.
+    const { data: restoredRows } = await supabase
+      .from('platforms')
+      .select('id, user_id, metadata')
+      .eq('metadata->links_restored->>pending', 'true');
+    let caughtUp = 0;
+    for (const platform of restoredRows || []) {
+      const restored = platform.metadata.links_restored;
+      if (Date.now() - new Date(restored.at).getTime() < 10 * 60 * 1000) continue;
+      let failed = 0;
+      for (const sku of restored.skus || []) {
+        try {
+          const res = await fetch(`${SUPABASE_URL}/functions/v1/sync-inventory-levels`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${serviceKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: platform.user_id, sku, mode: 'lowest', triggered_by: 'reconnect_catchup' }),
+          });
+          if (!res.ok) failed++;
+        } catch { failed++; }
+      }
+      // Leave pending set if anything failed, so the next hourly run tries again.
+      if (failed === 0) {
+        await supabase.from('platforms').update({
+          metadata: { ...platform.metadata, links_restored: { ...restored, pending: false, caught_up_at: new Date().toISOString() } },
+        }).eq('id', platform.id);
+        caughtUp++;
+      }
+    }
+
     const flagged = results.filter((r) => r.needs_reconnect).length;
-    console.log(`[check-platform-connections] Checked ${results.length} connections, ${flagged} need reconnect, ${emailsSent} emails sent`);
+    console.log(`[check-platform-connections] Checked ${results.length} connections, ${flagged} need reconnect, ${emailsSent} emails sent, ${caughtUp} restored stores caught up`);
     return new Response(JSON.stringify({
-      success: true, checked: results.length, needs_reconnect: flagged, emails_sent: emailsSent, results,
+      success: true, checked: results.length, needs_reconnect: flagged, emails_sent: emailsSent, restored_caught_up: caughtUp, results,
     }), { status: 200 });
   } catch (e: any) {
     console.error('[check-platform-connections] Error:', e.message);
