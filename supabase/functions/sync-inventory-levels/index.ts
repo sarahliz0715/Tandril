@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
 import { isAuthFailure, markNeedsReconnect } from '../_shared/platformHealth.ts';
 import { resolveShopifyVariant } from '../_shared/shopifyVariant.ts';
+import { isExternallyManagedLocation, isLocationNotFoundError, EXTERNAL_STOCK_REASON } from '../_shared/shopifyStock.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -272,6 +273,19 @@ serve(async (req) => {
           .eq('target_platform_id', link.platform_id)
           .is('resolved_at', null);
 
+      } else if (result.skipped) {
+        // Nothing to sync on this platform (e.g. Shopify stock run by Printful):
+        // not a failure, so clear any earlier error and pending retry for it.
+        await supabase.from('platform_product_links')
+          .update({ last_sync_error: null, last_sync_failed_at: null })
+          .eq('id', link.id);
+        await supabase.from('sync_retry_queue')
+          .update({ resolved_at: new Date().toISOString(), last_error: null })
+          .eq('user_id', user_id)
+          .eq('sku', sku)
+          .eq('target_platform_id', link.platform_id)
+          .is('resolved_at', null);
+
       } else if (result.error && !result.skipped) {
         // Record failure on the link for UI health indicator
         await supabase
@@ -361,11 +375,25 @@ async function fetchCurrentQty(platform: any, link: any, token: string): Promise
         query($id: ID!) {
           productVariant(id: $id) {
             id inventoryQuantity
-            inventoryItem { id }
+            inventoryItem { id inventoryLevels(first: 10) { edges { node {
+              location { id } quantities(names: ["available"]) { name quantity }
+            } } } }
           }
         }
       `, { id: toShopifyGid('ProductVariant', variantId) });
-      return data.productVariant.inventoryQuantity ?? 0;
+      // Only count stock the store itself manages. Stock held by a print-on-demand
+      // app (Printful's 9999 = "made to order") must never be copied to other stores.
+      const levels = data.productVariant?.inventoryItem?.inventoryLevels?.edges || [];
+      if (levels.length === 0) return data.productVariant?.inventoryQuantity ?? 0;
+      let total = 0, counted = 0;
+      for (const e of levels) {
+        const qty = e.node.quantities?.find((q: any) => q.name === 'available')?.quantity ?? 0;
+        if (await isExternallyManagedLocation(shopDomain, token, e.node.location.id, data.productVariant.inventoryItem.id, qty)) continue;
+        total += qty;
+        counted++;
+      }
+      if (counted === 0) throw new Error(EXTERNAL_STOCK_REASON);
+      return total;
     }
     case 'woocommerce': {
       const storeUrl = platform.store_url || platform.shop_domain;
@@ -444,7 +472,7 @@ async function syncShopify(platform: any, link: any, qty: number, token: string,
   }
   if (!locationId) throw new Error('No Shopify location found');
 
-  await shopifyGraphQL(shopDomain, token, `
+  const invSetRes = await shopifyGraphQL(shopDomain, token, `
     mutation($input: InventorySetQuantitiesInput!) {
       inventorySetQuantities(input: $input) {
         inventoryAdjustmentGroup { reason }
@@ -455,6 +483,7 @@ async function syncShopify(platform: any, link: any, qty: number, token: string,
     input: {
       reason: 'correction',
       name: 'available',
+      ignoreCompareQuantity: true,
       quantities: [{
         inventoryItemId: toShopifyGid('InventoryItem', inventoryItemId),
         locationId: toShopifyGid('Location', locationId),
@@ -462,6 +491,13 @@ async function syncShopify(platform: any, link: any, qty: number, token: string,
       }],
     },
   });
+  const invErrs = invSetRes?.inventorySetQuantities?.userErrors || [];
+  // Print-on-demand items (e.g. Printful) keep stock at the fulfillment app's own
+  // location, which Tandril can't change — leave Shopify alone instead of failing.
+  if (invErrs.some((e: any) => isLocationNotFoundError(e.message))) {
+    return { ...result, skipped: true, reason: EXTERNAL_STOCK_REASON };
+  }
+  if (invErrs.length) throw new Error(`Shopify rejected the stock update: ${invErrs.map((e: any) => e.message).join('; ')}`);
 
   return { ...result, success: true };
 }

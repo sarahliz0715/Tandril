@@ -146,8 +146,9 @@ export default function SyncLinksPanel() {
                     });
                     const data = result?.data ?? result;
                     if (data?.success) {
+                        const skipped = (data.results ?? []).filter(r => r.skipped).length;
                         totalSynced += data.synced ?? 0;
-                        totalFailed += (data.total ?? 0) - (data.synced ?? 0);
+                        totalFailed += (data.total ?? 0) - (data.synced ?? 0) - skipped;
                     }
                 } catch { totalFailed++; }
             }));
@@ -209,9 +210,13 @@ export default function SyncLinksPanel() {
             if (data?.success) {
                 const qty = data.results?.find(r => r.success)?.quantity ?? '';
                 const qtyNote = qty !== '' ? ` → qty ${qty}` : '';
+                const skipped = (data.results ?? []).filter(r => r.skipped);
+                const failed = (data.total ?? 0) - (data.synced ?? 0) - skipped.length;
                 toast.success(`Synced ${data.synced ?? 0} of ${data.total ?? 0} platform(s) for ${sku}${qtyNote}`);
-                if ((data.total ?? 0) > (data.synced ?? 0)) {
-                    toast.warning(`${(data.total ?? 0) - (data.synced ?? 0)} platform(s) failed — will retry automatically`);
+                // Skipped isn't a failure — e.g. Shopify stock run by Printful, which Tandril leaves alone
+                skipped.forEach(r => r.reason && toast.info(r.reason));
+                if (failed > 0) {
+                    toast.warning(`${failed} platform(s) failed — will retry automatically`);
                 }
                 loadData();
             } else {
@@ -415,8 +420,9 @@ export default function SyncLinksPanel() {
                         <div className="space-y-2">
                             {syncLog.slice(0, 10).map(entry => {
                                 const succeeded = (entry.synced_platforms ?? []).filter(p => p.success).length;
+                                const skippedEntries = (entry.synced_platforms ?? []).filter(p => p.skipped);
                                 const total = (entry.synced_platforms ?? []).length;
-                                const allGood = succeeded === total && total > 0;
+                                const allGood = succeeded + skippedEntries.length === total && total > 0;
                                 return (
                                     <div key={entry.id} className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
                                         <div className="flex items-center gap-3">
@@ -430,7 +436,9 @@ export default function SyncLinksPanel() {
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-3 text-sm text-slate-500">
-                                            <span>{succeeded}/{total} synced</span>
+                                            <span title={skippedEntries.map(p => p.reason).filter(Boolean).join(' ')}>
+                                                {succeeded}/{total} synced{skippedEntries.length > 0 ? ` · ${skippedEntries.length} left alone` : ''}
+                                            </span>
                                             <span>{new Date(entry.created_at).toLocaleString()}</span>
                                         </div>
                                     </div>
