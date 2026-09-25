@@ -262,10 +262,11 @@ serve(async (req) => {
           })
           .eq('id', link.id);
 
-        // Clear any pending retry for this link
+        // Clear any pending retry for this link (and its error text, so the
+        // Inventory page doesn't mistake it for a retry that gave up)
         await supabase
           .from('sync_retry_queue')
-          .update({ resolved_at: new Date().toISOString() })
+          .update({ resolved_at: new Date().toISOString(), last_error: null })
           .eq('user_id', user_id)
           .eq('sku', sku)
           .eq('target_platform_id', link.platform_id)
