@@ -34,6 +34,27 @@ import { toast } from 'sonner';
 import { api } from '@/lib/apiClient';
 import { supabase } from '@/lib/supabaseClient';
 
+// Workflow schedules are stored as a UTC cron ("M H * * D"). Show them in the
+// seller's own time zone, e.g. "Mondays at 9:00 AM CDT".
+function describeCron(cron) {
+  const [m, h, dom, mon, dow] = String(cron).trim().split(/\s+/);
+  const num = (v) => /^\d+$/.test(v || '');
+  try {
+    if (num(m) && h === '*' && dom === '*' && mon === '*' && (dow === '*' || !dow)) {
+      return `Every hour at :${String(m).padStart(2, '0')}`;
+    }
+    if (num(m) && num(h) && dom === '*' && mon === '*') {
+      const d = new Date();
+      d.setUTCHours(Number(h), Number(m), 0, 0);
+      if (num(dow)) d.setUTCDate(d.getUTCDate() + ((Number(dow) - d.getUTCDay() + 7) % 7));
+      const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+      const day = num(dow) ? d.toLocaleDateString([], { weekday: 'long' }) + 's' : 'Every day';
+      return `${day} at ${time}`;
+    }
+  } catch { /* fall through */ }
+  return `On a schedule (${cron}, UTC)`;
+}
+
 export default function AIBusinessCoach() {
   const [activeTab, setActiveTab] = useState('chat');
   const [briefing, setBriefing] = useState(null);
@@ -746,7 +767,7 @@ export default function AIBusinessCoach() {
           fields: [
             { label: 'Name', value: action.workflow_name || action.name },
             action.description && { label: 'What it does', value: action.description },
-            { label: 'Runs', value: cron ? `On a schedule (${cron}, UTC)` : 'When you press Run Now' },
+            { label: 'Runs', value: cron ? describeCron(cron) : 'When you press Run Now' },
             ...steps.map((st, i) => ({ label: `Step ${i + 1}`, value: stepLabel(st) })),
           ].filter(Boolean),
         };

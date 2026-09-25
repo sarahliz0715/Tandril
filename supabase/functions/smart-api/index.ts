@@ -545,6 +545,11 @@ serve(async (req) => {
     let recentHistory: any[] = [];
     let memoryNotes: any[] = [];
     const storeContext = await getUserStoreContext(supabaseClient, userId);
+    // The seller's browser time zone (IANA name, e.g. "America/Chicago") so Orion
+    // can turn "9am" into the right UTC cron, daylight saving included.
+    if (typeof rawBody.timezone === 'string' && /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+)*$/.test(rawBody.timezone)) {
+      (storeContext as any).seller_timezone = rawBody.timezone;
+    }
 
     if (conversationId) {
       try {
@@ -9438,6 +9443,17 @@ Examples:
   const syncStoreNames = storeContext.platforms
     .filter((p: any) => ['shopify', 'ebay', 'woocommerce', 'etsy'].includes(p.platform_type))
     .map((p: any) => `${p.platform_type} (${p.shop_name || p.shop_domain || p.name || 'store'})`);
+  const sellerTz: string | undefined = (storeContext as any).seller_timezone;
+  let tzLine = 'Seller time zone unknown — use US Eastern and say so.';
+  if (sellerTz) {
+    try {
+      const now = new Date();
+      const parts = new Intl.DateTimeFormat('en-US', { timeZone: sellerTz, timeZoneName: 'shortOffset', hour: 'numeric', minute: '2-digit', weekday: 'long' }).formatToParts(now);
+      const off = parts.find((p) => p.type === 'timeZoneName')?.value || '';
+      const local = parts.filter((p) => p.type !== 'timeZoneName').map((p) => p.value).join('');
+      tzLine = `Seller time zone: ${sellerTz} — currently ${off} (their local time now: ${local}). Convert their times to UTC with that offset (e.g. at GMT-5, 9am local = hour 14 UTC).`;
+    } catch { /* unknown zone name — keep the fallback */ }
+  }
   const linkingSection = `
 **Cross-store product linking (inventory sync) — you can do this for the seller:**
 A "link" tells Tandril that listings on different stores are the same physical item, so a sale on one lowers stock on the others. Syncing stores connected: ${syncStoreNames.join(', ') || 'none'}.${syncStoreNames.length < 2 ? ' Linking needs at least two of Shopify / eBay / WooCommerce / Etsy — say so if they ask.' : ''}
@@ -9469,6 +9485,7 @@ Use create_workflow when they want something automated, scheduled, repeated, or 
     - {"type":"action","config":{"action_type":"send_email","email_subject":"...","email_body":""}} — add "email_recipient" only for someone other than the seller; left out, it goes to the seller's account email.
     - {"type":"action","config":{"action_type":"inventory_email","threshold":5}} — low-stock report email (items at or below threshold), to the seller's account email unless "recipient" is given.
     - {"type":"action","config":{"action_type":"send_alert","alert_title":"...","alert_message":"...","alert_priority":"high"}} — shows in Tandril's notification bell.
+  ${tzLine}
   Rules: "email me" = leave the recipient out (it goes to their account email). The cron is in UTC but the seller thinks in their own time: "9am" means 9am THEIR time, never 9am UTC. If you don't know their time zone, use US Eastern (9am Eastern = "0 13 * * 1") and say "9am Eastern — tell me your time zone if that's wrong". Until the seller confirms the card, say you've "drafted" or "set up the card for" the workflow — never "created" or "workflow created". Ask only for things that change money or other people (a restore price, someone else's email address). Workflows are saved switched OFF — after it's approved, tell them to review it on the Workflows page and turn it on (manual ones can be run with Run Now). Never say a workflow is running until they've turned it on.
 `;
 
