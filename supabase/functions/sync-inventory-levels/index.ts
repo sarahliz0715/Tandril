@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
 import { isAuthFailure, markNeedsReconnect } from '../_shared/platformHealth.ts';
+import { resolveShopifyVariant } from '../_shared/shopifyVariant.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -92,6 +93,31 @@ serve(async (req) => {
         JSON.stringify({ success: true, synced: 0, message: 'No linked platforms for this SKU' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
+    }
+
+    // Shopify links made by hand can be missing the variant (or hold the SKU where
+    // the product number belongs). Shopify stock is per variant, so fill it in
+    // once and save it, instead of failing every sync with "requires a variant ID".
+    for (const link of allLinks) {
+      if (link.platform_type !== 'shopify' || link.platform_variant_id || !link.platforms) continue;
+      try {
+        const token = await resolveToken(link.platforms);
+        if (!token) continue;
+        const v = await resolveShopifyVariant(link.platforms.shop_domain, token, {
+          productId: link.platform_product_id, sku: link.sku,
+        });
+        await supabase.from('platform_product_links')
+          .update({ platform_product_id: v.productId, platform_variant_id: v.variantId })
+          .eq('id', link.id);
+        link.platform_product_id = v.productId;
+        link.platform_variant_id = v.variantId;
+        console.log(`[sync-inventory-levels] Filled in Shopify variant ${v.variantId} for SKU=${sku}`);
+      } catch (err) {
+        console.warn(`[sync-inventory-levels] Could not resolve Shopify variant for SKU=${sku}: ${err.message}`);
+        await supabase.from('platform_product_links')
+          .update({ last_sync_error: err.message, last_sync_failed_at: new Date().toISOString() })
+          .eq('id', link.id);
+      }
     }
 
     // mode 'lowest' (catch-up after a store reconnects): read the current stock on

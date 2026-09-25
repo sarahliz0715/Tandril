@@ -332,28 +332,6 @@ export default function AIBusinessCoach() {
     return action;
   };
 
-  const calcNextRunAt = (cron) => {
-    const now = new Date();
-    const parts = cron.trim().split(' ');
-    const minute = parseInt(parts[0]);
-    const hour = parseInt(parts[1]);
-    const dayOfWeek = parts[4] !== '*' ? parseInt(parts[4]) : null;
-    const next = new Date(now);
-    next.setSeconds(0, 0);
-    if (dayOfWeek !== null) {
-      const daysUntil = (dayOfWeek - now.getDay() + 7) % 7 || 7;
-      next.setDate(next.getDate() + daysUntil);
-      next.setHours(isNaN(hour) ? 9 : hour, isNaN(minute) ? 0 : minute, 0, 0);
-    } else if (parts[1] === '*') {
-      next.setMinutes(isNaN(minute) ? 0 : minute, 0, 0);
-      if (next <= now) next.setHours(next.getHours() + 1);
-    } else {
-      next.setHours(isNaN(hour) ? 9 : hour, isNaN(minute) ? 0 : minute, 0, 0);
-      if (next <= now) next.setDate(next.getDate() + 1);
-    }
-    return next.toISOString();
-  };
-
   const saveActionResultToDb = async (results, errors) => {
     if (!conversationId) return;
     try {
@@ -527,44 +505,8 @@ export default function AIBusinessCoach() {
   };
 
   const executeOrionAction = async (resolvedAction) => {
-    if (resolvedAction.type === 'create_workflow') {
-      const cron = resolvedAction.cron || '0 9 * * *';
-      const scheduleLabels = {
-        '0 * * * *': 'Every Hour', '0 6 * * *': 'Every Day at 6 AM',
-        '0 8 * * *': 'Every Day at 8 AM', '0 9 * * *': 'Every Day at 9 AM',
-        '0 12 * * *': 'Every Day at 12 PM', '0 9 * * 1': 'Every Monday at 9 AM',
-      };
-      const triggerType = resolvedAction.trigger_type || 'schedule';
-      const payload = {
-        name: resolvedAction.name,
-        description: resolvedAction.description || '',
-        trigger_type: triggerType,
-        trigger_config: triggerType === 'schedule' ? { cron, label: scheduleLabels[cron] || cron } : {},
-        actions: [{ type: 'action', config: {
-          action_type: resolvedAction.action_type || 'inventory_email',
-          recipient: resolvedAction.recipient || '',
-          ...(resolvedAction.low_stock_threshold !== undefined ? { threshold: resolvedAction.low_stock_threshold } : {}),
-          ...(resolvedAction.subject ? { subject: resolvedAction.subject } : {}),
-        }}],
-        platforms: ['shopify'],
-        is_active: false,
-        ...(triggerType === 'schedule' ? { next_run_at: calcNextRunAt(cron) } : {}),
-      };
-      await api.entities.AIWorkflow.create(payload);
-      // Log to history
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        supabase.from('ai_commands').insert({
-          user_id: user.id,
-          command_text: `Created workflow: ${resolvedAction.name}`,
-          status: 'completed',
-          executed_at: new Date().toISOString(),
-          source: 'workflow',
-          execution_results: { workflow_name: resolvedAction.name, action_type: resolvedAction.action_type },
-        }).then(() => {});
-      }
-      return { execution_result: { message: `Workflow "${resolvedAction.name}" created! Go to Workflows in the sidebar to activate it.` } };
-    }
+    // create_workflow goes to smart-api too: it saves every step (switched off
+    // until the seller turns it on) and logs it to History.
     return api.functions.chatWithCoach({ execute_action: resolvedAction });
   };
 
@@ -790,16 +732,62 @@ export default function AIBusinessCoach() {
             action.confidence === 1.0 && { label: 'Source', value: 'You stated this explicitly' },
           ].filter(Boolean),
         };
-      case 'create_workflow':
+      case 'create_workflow': {
+        const steps = action.steps || action.actions || (action.action_type ? [{ type: 'action', config: { action_type: action.action_type } }] : []);
+        const cron = action.trigger_config?.cron || action.cron;
+        const stepLabel = (st) => {
+          if (st.type === 'wait') return `Wait ${st.duration || 1} ${st.unit || 'hours'}`;
+          const c = st.config || st;
+          const what = c.product_name || c.sku || c.email_recipient || c.recipient || c.alert_title || c.command_text || '';
+          return `${String(c.action_type || '').replace(/_/g, ' ')}${what ? ` — ${what}` : ''}${c.price != null ? ` → $${c.price}` : ''}${c.quantity != null ? ` → ${c.quantity}` : ''}`;
+        };
         return {
-          icon: '⚙️', title: 'Create Workflow',
+          icon: '⚙️', title: 'Create Workflow (saved switched off)',
           fields: [
-            { label: 'Name', value: action.name },
-            { label: 'Schedule', value: action.cron || action.trigger_type },
-            { label: 'Action', value: action.action_type },
-            action.recipient && { label: 'Email', value: action.recipient },
-            action.low_stock_threshold !== undefined && { label: 'Low stock threshold', value: `${action.low_stock_threshold} units` },
+            { label: 'Name', value: action.workflow_name || action.name },
+            action.description && { label: 'What it does', value: action.description },
+            { label: 'Runs', value: cron ? `On a schedule (${cron}, UTC)` : 'When you press Run Now' },
+            ...steps.map((st, i) => ({ label: `Step ${i + 1}`, value: stepLabel(st) })),
           ].filter(Boolean),
+        };
+      }
+      case 'suggest_product_links':
+        return {
+          icon: '🔎', title: 'Find Products to Link',
+          fields: [
+            { label: 'Stores', value: (action.platforms || []).join(' + ') || 'All connected stores' },
+            action.search && { label: 'Only products matching', value: action.search },
+            { label: 'Changes', value: 'None — this only looks' },
+          ].filter(Boolean),
+        };
+      case 'link_products':
+        return {
+          icon: '🔗', title: 'Link Product Across Stores',
+          fields: [
+            { label: 'Product', value: action.product_name || action.sku },
+            { label: 'Shared SKU', value: action.sku },
+            ...(action.items || []).map((it) => ({
+              label: it.platform,
+              value: [it.product_id && `product ${it.product_id}`, it.variant_id && `variant ${it.variant_id}`, it.sku && `SKU ${it.sku}`].filter(Boolean).join(', ') || 'found by SKU',
+            })),
+            action.sync !== false && { label: 'Then', value: 'Match stock across these stores (lowest count kept)' },
+          ].filter(Boolean),
+        };
+      case 'unlink_product':
+        return {
+          icon: '✂️', title: 'Stop Syncing Product',
+          fields: [
+            { label: 'SKU', value: action.sku },
+            { label: 'Store', value: action.platform || 'All stores' },
+          ],
+        };
+      case 'sync_product':
+        return {
+          icon: '🔄', title: 'Sync Stock Now',
+          fields: [
+            { label: 'Product', value: action.sku || 'All linked products' },
+            { label: 'Rule', value: 'Every store is set to the lowest current count' },
+          ],
         };
       case 'update_metafield':
         return {
