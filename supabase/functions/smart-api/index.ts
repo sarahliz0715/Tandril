@@ -7961,7 +7961,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         if (!row.platform_campaign_id) continue;
         try {
           const insightsRes = await fetch(
-            `https://graph.facebook.com/v19.0/${row.platform_campaign_id}/insights?fields=spend,impressions,clicks,reach&access_token=${perfToken}`
+            `https://graph.facebook.com/v19.0/${row.platform_campaign_id}/insights?fields=spend,impressions,clicks,reach&date_preset=maximum&access_token=${perfToken}`
           );
           const insightsData = await insightsRes.json();
           const metrics = insightsData.data?.[0] || { spend: '0', impressions: '0', clicks: '0', reach: '0' };

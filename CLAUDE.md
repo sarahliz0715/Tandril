@@ -447,7 +447,7 @@ Real "Facebook Marketplace" (the peer-to-peer marketplace.facebook.com tab) has 
 | Meta Ads launch/pause/performance handlers | `smart-api/index.ts` (`draft_ad`/`launch_ad`/`pause_ad`/`get_ad_performance`) | L | ✅ Done (Aug 11) — not live-tested |
 | TikTok Ads launch edge function | `supabase/functions/tiktok-ads-launch/index.ts` | L | Not built |
 | TikTok Ads OAuth flow (Meta OAuth already exists — see above) | Extend `Platforms.jsx` + new auth edge function | M | Not built |
-| Ad performance sync cron (currently only on-demand via `get_ad_performance`) | `supabase/functions/sync-ad-performance/index.ts` | M | Not built |
+| Ad performance sync cron | `supabase/functions/sync-ad-performance/index.ts` + `migrations/20260925000001_ad_performance_cron.sql` | M | ✅ Built Sept 25 — not live-tested. Every 6h: lifetime spend/impressions/clicks/reach (`date_preset=maximum`, now also used by `get_ad_performance`) + picks up pauses/archives done in Ads Manager (`effective_status` → `ad_campaigns.status`). Service-role bearer only. **The cron itself is NOT scheduled yet** — like every other cron file in `migrations/`, it has a `YOUR_SERVICE_ROLE_KEY` placeholder and must be run by hand in the SQL editor (or scheduled by copying an existing `cron.job` command's headers so the key never has to be typed out) after the function is deployed. |
 | Campaigns UI page (currently just the existing Ads tab) | `pages/Campaigns.jsx` | L | Not built |
 | Orion natural-language integration ("launch a $20/day ad for X") | System prompt + tool routing in `smart-api/index.ts` | M | ✅ Done (Sept 25) — not live-tested |
 | Learning loop — performance back into Orion context | `orion_ad_learnings` table + system prompt injection | M | Not built |
