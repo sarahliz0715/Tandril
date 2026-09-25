@@ -116,6 +116,18 @@ serve(async (req) => {
 
     console.log(`[sync-inventory-levels] SKU=${sku} qty=${new_quantity} user=${user_id}`);
 
+    // Record the quantity on the source link too, so shopify-order-webhook's
+    // inventory_levels/update handler can recognise this value as already synced
+    // and not bounce it back out to every platform again.
+    if (source_platform_id) {
+      await supabase
+        .from('platform_product_links')
+        .update({ last_synced_quantity: new_quantity })
+        .eq('user_id', user_id)
+        .eq('sku', sku)
+        .eq('platform_id', source_platform_id);
+    }
+
     // Target links = all platforms except the source
     const targetLinks = source_platform_id
       ? allLinks.filter(l => l.platform_id !== source_platform_id)
