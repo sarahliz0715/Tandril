@@ -9288,8 +9288,17 @@ async function chatWithClaude(
       return `  - SKU ${s.sku} → qty ${s.quantity} synced to [${ok}]${fail} (${s.trigger}, ${when})`;
     }).join('\n');
 
+    const linkedLines = (sync.linked_skus as string[]).map((sku: string) => {
+      const links = sync.platform_links.filter((l: any) => l.sku === sku);
+      const where = [...new Set(links.map((l: any) => l.platform))].join(' + ');
+      const qty = links.find((l: any) => l.last_synced_quantity != null)?.last_synced_quantity;
+      return `  - SKU ${sku}: linked on ${where}${qty != null ? ` (last synced qty ${qty})` : ''}`;
+    }).join('\n');
+
     return `\n**Cross-Platform Inventory Sync Status:**
-- Linked SKUs: ${sync.linked_sku_count} (${sync.linked_skus.join(', ')}${sync.linked_sku_count > 20 ? '…' : ''})
+- Linked SKUs: ${sync.linked_sku_count}${sync.linked_sku_count > 20 ? ' (first 20 shown)' : ''}
+${linkedLines}
+These linked products ARE connected and sync stock automatically between the listed platforms. Match them to products by SKU. When the user asks what's on both platforms, or whether their stores are linked, say which products are already linked and syncing — never say the stores "aren't linked" when any SKU above is linked. Products NOT listed above are not linked.
 - Last sync: ${sync.last_sync_at ? new Date(sync.last_sync_at).toLocaleString() : 'never'}
 - Pending retries: ${sync.pending_retries}${sync.failed_links > 0 ? `\n- ⚠️ ${sync.failed_links} link(s) in permanent failure state` : ''}
 ${recentLines ? `Recent sync events:\n${recentLines}` : 'No recent syncs on record.'}${failedLines ? `\nLinks with errors:\n${failedLines}` : ''}
