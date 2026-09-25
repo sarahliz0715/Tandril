@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { nextRunFromUtcCron } from '@/lib/workflowSchedule';
 import { AIWorkflow } from '@/lib/entities';
 import { WorkflowTemplate } from '@/lib/entities';
 import { User } from '@/lib/entities';
@@ -29,33 +30,6 @@ import { handleAuthError } from '@/utils/authHelpers';
 import { useConfirmDialog, ConfirmDialog } from '@/hooks/useConfirmDialog';
 import { NoDataEmptyState } from '../components/common/EmptyState';
 
-function calcNextRunAt(cron) {
-  const now = new Date();
-  const parts = cron.trim().split(' ');
-  const minute = parseInt(parts[0]);
-  const hour = parseInt(parts[1]);
-  const dayOfWeek = parts[4] !== '*' ? parseInt(parts[4]) : null;
-
-  const next = new Date(now);
-  next.setSeconds(0, 0);
-
-  if (dayOfWeek !== null) {
-    // Weekly — find next occurrence of that weekday
-    const daysUntil = (dayOfWeek - now.getDay() + 7) % 7 || 7;
-    next.setDate(next.getDate() + daysUntil);
-    next.setHours(isNaN(hour) ? 9 : hour, isNaN(minute) ? 0 : minute, 0, 0);
-  } else if (parts[1] === '*') {
-    // Hourly
-    next.setMinutes(isNaN(minute) ? 0 : minute, 0, 0);
-    if (next <= now) next.setHours(next.getHours() + 1);
-  } else {
-    // Daily
-    next.setHours(isNaN(hour) ? 9 : hour, isNaN(minute) ? 0 : minute, 0, 0);
-    if (next <= now) next.setDate(next.getDate() + 1);
-  }
-
-  return next.toISOString();
-}
 
 export default function Workflows() {
   const [workflows, setWorkflows] = useState([]);
@@ -149,7 +123,7 @@ export default function Workflows() {
         try {
           const updates = { is_active: isActivating };
           if (isActivating && workflow.trigger_type === 'schedule' && workflow.trigger_config?.cron) {
-            updates.next_run_at = calcNextRunAt(workflow.trigger_config.cron);
+            updates.next_run_at = nextRunFromUtcCron(workflow.trigger_config.cron);
           }
           await AIWorkflow.update(workflow.id, updates);
           toast.success(`Workflow ${isActivating ? 'activated' : 'paused'}`);

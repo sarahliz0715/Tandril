@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { nextRunFromUtcCron, localCronToUtc, utcCronToLocal } from '@/lib/workflowSchedule';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,31 +21,6 @@ const scheduleOptions = [
     { value: '0 9 * * 1',   label: 'Every Monday at 9 AM' },
 ];
 
-function calcNextRunAt(cron) {
-    if (cron === '*/2 * * * *') {
-        return new Date(Date.now() + 2 * 60 * 1000).toISOString();
-    }
-    const now = new Date();
-    const parts = cron.trim().split(' ');
-    const minute = parseInt(parts[0]);
-    const hour = parseInt(parts[1]);
-    const dayOfWeek = parts[4] !== '*' ? parseInt(parts[4]) : null;
-    const next = new Date(now);
-    next.setSeconds(0, 0);
-    if (dayOfWeek !== null) {
-        const daysUntil = (dayOfWeek - now.getDay() + 7) % 7 || 7;
-        next.setDate(next.getDate() + daysUntil);
-        next.setHours(isNaN(hour) ? 9 : hour, isNaN(minute) ? 0 : minute, 0, 0);
-    } else if (parts[1] === '*') {
-        next.setMinutes(isNaN(minute) ? 0 : minute, 0, 0);
-        if (next <= now) next.setHours(next.getHours() + 1);
-    } else {
-        next.setHours(isNaN(hour) ? 9 : hour, isNaN(minute) ? 0 : minute, 0, 0);
-        if (next <= now) next.setDate(next.getDate() + 1);
-    }
-    return next.toISOString();
-}
-
 export default function CreateWorkflowModal({ onClose, onSuccess, editingWorkflow }) {
     const isEditing = !!editingWorkflow;
 
@@ -52,7 +28,11 @@ export default function CreateWorkflowModal({ onClose, onSuccess, editingWorkflo
     const [name, setName] = useState(editingWorkflow?.name || '');
     const [description, setDescription] = useState(editingWorkflow?.description || '');
     const [triggerType, setTriggerType] = useState(editingWorkflow?.trigger_type || 'manual');
-    const [cron, setCron] = useState(editingWorkflow?.trigger_config?.cron || '0 9 * * *');
+    // The picker works in the seller's local time; the saved cron is UTC.
+    const [cron, setCron] = useState(
+        editingWorkflow?.trigger_config?.local_cron
+        || (editingWorkflow?.trigger_config?.cron ? utcCronToLocal(editingWorkflow.trigger_config.cron) : '0 9 * * *')
+    );
     // actions holds the unified step array from AutomationBuilder
     const [actions, setActions] = useState(editingWorkflow?.actions || []);
 
@@ -76,8 +56,11 @@ export default function CreateWorkflowModal({ onClose, onSuccess, editingWorkflo
 
         setIsSubmitting(true);
         try {
+            const utcCron = localCronToUtc(cron);
+            let timezone;
+            try { timezone = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { /* older browsers */ }
             const triggerConfig = triggerType === 'schedule'
-                ? { cron, label: scheduleOptions.find(o => o.value === cron)?.label }
+                ? { cron: utcCron, local_cron: cron, timezone, label: scheduleOptions.find(o => o.value === cron)?.label }
                 : {};
 
             const payload = {
@@ -89,7 +72,7 @@ export default function CreateWorkflowModal({ onClose, onSuccess, editingWorkflo
                 is_active: triggerType === 'schedule',
                 current_step: 0,
                 status: 'active',
-                ...(triggerType === 'schedule' && cron ? { next_run_at: calcNextRunAt(cron) } : {}),
+                ...(triggerType === 'schedule' && cron ? { next_run_at: nextRunFromUtcCron(utcCron) } : {}),
             };
 
             if (isEditing) {

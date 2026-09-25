@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Clock, Play, Pause, Settings, MoreVertical, Zap, Save } from 'lucide-react';
+import { describeCron, describeLocalSchedule } from '@/lib/workflowSchedule';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 export default function WorkflowCard({ workflow, onEdit, onToggle, onDelete, onRun }) {
@@ -18,16 +19,10 @@ export default function WorkflowCard({ workflow, onEdit, onToggle, onDelete, onR
     const formatTrigger = () => {
         switch (triggerType) {
             case 'schedule':
-                if (triggerConfig.label) return triggerConfig.label;
-                if (triggerConfig.cron) {
-                    const parts = triggerConfig.cron.split(' ');
-                    const hour = parseInt(parts[1]);
-                    if (!isNaN(hour)) {
-                        const display = hour === 0 ? '12:00 AM' : hour < 12 ? `${hour}:00 AM` : hour === 12 ? '12:00 PM' : `${hour - 12}:00 PM`;
-                        return `Daily at ${display}`;
-                    }
-                }
-                return `Daily at ${triggerConfig.hour || 9}:00`;
+                // Shown in the viewer's own time zone (the saved cron is UTC).
+                if (triggerConfig.local_schedule) return describeLocalSchedule(triggerConfig.local_schedule);
+                if (triggerConfig.cron) return describeCron(triggerConfig.cron);
+                return triggerConfig.label || 'On a schedule';
             case 'event':
                 return `On ${triggerConfig.event_name || 'event'}`;
             case 'manual':
@@ -51,15 +46,12 @@ export default function WorkflowCard({ workflow, onEdit, onToggle, onDelete, onR
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                            {workflow.trigger_type === 'manual' && (
-                                <>
-                                    <DropdownMenuItem onClick={() => onRun && onRun(workflow)}>
-                                        <Zap className="w-4 h-4 mr-2" />
-                                        Run Now
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                </>
-                            )}
+                            {/* Any workflow can be run on demand — scheduled ones too, e.g. to test them */}
+                            <DropdownMenuItem onClick={() => onRun && onRun(workflow)}>
+                                <Zap className="w-4 h-4 mr-2" />
+                                Run Now
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
                             <DropdownMenuItem onClick={() => onEdit && onEdit(workflow)}>
                                 <Settings className="w-4 h-4 mr-2" />
                                 Edit

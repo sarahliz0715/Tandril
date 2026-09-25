@@ -597,6 +597,13 @@ serve(async (req) => {
     }
     let pendingAction = pendingActions[0] || null; // backwards compat
 
+    // Orion keeps announcing "✅ Workflow Created" while the card is still waiting
+    // for approval, despite the prompt. Nothing is saved until the seller confirms,
+    // so rewrite those claims instead of relying on the model.
+    if (pendingActions.some((a: any) => a?.type === 'create_workflow')) {
+      response = softenUnconfirmedWorkflowClaims(response);
+    }
+
     // Safety net: the model often generates "update_product" or similar for image uploads
     // even when explicitly told not to. If the user attached images and the action type
     // is not upload_image, coerce it here so the right backend handler runs.
@@ -1598,6 +1605,16 @@ async function resolveLinkTarget(supabaseClient: any, userId: string, platforms:
     }
   }
   throw new Error(`${platform.platform_type} can't be linked for inventory sync yet.`);
+}
+
+function softenUnconfirmedWorkflowClaims(text: string): string {
+  let out = String(text || '')
+    .replace(/✅\s*/g, '')
+    .replace(/\b(the workflow|it)\s+(is|has been)\s+(now\s+)?(created|saved|set up|scheduled)\b/gi, '$1 will be saved once you confirm the card below')
+    .replace(/\bworkflow\s+(created|set|scheduled|saved|activated)\b:?/gi, 'Workflow draft:')
+    .replace(/\bworkflow\s+is\s+(now\s+)?(ready to go|ready|set up|set|live)\b\s*:?(?=\s*(\*\*|$))/gim, 'Workflow draft:');
+  if (!/confirm/i.test(out)) out = `${out.trim()}\n\nNothing is saved yet — confirm the card below to save it.`;
+  return out;
 }
 
 // Orion writes workflow schedules in the seller's own clock ("monday", "09:00");
