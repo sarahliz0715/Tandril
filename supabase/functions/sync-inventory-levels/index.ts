@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
+import { isAuthFailure, markNeedsReconnect } from '../_shared/platformHealth.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -179,6 +180,9 @@ serve(async (req) => {
       } catch (err) {
         result.error = err.message;
         console.error(`[sync-inventory-levels] Failed for ${link.platform_type}:`, err.message);
+        if (isAuthFailure(err)) {
+          await markNeedsReconnect(supabase, platform, `${link.platform_type} rejected Tandril's access during inventory sync: ${err.message}`);
+        }
       }
 
       syncResults.push(result);

@@ -6,6 +6,8 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { markNeedsReconnect } from '../_shared/platformHealth.ts';
+import { reconnectEmailDue, sendReconnectEmail } from '../_shared/connectionAlerts.ts';
 
 async function verifyShopifyWebhook(
   body: string,
@@ -95,6 +97,22 @@ serve(async (req) => {
       console.error('[app/uninstalled] Error revoking access token:', revokeError);
     } else {
       console.log('[app/uninstalled] Access token revoked for:', domain);
+    }
+
+    // 1b. Flag the store as needing a reconnect and email the seller right away —
+    //     until they reinstall, sales elsewhere won't reduce Shopify stock (and vice versa).
+    try {
+      const { data: uninstalledRows } = await supabase
+        .from('platforms')
+        .select('*')
+        .eq('platform_type', 'shopify')
+        .or(`shop_domain.eq.${domain},shop_domain.eq.${domain?.replace('.myshopify.com', '')}`);
+      for (const row of uninstalledRows ?? []) {
+        await markNeedsReconnect(supabase, row, 'Tandril was uninstalled from this Shopify store', 'uninstalled');
+        if (reconnectEmailDue(row)) await sendReconnectEmail(supabase, row);
+      }
+    } catch (notifyError) {
+      console.warn('[app/uninstalled] Could not notify seller:', (notifyError as Error).message);
     }
 
     // 2. Cancel active Shopify billing subscription in user metadata

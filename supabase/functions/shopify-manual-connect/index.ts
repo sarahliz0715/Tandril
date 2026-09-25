@@ -124,6 +124,7 @@ serve(async (req) => {
         access_token: encryptedToken,
         access_scopes: [],
         is_active: true,
+        status: 'connected', // clears a 'needs_reconnect' flag on reconnect
         last_synced_at: new Date().toISOString(),
       }, { onConflict: 'user_id,shop_domain' })
       .select()

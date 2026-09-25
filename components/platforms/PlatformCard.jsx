@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CheckCircle, XCircle, Clock, ServerCrash, RefreshCw, Trash2, Store, ShoppingCart, Package, Zap, Globe, Instagram } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, ServerCrash, RefreshCw, Trash2, Store, ShoppingCart, Package, Zap, Globe, Instagram, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import ShopifyConnectButton from './ShopifyConnectButton';
 import EtsyConnectButton from './EtsyConnectButton';
@@ -75,6 +75,8 @@ export default function PlatformCard({
   const isPending = connectedPlatform && connectedPlatform.status === 'pending';
   const isError = connectedPlatform && connectedPlatform.status === 'error';
   const isProcessing = connectedPlatform && connectedPlatform.status === 'processing';
+  // The platform rejected Tandril's saved login (see supabase/functions/_shared/platformHealth.ts)
+  const needsReconnect = connectedPlatform && connectedPlatform.status === 'needs_reconnect';
   
   const statusConfig = {
       connected: { icon: CheckCircle, color: 'text-green-600', text: 'Connected' },
@@ -82,13 +84,14 @@ export default function PlatformCard({
       pending: { icon: Clock, color: 'text-orange-500', text: 'Pending Action' },
       error: { icon: ServerCrash, color: 'text-red-600', text: 'Connection Error' },
       processing: { icon: RefreshCw, color: 'text-blue-600', text: 'Syncing...', animate: true },
+      needs_reconnect: { icon: AlertTriangle, color: 'text-amber-600', text: 'Reconnect needed' },
   };
   const currentStatus = connectedPlatform?.status || 'disconnected';
-  const { icon: StatusIcon, color, text, animate } = statusConfig[currentStatus];
+  const { icon: StatusIcon, color, text, animate } = statusConfig[currentStatus] || statusConfig.error;
   
   const statusBadge = (
       <div className="flex flex-col items-end gap-1">
-          {isConnected && (connectedPlatform?.shop_name || connectedPlatform?.shop_domain) && (
+          {(isConnected || needsReconnect) && (connectedPlatform?.shop_name || connectedPlatform?.shop_domain) && (
               <span className="text-xs font-medium text-slate-600 truncate max-w-[160px]">
                   {connectedPlatform.shop_name || connectedPlatform.shop_domain}
               </span>
@@ -277,6 +280,14 @@ export default function PlatformCard({
             The term "Etsy" is a trademark of Etsy, Inc. This application uses the Etsy API but is not endorsed or certified by Etsy, Inc.
           </p>
         )}
+        {needsReconnect && (
+            <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-xs text-amber-800">
+                    This store stopped accepting Tandril's connection, so products can't load and inventory isn't syncing.
+                    Reconnect it below to fix this.
+                </p>
+            </div>
+        )}
         {isProcessing && (
             <div className="mt-4 space-y-2">
                 <Progress value={syncProgress.percentage} className="w-full" />
@@ -296,6 +307,16 @@ export default function PlatformCard({
           <div className="flex flex-col w-full gap-2">
             {platformType?.type_id === 'shopify' && (
               <ShopifyConnectButton onConnectionSuccess={onConnectionSuccess} label="Connect Another Store" />
+            )}
+            <Button variant="destructive" className="w-full" onClick={() => onDisconnect(connectedPlatform)}>Disconnect</Button>
+          </div>
+        ) : needsReconnect ? (
+          <div className="flex flex-col w-full gap-2">
+            {platformType?.type_id === 'shopify' ? (
+              // Reconnecting updates this same row and sets it back to 'connected'
+              <ShopifyConnectButton onConnectionSuccess={onConnectionSuccess} label="Reconnect Store" />
+            ) : (
+              <p className="text-xs text-slate-500 text-center">Disconnect, then connect it again to restore syncing.</p>
             )}
             <Button variant="destructive" className="w-full" onClick={() => onDisconnect(connectedPlatform)}>Disconnect</Button>
           </div>
