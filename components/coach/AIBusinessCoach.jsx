@@ -914,6 +914,15 @@ export default function AIBusinessCoach() {
             { label: 'Listing', value: action.product_name || action.sku },
           ],
         };
+      case 'ebay_delete_inventory_record':
+        return {
+          icon: '🗑️', title: 'Delete Leftover eBay Record',
+          fields: [
+            { label: 'Record', value: action.product_name || action.sku },
+            { label: 'SKU', value: action.sku },
+            { label: 'Safety', value: 'Only deleted if it has no live listing — nothing buyers see changes' },
+          ],
+        };
       case 'ebay_relist':
         return {
           icon: '🟢', title: 'Relist on eBay',

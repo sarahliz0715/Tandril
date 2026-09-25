@@ -181,6 +181,7 @@ function summarizeOrionAction(action: any): string {
     case 'ebay_update_description':     return `Updated eBay description for "${name}"`;
     case 'ebay_update_image':           return `Updated eBay images for "${name}"`;
     case 'ebay_end_listing':            return `Ended eBay listing for "${name}"`;
+    case 'ebay_delete_inventory_record': return `Deleted leftover eBay record ${action.sku}`;
     case 'ebay_relist':                 return `Relisted "${name}" on eBay`;
     case 'ebay_update_item_specifics':  return `Updated eBay item specifics for "${name}"`;
     case 'ebay_create_listing':         return `Created eBay listing: "${action.title || name}"`;
@@ -3372,6 +3373,30 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       });
       if (!putRes.ok) throw new Error(`eBay image update failed: ${await putRes.text()}`);
       return { message: `Updated images for eBay listing "${action.product_name || sku}" (${finalUrls.length} image${finalUrls.length !== 1 ? 's' : ''})` };
+    }
+
+    case 'ebay_delete_inventory_record': {
+      // Removes an eBay inventory record (the SKU-keyed product record apps use)
+      // that has no live listing — e.g. one left behind after a listing ended,
+      // or created without ever being listed. These don't appear anywhere in
+      // Seller Hub, so sellers can't delete them there. Refuses if the SKU has a
+      // live listing, because deleting the record would end it.
+      const { apiBase, headers: ebayHeaders } = await getEbayClientForActions(supabaseClient, userId);
+      const sku = action.sku;
+      if (!sku) throw new Error('sku is required for ebay_delete_inventory_record.');
+      const itemRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, { headers: ebayHeaders });
+      if (itemRes.status === 404) return { message: `There's no eBay record with SKU ${sku} — nothing to delete.` };
+      if (!itemRes.ok) throw new Error(`Couldn't look up eBay SKU ${sku}: ${itemRes.status} ${await itemRes.text()}`);
+      const item = await itemRes.json();
+      const offersRes = await fetch(`${apiBase}/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`, { headers: ebayHeaders });
+      const offers = offersRes.ok ? ((await offersRes.json()).offers || []) : [];
+      if (!offersRes.ok && offersRes.status !== 404) throw new Error(`Couldn't check eBay listings for SKU ${sku} (${offersRes.status}), so nothing was deleted.`);
+      if (offers.some((o: any) => o.status === 'PUBLISHED')) {
+        throw new Error(`SKU ${sku} has a live eBay listing, so it wasn't deleted. End the listing first if you really want it gone.`);
+      }
+      const delRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, { method: 'DELETE', headers: ebayHeaders });
+      if (!delRes.ok && delRes.status !== 204) throw new Error(`eBay wouldn't delete SKU ${sku}: ${delRes.status} ${await delRes.text()}`);
+      return { message: `Deleted the leftover eBay record "${item.product?.title || sku}" (SKU ${sku}). It had no live listing, so nothing buyers can see changed.` };
     }
 
     case 'ebay_end_listing': {
@@ -9596,6 +9621,7 @@ NEVER say phrases like "I cannot directly upload", "I do not have the capability
   • ebay_update_description← update the listing description on eBay
   • ebay_update_image      ← fix/replace/add photos on an eBay listing. Leave image_url OUT to replace the photos with the matching Shopify product's real photos (by SKU) — use this to fix a missing/broken eBay photo. Only pass image_url when the user gave you the exact link — never invent one; links that don't load are rejected.
   • ebay_end_listing             ← remove a listing from eBay (keeps inventory, can relist)
+  • ebay_delete_inventory_record ← { sku, product_name? } permanently delete a leftover eBay record that has NO live listing (e.g. an old/test SKU the photo check or product list shows but Seller Hub doesn't). Refuses if the SKU is live. Use when the seller asks to get rid of such a record.
   • ebay_relist                  ← re-publish a previously ended eBay listing
   • ebay_update_item_specifics   ← update item specifics/attributes (Brand, Size, Material, etc.) for eBay SEO and buyer filtering
   Amazon Seller Central (SP-API) actions:
