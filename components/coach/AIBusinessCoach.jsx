@@ -1739,6 +1739,17 @@ export default function AIBusinessCoach() {
                                   <p className="text-xs text-red-800">
                                     Approval is turned off for this batch because {unsafeCards.length === 1 ? `card ${unsafeCards[0].i + 1} doesn't` : `cards ${unsafeCards.map(u => u.i + 1).join(', ')} don't`} match a product in your store. Cancel, then ask Orion again and name the products exactly.
                                   </p>
+                                  <div className="flex flex-wrap gap-2 mt-2">
+                                    {pendingActions.map((_, ci) => (
+                                      <button
+                                        key={ci}
+                                        onClick={() => setChatMessages(prev => prev.map((m, mi) => mi === idx ? { ...m, queueIdx: ci } : m))}
+                                        className={`text-xs px-2 py-0.5 rounded border ${ci === queueIdx ? 'bg-red-100 border-red-300 text-red-900 font-semibold' : 'bg-white border-red-200 text-red-700 hover:bg-red-50'}`}
+                                      >
+                                        View card {ci + 1}{unsafeCards.some(u => u.i === ci) ? ' ⚠️' : ''}
+                                      </button>
+                                    ))}
+                                  </div>
                                 </div>
                               )}
 
