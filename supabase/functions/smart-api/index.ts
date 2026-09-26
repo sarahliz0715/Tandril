@@ -247,6 +247,7 @@ function summarizeOrionAction(action: any): string {
     case 'update_price':              return `Updated price for "${name}" → $${action.price}`;
     case 'broadcast_price_change':    return `Broadcast price change for SKU "${action.sku}" → $${action.price} across all platforms`;
     case 'update_title':        return `Updated title of "${name}" → "${action.new_title}"`;
+    case 'replace_text':        return `Changed "${action.find}" to "${action.replace}" in the ${REPLACE_TEXT_FIELDS[action.field || 'description']?.label || 'text'} of "${name}"`;
     case 'update_tags':
     case 'add_tags':            return `Updated tags for "${name}"`;
     case 'upload_image':        return `Uploaded image for "${name}"`;
@@ -524,7 +525,7 @@ serve(async (req) => {
 
       // Log to ai_commands so it appears in the dashboard Activity Log
       // Skip read-only actions that don't change store data
-      const READ_ONLY_ACTIONS = new Set(['get_inventory', 'get_products', 'get_orders', 'get_analytics', 'get_ad_performance', 'suggest_product_links']);
+      const READ_ONLY_ACTIONS = new Set(['get_inventory', 'get_products', 'get_orders', 'get_analytics', 'get_ad_performance', 'suggest_product_links', 'preview_replace_text']);
       if (!READ_ONLY_ACTIONS.has(execute_action.type)) {
         supabaseClient
           .from('ai_commands')
@@ -680,6 +681,17 @@ serve(async (req) => {
 
     // Show the seller the real product behind every product card (and block mismatches).
     annotateShopifyTargets(pendingActions, storeContext.products, message || '');
+
+    // Find-and-replace cards show the exact sentence before and after, read live
+    // from the store. A card whose words aren't there is blocked, not guessed at.
+    for (const a of pendingActions) {
+      if (a?.type !== 'replace_text') continue;
+      try {
+        a._preview = await executeStoreAction(supabaseClient, userId, { ...a, type: 'preview_replace_text' });
+      } catch (e: any) {
+        a._preview = { error: e.message };
+      }
+    }
 
     if (conversationId) {
       // Await the assistant message save so it completes before the function returns.
@@ -984,8 +996,78 @@ function withUndo(action: any, u: { before?: any; target?: Record<string, any>; 
 const SHOPIFY_PRODUCT_ACTION_TYPES = new Set([
   'update_title', 'update_description', 'update_seo_listing', 'update_image_alt', 'update_image_alt_text',
   'update_tags', 'add_tags', 'update_url_handle', 'update_status', 'update_metafield',
-  'update_price', 'update_inventory', 'add_image', 'set_image', 'upload_image',
+  'update_price', 'update_inventory', 'add_image', 'set_image', 'upload_image', 'replace_text',
 ]);
+
+// ── Find and replace inside a product's text ──────────────────────────────────
+// Lets Orion fix a typo or swap a word without rewriting (and possibly changing)
+// the whole description. Only text between HTML tags is touched, never tags.
+const REPLACE_TEXT_FIELDS: Record<string, { label: string; html: boolean; undoType: string; key: string }> = {
+  description:     { label: 'description',        html: true,  undoType: 'update_description', key: 'body_html' },
+  title:           { label: 'title',              html: false, undoType: 'update_title',       key: 'new_title' },
+  seo_title:       { label: 'search title',       html: false, undoType: 'update_seo_listing', key: 'seo_title' },
+  seo_description: { label: 'search description', html: false, undoType: 'update_seo_listing', key: 'seo_description' },
+};
+
+function escapeRegExp(s: string) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+function htmlToPlain(s: string): string {
+  return String(s || '').replace(/<br\s*\/?>(\s*)/gi, '\n').replace(/<\/p>/gi, '\n').replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#39;|&rsquo;|&#8217;/g, "'").replace(/&quot;/g, '"');
+}
+
+// The sentence (or ~200 chars) around the first occurrence of `needle` in `text`.
+function sentenceAround(text: string, needle: string, ci: boolean): string {
+  const hay = ci ? text.toLowerCase() : text;
+  const at = hay.indexOf(ci ? needle.toLowerCase() : needle);
+  if (at === -1) return '';
+  let start = at, end = at + needle.length;
+  while (start > 0 && !/[.!?\n]/.test(text[start - 1]) && at - start < 200) start--;
+  while (end < text.length && !/[.!?\n]/.test(text[end]) && end - at < 200) end++;
+  if (end < text.length && /[.!?]/.test(text[end])) end++;
+  return (start > 0 && !/[.!?\n]/.test(text[start - 1]) ? '…' : '') + text.slice(start, end).trim() + (end < text.length && !/[.!?\n]/.test(text[end - 1]) ? '…' : '');
+}
+
+function computeTextReplacement(original: string, find: string, replace: string, isHtml: boolean) {
+  const tryMatch = (flags: string) => {
+    const re = new RegExp(escapeRegExp(find), flags);
+    let count = 0;
+    const swap = (part: string) => part.replace(re, () => { count++; return replace; });
+    const updated = isHtml
+      ? original.split(/(<[^>]*>)/).map((part, i) => (i % 2 === 1 ? part : swap(part))).join('')
+      : swap(original);
+    return { count, updated };
+  };
+  let ci = false;
+  let r = tryMatch('g');
+  if (r.count === 0) { r = tryMatch('gi'); ci = r.count > 0; }
+  // In HTML, "&" and apostrophes are usually stored as entities.
+  if (r.count === 0 && isHtml && /[&']/.test(find)) {
+    for (const alt of [find.replace(/&/g, '&amp;'), find.replace(/&/g, '&amp;').replace(/'/g, '&#39;'), find.replace(/&/g, '&amp;').replace(/'/g, '&rsquo;')]) {
+      if (alt === find) continue;
+      const re = new RegExp(escapeRegExp(alt), 'g');
+      let count = 0;
+      const updated = original.split(/(<[^>]*>)/).map((part, i) => (i % 2 === 1 ? part : part.replace(re, () => { count++; return replace; }))).join('');
+      if (count > 0) { r = { count, updated }; break; }
+    }
+  }
+  const plainBefore = isHtml ? htmlToPlain(original) : original;
+  const plainAfter = isHtml ? htmlToPlain(r.updated) : r.updated;
+  // When words are deleted, anchor the "after" sentence on the text that followed them.
+  let anchor = replace;
+  if (!replace.trim()) {
+    const hay = ci ? plainBefore.toLowerCase() : plainBefore;
+    const at = hay.indexOf(ci ? find.toLowerCase() : find);
+    anchor = at === -1 ? '' : plainBefore.slice(at + find.length, at + find.length + 20).trim();
+  }
+  return {
+    count: r.count,
+    updated: r.updated,
+    case_insensitive: ci,
+    before: sentenceAround(plainBefore, find, ci),
+    after: anchor ? sentenceAround(plainAfter, anchor, false) : '',
+  };
+}
 
 const normTitle = (t: string) => String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
@@ -2953,11 +3035,12 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         ebay_relist: 'ebay_end_listing',
         ebay_delete_inventory_record: 'ebay_restore_inventory_record',
       };
-      const undoType = UNDO_TYPE[original_type]
+      const { _undo_type, ...restoredState } = previous_state;
+      const undoType = _undo_type || UNDO_TYPE[original_type]
         || (original_type.endsWith('_end_listing') ? original_type.replace(/_end_listing$/, '_renew_listing')
         : original_type.endsWith('_renew_listing') ? original_type.replace(/_renew_listing$/, '_end_listing')
         : original_type);
-      const syntheticAction = { ...(target || {}), type: undoType, ...previous_state };
+      const syntheticAction = { ...(target || {}), type: undoType, ...restoredState };
       const undone = await executeStoreAction(supabaseClient, userId, syntheticAction);
       // The replayed handler captures its own previous_state (i.e. the value we're
       // undoing FROM) — strip it so the undo itself doesn't show as further undoable.
@@ -3207,6 +3290,45 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         message: `Updated image alt text for "${targetProduct.title}" to "${action.alt_text}"`,
         previous_state: { alt_text: firstImage.alt || '' },
         target: { product_id: targetProduct.id, sku: action.sku, product_name: action.product_name },
+      };
+    }
+
+    case 'preview_replace_text':
+    case 'replace_text': {
+      const field = REPLACE_TEXT_FIELDS[String(action.field || 'description')];
+      if (!field) throw new Error(`field must be one of: ${Object.keys(REPLACE_TEXT_FIELDS).join(', ')}.`);
+      const find = String(action.find ?? '');
+      const replace = String(action.replace ?? '');
+      if (!find.trim()) throw new Error('find (the exact words to change) is required.');
+      if (find === replace) throw new Error('find and replace are the same, so there is nothing to change.');
+      const targetProduct = await resolveShopifyProduct(shopDomain, accessToken, action);
+      const cur = await shopifyGraphQL(shopDomain, accessToken, `
+        query($id: ID!) { product(id: $id) { title descriptionHtml seo { title description } } }
+      `, { id: targetProduct._gid });
+      const p = cur.product || {};
+      const original = field.key === 'body_html' ? (p.descriptionHtml || '')
+        : field.key === 'new_title' ? (p.title || '')
+        : field.key === 'seo_title' ? (p.seo?.title || '')
+        : (p.seo?.description || '');
+      if (!original) throw new Error(`"${targetProduct.title}" has no ${field.label} yet, so there is nothing to find.`);
+      const result = computeTextReplacement(original, find, replace, field.html);
+      if (result.count === 0) {
+        throw new Error(`Couldn't find "${find}" in the ${field.label} of "${targetProduct.title}". Nothing was changed.`);
+      }
+      if (action.type === 'preview_replace_text') {
+        return { field: field.label, count: result.count, case_insensitive: result.case_insensitive,
+          before: result.before, after: result.after, product_title: targetProduct.title };
+      }
+      // Write through the existing field handler so its undo data is captured the usual way.
+      const written = await executeStoreAction(supabaseClient, userId, {
+        type: field.undoType, product_id: targetProduct.id, product_name: targetProduct.title, sku: action.sku,
+        [field.key]: result.updated,
+      });
+      return {
+        ...written,
+        message: `Changed "${find}" to "${replace}" in the ${field.label} of "${targetProduct.title}"` +
+          (result.count > 1 ? ` (${result.count} places)` : ''),
+        previous_state: { ...(written?.previous_state || {}), _undo_type: field.undoType },
       };
     }
 
@@ -10166,6 +10288,10 @@ To update a price (use exact SKU from the product list below):
 
 To rename/update a product title (e.g. for SEO or seasonal refresh):
 [ORION_ACTION:{"type":"update_title","product_name":"Current Product Title","sku":"SKU-001","new_title":"New Product Title"}]
+
+To fix a typo or change/remove specific words in a Shopify product's description, title, search title or search description WITHOUT rewriting the rest (you don't see the current text — Tandril reads it and shows the seller the exact before/after sentence):
+[ORION_ACTION:{"type":"replace_text","product_id":"8230428115136","product_name":"Spring Tulip Floral Tote | Chic Large Carryall","field":"description","find":"Styleish","replace":"Stylish"}]
+field is one of "description" (default), "title", "seo_title", "seo_description". "find" is the exact words the seller quoted; "replace" is the new words ("" deletes them). Every place the words appear in that field is changed. ALWAYS use replace_text — never update_description or update_title — when the seller asks to fix a typo, change a word/phrase, or remove a phrase: those rewrite the whole text, and you don't know the rest of it. Never ask the seller to paste the text first; just send the card. If Tandril can't find the words, the card says so and nothing changes.
 
 To add/upload an image to a product (ONLY when the user has attached an image file — use upload_image, NEVER update_product):
 [ORION_ACTION:{"type":"upload_image","product_name":"Product Title","sku":"SKU-001","image_from_upload":true}]
