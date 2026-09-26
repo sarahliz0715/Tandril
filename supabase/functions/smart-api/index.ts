@@ -247,7 +247,12 @@ function summarizeOrionAction(action: any): string {
     case 'update_price':              return `Updated price for "${name}" → $${action.price}`;
     case 'broadcast_price_change':    return `Broadcast price change for SKU "${action.sku}" → $${action.price} across all platforms`;
     case 'update_title':        return `Updated title of "${name}" → "${action.new_title}"`;
-    case 'replace_text':        return `Changed "${action.find}" to "${action.replace}" in the ${REPLACE_TEXT_FIELDS[action.field || 'description']?.label || 'text'} of "${name}"`;
+    case 'replace_text': {
+      const where = `the ${REPLACE_TEXT_FIELDS[action.field || 'description']?.label || 'text'} of "${name}"`;
+      return action.replace
+        ? `Changed "${action.find}" to "${action.replace}" in ${where}`
+        : `Removed "${action.find}" from ${where}`;
+    }
     case 'update_tags':
     case 'add_tags':            return `Updated tags for "${name}"`;
     case 'upload_image':        return `Uploaded image for "${name}"`;
@@ -3326,7 +3331,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       });
       return {
         ...written,
-        message: `Changed "${find}" to "${replace}" in the ${field.label} of "${targetProduct.title}"` +
+        message: (replace ? `Changed "${find}" to "${replace}" in` : `Removed "${find}" from`) + ` the ${field.label} of "${targetProduct.title}"` +
           (result.count > 1 ? ` (${result.count} places)` : ''),
         previous_state: { ...(written?.previous_state || {}), _undo_type: field.undoType },
       };
