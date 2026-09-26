@@ -522,21 +522,34 @@ export default function AIBusinessCoach() {
     }));
   };
 
+  // Goes back one card to review it again. Can't go back past a card that
+  // already ran (multi-platform cards apply immediately).
+  const handleBack = (messageIdx) => {
+    setChatMessages(prev => prev.map((m, i) => {
+      if (i !== messageIdx) return m;
+      const queueIdx = m.queueIdx || 0;
+      return { ...m, queueIdx: Math.max(m.appliedThrough || 0, queueIdx - 1) };
+    }));
+  };
+
   // Applies every action in the queue in one batch. Called either when the
   // queue has only one action, or after the user has approved every card —
   // so the store only gets written to once, not once per product.
   const handleApproveAndApplyAll = async (messageIdx) => {
     const msg = chatMessages[messageIdx];
     const pendingActions = msg.pendingActions || [];
-    if (pendingActions.length === 0) return;
+    // Cards before appliedThrough already ran (multi-platform cards apply
+    // immediately); everything else was only reviewed, so run it now.
+    const firstUnapplied = msg.appliedThrough || 0;
+    if (pendingActions.length <= firstUnapplied) return;
 
-    setChatMessages(prev => prev.map((m, i) => i === messageIdx ? { ...m, executing: true, queueIdx: 0 } : m));
+    setChatMessages(prev => prev.map((m, i) => i === messageIdx ? { ...m, executing: true, queueIdx: firstUnapplied } : m));
     setIsChatLoading(true);
 
-    const localResults = [];
-    const localErrors = [];
+    const localResults = [...(msg.queueResults || [])];
+    const localErrors = [...(msg.queueErrors || [])];
 
-    for (let i = 0; i < pendingActions.length; i++) {
+    for (let i = firstUnapplied; i < pendingActions.length; i++) {
       setChatMessages(prev => prev.map((m, idx) =>
         idx === messageIdx ? { ...m, executing: true, queueIdx: i } : m
       ));
@@ -570,7 +583,10 @@ export default function AIBusinessCoach() {
   const handleConfirmAll = async (messageIdx) => {
     const msg = chatMessages[messageIdx];
     const pendingActions = msg.pendingActions || [];
-    const startIdx = msg.queueIdx || 0;
+    // "Approve & Next" only reviews, it doesn't apply — so start from the first
+    // card that hasn't actually run, not from the card on screen. Otherwise
+    // cards the seller already approved would be silently dropped.
+    const startIdx = msg.appliedThrough || 0;
     const remaining = pendingActions.slice(startIdx);
     if (remaining.length === 0) return;
 
@@ -646,6 +662,7 @@ export default function AIBusinessCoach() {
         ...m,
         executing: false,
         queueIdx: newQueueIdx,
+        appliedThrough: newQueueIdx,
         queueResults: [...(m.queueResults || []), ...newResults],
         queueErrors: [...(m.queueErrors || []), ...newErrors],
         queueDone: isDone,
@@ -967,17 +984,31 @@ export default function AIBusinessCoach() {
             case 'update_image_alt':
             case 'update_image_alt_text': return `🔍 Alt text → "${a.alt_text}"`;
             case 'update_metafield': return `🔧 ${(a.metafield_key || '').replace(/_/g, ' ')} → "${a.metafield_value}"`;
-            case 'update_description': return `📝 Description updated`;
-            case 'update_seo_listing': return `🔍 SEO: "${a.seo_title}"`;
+            case 'update_description': return `📝 Description → "${String(a.description || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}"`;
+            case 'update_seo_listing': return [
+              a.seo_title && `🔍 Search title → "${a.seo_title}"`,
+              a.seo_description && `🔍 Search description → "${a.seo_description}"`,
+            ].filter(Boolean).join('\n');
             case 'update_url_handle': return `🔗 URL → "${a.new_handle}"`;
             case 'update_tags': return `🏷️ Tags → ${Array.isArray(a.tags) ? a.tags.join(', ') : a.tags}`;
             case 'update_status': return `🔄 Status → ${a.status}`;
             default: return `⚡ ${a.type}`;
           }
         });
+        // Say plainly what this card leaves alone, so a missing step is visible
+        // (e.g. an SEO redo that never replaces a wrong product description).
+        const types = new Set(subActions.map(a => a.type));
+        const seoCard = types.has('update_seo_listing') || types.has('update_tags') || types.has('update_image_alt') || types.has('update_image_alt_text');
+        const notChanged = seoCard ? [
+          !types.has('update_description') && 'product description',
+          !subActions.some(a => a.type === 'update_seo_listing' && a.seo_description) && 'search description',
+        ].filter(Boolean) : [];
         return {
           icon: '🔄', title: `${subActions.length} Changes on "${action.product_name || action.sku}"`,
-          fields: actionLabels.map((label) => ({ label: '', value: label })),
+          fields: [
+            ...actionLabels.flatMap((label) => String(label).split('\n')).map((label) => ({ label: '', value: label })),
+            notChanged.length > 0 && { label: '', value: `⚪ Not changed: ${notChanged.join(', ')}` },
+          ].filter(Boolean),
         };
       }
       case 'draft_ad':
@@ -1679,7 +1710,8 @@ export default function AIBusinessCoach() {
                           const currentAction = pendingActions[queueIdx];
                           if (!currentAction) return null;
                           const info = getActionInfo(currentAction);
-                          const remainingCount = total - queueIdx;
+                          const firstUnapplied = msg.appliedThrough || 0;
+                          const remainingCount = total - firstUnapplied;
                           const isMultiPlatform = Array.isArray(currentAction.platforms) && currentAction.platforms.length > 1;
                           const selectionKey = `${idx}-${queueIdx}`;
                           const selectedPlatforms = isMultiPlatform
@@ -1815,6 +1847,14 @@ export default function AIBusinessCoach() {
                               {/* Buttons */}
                               {!isExecuting ? (
                                 <div className="flex gap-2 px-4 py-3 bg-slate-50 border-t border-slate-100 flex-wrap">
+                                  {queueIdx > firstUnapplied && (
+                                    <button
+                                      onClick={() => handleBack(idx)}
+                                      className="px-4 py-2 text-sm font-medium bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
+                                    >
+                                      ← Back
+                                    </button>
+                                  )}
                                   <button
                                     onClick={() => {
                                       if (isMultiPlatform) {
