@@ -247,8 +247,20 @@ function summarizeOrionAction(action: any): string {
     case 'update_image_alt':
     case 'update_image_alt_text': return `Updated image alt text for "${name}"`;
     case 'multi_action': {
-      const desc = action.description || `${(action.actions || []).length} updates`;
-      return `Orion: ${desc} on "${name}"`;
+      // Built from the steps, not action.description — Orion sometimes puts
+      // the whole new product description there, which made History titles
+      // read like "Orion: Carry your essentials in timeless style…".
+      const STEP_LABELS: Record<string, string> = {
+        update_title: 'title', update_description: 'description', update_seo_listing: 'search listing',
+        update_image_alt: 'alt text', update_image_alt_text: 'alt text', update_tags: 'tags', add_tags: 'tags',
+        update_price: 'price', update_inventory: 'stock', update_status: 'status', update_url_handle: 'URL',
+        update_metafield: 'details', add_image: 'photo', set_image: 'photo', upload_image: 'photo',
+      };
+      const steps = action.actions || [];
+      const labels = [...new Set(steps.map((a: any) => STEP_LABELS[a.type] || String(a.type || '').replace(/_/g, ' ')))].filter(Boolean);
+      const isSeo = steps.some((a: any) => a.type === 'update_seo_listing');
+      const what = labels.length ? labels.join(', ') : `${steps.length} updates`;
+      return `${isSeo ? 'SEO update' : 'Updated'} (${what}) for "${name}"`;
     }
     case 'batch_update': {
       const count = (action.updates || []).length;
