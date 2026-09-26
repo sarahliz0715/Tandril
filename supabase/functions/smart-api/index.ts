@@ -657,7 +657,7 @@ serve(async (req) => {
     }
 
     // Show the seller the real product behind every product card (and block mismatches).
-    annotateShopifyTargets(pendingActions, storeContext.products);
+    annotateShopifyTargets(pendingActions, storeContext.products, message || '');
 
     if (conversationId) {
       // Await the assistant message save so it completes before the function returns.
@@ -975,7 +975,7 @@ const normTitle = (t: string) => String(t || '').toLowerCase().replace(/[^a-z0-9
  * and can't be approved. When it's safe, the action is pinned to that product ID
  * so what runs is exactly what the seller saw.
  */
-function annotateShopifyTargets(actions: any[], catalog: any[]) {
+function annotateShopifyTargets(actions: any[], catalog: any[], userMessage = '') {
   if (!Array.isArray(catalog) || catalog.length === 0) return;
   const shopifyCatalog = catalog.filter((p: any) => p.platform_type === 'shopify' && p.id);
   if (shopifyCatalog.length === 0) return;
@@ -990,9 +990,23 @@ function annotateShopifyTargets(actions: any[], catalog: any[]) {
       (action.type === 'multi_action' && (action.actions || []).some((a: any) => SHOPIFY_PRODUCT_ACTION_TYPES.has(a.type)));
     if (!touchesProduct) continue;
 
+    // Orion sometimes invents material/care facts it can't know (e.g. "canvas" for a
+    // polyester print-on-demand bag). Drop those steps unless the seller asked about them.
+    if (action.type === 'multi_action' && !/material|fabric|care|wash/i.test(userMessage)) {
+      action.actions = (action.actions || []).filter((a: any) =>
+        !(a.type === 'update_metafield' && /material|care/i.test(String(a.metafield_key || ''))));
+    }
+
+    // A unique exact title match wins: Orion copies titles from the seller's message
+    // reliably but sometimes gets the product ID wrong. The card still shows the
+    // product's real title and photo for the seller to check before approving.
+    const exact = action.product_name
+      ? lookup.filter((p: any) => normTitle(p.title) === normTitle(action.product_name))
+      : [];
     const rawId = String(action.product_id ?? '').replace(/[^0-9]/g, '');
     let hit: any = null;
-    if (rawId) hit = lookup.find((p: any) => String(p.id) === rawId) || null;
+    if (exact.length === 1) hit = exact[0];
+    else if (rawId) hit = lookup.find((p: any) => String(p.id) === rawId) || null;
     else hit = findProduct(lookup, action.sku, action.product_name);
 
     if (!hit) {
