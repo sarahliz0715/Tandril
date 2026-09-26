@@ -334,6 +334,7 @@ Click **Workflows** in the sidebar. Open any existing workflow and review its tr
 - [ ] Add `EBAY_APP_ID` secret to Supabase if not already present
 - [ ] Wait for Shivangi (Etsy) approval before any resubmission
 - [ ] Fix mock data in QuickInsights, InventoryOverview, ProfitLossAnalysis (deferred — intentional until user connects store)
+- [ ] (Idea, not started) Reorder-point calculator — sales speed × supplier lead time → "time to reorder" alerts. A first draft (PR #171, branch `claude/orion-positioning-83te6i`) was closed unmerged Sept 26, 2026: 0 suppliers exist in production so it could never fire, nothing ran it, and it only read the first 250 products/orders. Rebuild with pagination and a UI once sellers who buy stock from suppliers are onboard; skip print-on-demand items (Shopify shows 9999).
 
 ---
 
