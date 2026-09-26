@@ -922,6 +922,43 @@ function findProduct(allProducts: any[], sku: string, productName: string): any 
   return null;
 }
 
+/** Fetch JSON, returning null on any failure (used for best-effort undo snapshots). */
+async function safeJson(req: Promise<Response>): Promise<any> {
+  try { const r = await req; return r.ok ? await r.json() : null; } catch { return null; }
+}
+
+/**
+ * Attaches undo data to a platform edit result. `u.before` holds the product's
+ * values read just before the change; undo replays the same action with the old
+ * value (end ↔ renew is swapped by undo_action). Nothing is attached when the
+ * old value couldn't be read, so History never offers an undo it can't do.
+ */
+function withUndo(action: any, u: { before?: any; target?: Record<string, any>; titleKey?: string } | null, result: any) {
+  const b = u?.before;
+  if (!b) return result;
+  const op = String(action.type).replace(/^[a-z]+_(?=(update_|end_listing|renew_listing))/, '');
+  const has = (v: any) => v !== undefined && v !== null && v !== '';
+  let ps: any = null;
+  if (op === 'update_price' && has(b.price) && !isNaN(Number(b.price))) ps = { price: Number(b.price) };
+  else if (op === 'update_inventory' && has(b.quantity) && !isNaN(Number(b.quantity))) ps = { quantity: Number(b.quantity) };
+  else if (op === 'update_title' && has(b.title)) ps = { [u?.titleKey || 'new_title']: b.title };
+  else if (op === 'update_description' && b.description != null) ps = { description: b.description };
+  else if (op === 'update_tags' && b.tags != null) ps = { tags: b.tags };
+  else if (op === 'end_listing') ps = { was_live: true, ...(has(b.quantity) ? { quantity: Number(b.quantity) } : {}) };
+  else if (op === 'renew_listing') ps = { was_live: false };
+  if (!ps) return result;
+  const newTitle = action.new_title ?? action.title;
+  return {
+    ...result,
+    previous_state: ps,
+    target: {
+      sku: action.sku,
+      product_name: op === 'update_title' && newTitle ? newTitle : action.product_name,
+      ...(u?.target || {}),
+    },
+  };
+}
+
 const SHOPIFY_PRODUCT_ACTION_TYPES = new Set([
   'update_title', 'update_description', 'update_seo_listing', 'update_image_alt', 'update_image_alt_text',
   'update_tags', 'add_tags', 'update_url_handle', 'update_status', 'update_metafield',
@@ -2064,7 +2101,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
               for (const m of activeListXml.matchAll(/<Item>([\s\S]*?)<\/Item>/g)) {
                 const x = m[1];
                 const itemId = x.match(/<ItemID>([^<]+)<\/ItemID>/)?.[1]?.trim();
-                const title = x.match(/<Title>([^<]+)<\/Title>/)?.[1]?.trim() || 'eBay Item';
+                const title = (x.match(/<Title>([^<]+)<\/Title>/)?.[1]?.trim() || 'eBay Item')
+                  .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
                 const sku = x.match(/<SKU>([^<]+)<\/SKU>/)?.[1]?.trim() || `ebay-${itemId}`;
                 const price = parseFloat(x.match(/<CurrentPrice[^>]*>([^<]+)<\/CurrentPrice>/)?.[1] || '0') || 0;
                 const totalStock = parseInt(x.match(/<QuantityAvailable>([^<]+)<\/QuantityAvailable>/)?.[1] || x.match(/<Quantity>([^<]+)<\/Quantity>/)?.[1] || '0') || 0;
@@ -2873,7 +2911,17 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         }
         return { message: msgs.join('\n') };
       }
-      const syntheticAction = { ...(target || {}), type: original_type, ...previous_state };
+      // Actions whose undo is a different action (end ↔ relist, delete → restore).
+      const UNDO_TYPE: Record<string, string> = {
+        ebay_end_listing: 'ebay_relist',
+        ebay_relist: 'ebay_end_listing',
+        ebay_delete_inventory_record: 'ebay_restore_inventory_record',
+      };
+      const undoType = UNDO_TYPE[original_type]
+        || (original_type.endsWith('_end_listing') ? original_type.replace(/_end_listing$/, '_renew_listing')
+        : original_type.endsWith('_renew_listing') ? original_type.replace(/_renew_listing$/, '_end_listing')
+        : original_type);
+      const syntheticAction = { ...(target || {}), type: undoType, ...previous_state };
       const undone = await executeStoreAction(supabaseClient, userId, syntheticAction);
       // The replayed handler captures its own previous_state (i.e. the value we're
       // undoing FROM) — strip it so the undo itself doesn't show as further undoable.
@@ -3278,7 +3326,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       });
       if (!putRes.ok) throw new Error(`eBay inventory update failed: ${await putRes.text()}`);
       await syncEbayOfferQuantities(apiBase, ebayHeaders, sku, Number(action.quantity));
-      return { message: `Updated eBay inventory for "${action.product_name || sku}" to ${action.quantity} units` };
+      const prevQty = currentItem.availability?.shipToLocationAvailability?.quantity;
+      return {
+        message: `Updated eBay inventory for "${action.product_name || sku}" to ${action.quantity} units`,
+        ...(prevQty != null ? { previous_state: { quantity: prevQty }, target: { sku, product_name: action.product_name } } : {}),
+      };
     }
 
     case 'ebay_update_price': {
@@ -3308,7 +3360,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         body: JSON.stringify(offerBody),
       });
       if (!putRes.ok) throw new Error(`eBay price update failed: ${await putRes.text()}`);
-      return { message: `Updated eBay price for "${action.product_name || sku}" to $${action.price}` };
+      const prevPrice = offer.pricingSummary?.price?.value;
+      return {
+        message: `Updated eBay price for "${action.product_name || sku}" to $${action.price}`,
+        ...(prevPrice != null ? { previous_state: { price: prevPrice }, target: { sku, product_name: action.product_name } } : {}),
+      };
     }
 
     case 'ebay_update_title': {
@@ -3327,7 +3383,10 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         body: JSON.stringify({ ...currentItem, product: { ...currentItem.product, title: action.new_title } }),
       });
       if (!putRes.ok) throw new Error(`eBay title update failed: ${await putRes.text()}`);
-      return { message: `Updated eBay listing title for "${action.product_name || sku}" to "${action.new_title}"` };
+      return {
+        message: `Updated eBay listing title for "${action.product_name || sku}" to "${action.new_title}"`,
+        ...(currentItem.product?.title ? { previous_state: { new_title: currentItem.product.title }, target: { sku, product_name: action.product_name } } : {}),
+      };
     }
 
     case 'ebay_update_description': {
@@ -3346,7 +3405,10 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         body: JSON.stringify({ ...currentItem, product: { ...currentItem.product, description: action.description } }),
       });
       if (!putRes.ok) throw new Error(`eBay description update failed: ${await putRes.text()}`);
-      return { message: `Updated eBay description for "${action.product_name || sku}"` };
+      return {
+        message: `Updated eBay description for "${action.product_name || sku}"`,
+        ...(currentItem.product?.description ? { previous_state: { description: currentItem.product.description }, target: { sku, product_name: action.product_name } } : {}),
+      };
     }
 
     case 'ebay_update_image': {
@@ -3380,7 +3442,10 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         body: JSON.stringify({ ...currentItem, product: { ...currentItem.product, imageUrls: finalUrls } }),
       });
       if (!putRes.ok) throw new Error(`eBay image update failed: ${await putRes.text()}`);
-      return { message: `Updated images for eBay listing "${action.product_name || sku}" (${finalUrls.length} image${finalUrls.length !== 1 ? 's' : ''})` };
+      return {
+        message: `Updated images for eBay listing "${action.product_name || sku}" (${finalUrls.length} image${finalUrls.length !== 1 ? 's' : ''})`,
+        ...(existingUrls.length ? { previous_state: { image_urls: existingUrls, replace_images: true }, target: { sku, product_name: action.product_name } } : {}),
+      };
     }
 
     case 'ebay_delete_inventory_record': {
@@ -3404,7 +3469,24 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       }
       const delRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, { method: 'DELETE', headers: ebayHeaders });
       if (!delRes.ok && delRes.status !== 204) throw new Error(`eBay wouldn't delete SKU ${sku}: ${delRes.status} ${await delRes.text()}`);
-      return { message: `Deleted the leftover eBay record "${item.product?.title || sku}" (SKU ${sku}). It had no live listing, so nothing buyers can see changed.` };
+      return {
+        message: `Deleted the leftover eBay record "${item.product?.title || sku}" (SKU ${sku}). It had no live listing, so nothing buyers can see changed.`,
+        previous_state: { item },
+        target: { sku, product_name: item.product?.title },
+      };
+    }
+
+    case 'ebay_restore_inventory_record': {
+      // Undo for ebay_delete_inventory_record: puts the saved record back.
+      const { apiBase, headers: ebayHeaders } = await getEbayClientForActions(supabaseClient, userId);
+      const sku = action.sku;
+      if (!sku || !action.item) throw new Error('sku and the saved record are required to restore an eBay record.');
+      const { sku: _s, ...itemBody } = action.item;
+      const putRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, {
+        method: 'PUT', headers: ebayHeaders, body: JSON.stringify(itemBody),
+      });
+      if (!putRes.ok) throw new Error(`eBay wouldn't restore SKU ${sku}: ${putRes.status} ${await putRes.text()}`);
+      return { message: `Restored the eBay record "${action.item.product?.title || sku}" (SKU ${sku}).` };
     }
 
     case 'ebay_end_listing': {
@@ -3427,7 +3509,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         headers: ebayHeaders,
       });
       if (!withdrawRes.ok) throw new Error(`eBay end listing failed: ${await withdrawRes.text()}`);
-      return { message: `Ended eBay listing for "${action.product_name || sku}". It has been removed from eBay — inventory is preserved and it can be relisted anytime.` };
+      return {
+        message: `Ended eBay listing for "${action.product_name || sku}". It has been removed from eBay — inventory is preserved and it can be relisted anytime.`,
+        previous_state: { was_live: true },
+        target: { sku, product_name: action.product_name },
+      };
     }
 
     case 'ebay_relist': {
@@ -3450,7 +3536,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         headers: ebayHeaders,
       });
       if (!publishRes.ok) throw new Error(`eBay relist failed: ${await publishRes.text()}`);
-      return { message: `Relisted "${action.product_name || sku}" on eBay successfully.` };
+      return {
+        message: `Relisted "${action.product_name || sku}" on eBay successfully.`,
+        previous_state: { was_live: false },
+        target: { sku, product_name: action.product_name },
+      };
     }
 
     case 'ebay_update_item_specifics': {
@@ -3483,7 +3573,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       if (!putRes.ok) throw new Error(`eBay item specifics update failed: ${await putRes.text()}`);
 
       const updatedKeys = Object.keys(normalized).join(', ');
-      return { message: `Updated eBay item specifics for "${action.product_name || sku}": ${updatedKeys}` };
+      return {
+        message: `Updated eBay item specifics for "${action.product_name || sku}": ${updatedKeys}`,
+        previous_state: { item_specifics: existingAspects, replace_all: true },
+        target: { sku, product_name: action.product_name },
+      };
     }
 
     case 'ebay_create_listing': {
@@ -3694,6 +3788,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     case 'tiktok_update_price': {
       const { apiBase: ttBase, headers: ttHeaders, shopId } = await getTikTokClientForActions(supabaseClient, userId);
       const product = await findTikTokProduct(ttBase, ttHeaders, shopId, action.product_name, action.sku);
+      const U = { before: { price: product.skus?.[0]?.price?.original_price ?? product.skus?.[0]?.price?.sale_price, quantity: product.skus?.[0]?.inventory?.[0]?.quantity, title: product.title, description: product.description }, target: {} };
       const skuId = product.skus?.[0]?.id;
       if (!skuId) throw new Error(`No SKU found on TikTok product "${action.product_name || action.sku}".`);
 
@@ -3707,12 +3802,13 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       if (!res.ok) throw new Error(`TikTok price update failed: ${await res.text()}`);
       const data = await res.json();
       if (data.code !== 0) throw new Error(`TikTok API error: ${data.message}`);
-      return { message: `Updated TikTok Shop price for "${action.product_name || action.sku}" to $${action.price}` };
+      return withUndo(action, U, { message: `Updated TikTok Shop price for "${action.product_name || action.sku}" to $${action.price}` });
     }
 
     case 'tiktok_update_inventory': {
       const { apiBase: ttBase, headers: ttHeaders, shopId } = await getTikTokClientForActions(supabaseClient, userId);
       const product = await findTikTokProduct(ttBase, ttHeaders, shopId, action.product_name, action.sku);
+      const U = { before: { price: product.skus?.[0]?.price?.original_price ?? product.skus?.[0]?.price?.sale_price, quantity: product.skus?.[0]?.inventory?.[0]?.quantity, title: product.title, description: product.description }, target: {} };
       const firstSku = product.skus?.[0];
       if (!firstSku?.id) throw new Error(`No SKU found on TikTok product "${action.product_name || action.sku}".`);
 
@@ -3737,7 +3833,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       if (!res.ok) throw new Error(`TikTok inventory update failed: ${await res.text()}`);
       const data = await res.json();
       if (data.code !== 0) throw new Error(`TikTok API error: ${data.message}`);
-      return { message: `Updated TikTok Shop inventory for "${action.product_name || action.sku}" to ${action.quantity} units` };
+      return withUndo(action, U, { message: `Updated TikTok Shop inventory for "${action.product_name || action.sku}" to ${action.quantity} units` });
     }
 
     case 'instagram_update_price': {
@@ -3761,6 +3857,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const igPriceCents = Math.round(parseFloat(String(action.price)) * 100);
       const igPriceStr = `${igPriceCents} USD`;
       const igProductId = action.product_id;
+      const igBefore = await safeJson(fetch(`https://graph.facebook.com/v19.0/${igProductId}?fields=price&access_token=${encodeURIComponent(igPriceToken)}`));
+      const U = { before: { price: igBefore?.price ? String(igBefore.price).replace(/[^0-9.]/g, '') : null }, target: { product_id: igProductId, retailer_id: action.retailer_id } };
 
       const igPriceRes = await fetch(`https://graph.facebook.com/v19.0/${igProductId}`, {
         method: 'POST',
@@ -3771,7 +3869,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         const igPriceErr = await igPriceRes.json();
         throw new Error(`Instagram price update failed: ${igPriceErr?.error?.message || igPriceRes.status}`);
       }
-      return { message: `Updated Instagram Shopping price for "${action.product_name || igProductId}" to $${action.price}` };
+      return withUndo(action, U, { message: `Updated Instagram Shopping price for "${action.product_name || igProductId}" to $${action.price}` });
     }
 
     case 'instagram_update_inventory': {
@@ -3792,6 +3890,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const igCatalogId = igInvPlat.metadata?.catalog_id;
       if (!igInvToken || !igCatalogId) throw new Error('Instagram access token or catalog_id missing.');
 
+      const igInvBefore = await safeJson(fetch(`https://graph.facebook.com/v19.0/${igCatalogId}/products?fields=inventory&filter=${encodeURIComponent(JSON.stringify({ retailer_id: { eq: action.retailer_id } }))}&access_token=${encodeURIComponent(igInvToken)}`));
+      const U = { before: { quantity: igInvBefore?.data?.[0]?.inventory }, target: { retailer_id: action.retailer_id } };
       const igAvailability = Number(action.quantity) > 0 ? 'in stock' : 'out of stock';
       const igInvRes = await fetch(`https://graph.facebook.com/v19.0/${igCatalogId}/items_batch`, {
         method: 'POST',
@@ -3810,13 +3910,14 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         const igInvErr = await igInvRes.json();
         throw new Error(`Instagram inventory update failed: ${igInvErr?.error?.message || igInvRes.status}`);
       }
-      return { message: `Updated Instagram Shopping inventory for "${action.product_name || action.retailer_id}" to ${action.quantity} units` };
+      return withUndo(action, U, { message: `Updated Instagram Shopping inventory for "${action.product_name || action.retailer_id}" to ${action.quantity} units` });
     }
 
     case 'tiktok_update_title':
     case 'tiktok_update_description': {
       const { apiBase: ttBase, headers: ttHeaders, shopId } = await getTikTokClientForActions(supabaseClient, userId);
       const product = await findTikTokProduct(ttBase, ttHeaders, shopId, action.product_name, action.sku);
+      const U = { before: { price: product.skus?.[0]?.price?.original_price ?? product.skus?.[0]?.price?.sale_price, quantity: product.skus?.[0]?.inventory?.[0]?.quantity, title: product.title, description: product.description }, target: {} };
 
       const body: Record<string, string> = {};
       if (action.type === 'tiktok_update_title') body.title = action.new_title;
@@ -3831,14 +3932,15 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const data = await res.json();
       if (data.code !== 0) throw new Error(`TikTok API error: ${data.message}`);
 
-      if (action.type === 'tiktok_update_title') return { message: `Updated TikTok Shop title for "${action.product_name || action.sku}" → "${action.new_title}"` };
-      return { message: `Updated TikTok Shop description for "${action.product_name || action.sku}"` };
+      if (action.type === 'tiktok_update_title') return withUndo(action, U, { message: `Updated TikTok Shop title for "${action.product_name || action.sku}" → "${action.new_title}"` });
+      return withUndo(action, U, { message: `Updated TikTok Shop description for "${action.product_name || action.sku}"` });
     }
 
     case 'tiktok_end_listing':
     case 'tiktok_renew_listing': {
       const { apiBase: ttBase, headers: ttHeaders, shopId } = await getTikTokClientForActions(supabaseClient, userId);
       const product = await findTikTokProduct(ttBase, ttHeaders, shopId, action.product_name, action.sku);
+      const U = { before: { price: product.skus?.[0]?.price?.original_price ?? product.skus?.[0]?.price?.sale_price, quantity: product.skus?.[0]?.inventory?.[0]?.quantity, title: product.title, description: product.description }, target: {} };
 
       const endpoint = action.type === 'tiktok_end_listing' ? 'deactivate' : 'activate';
       const res = await fetch(`${ttBase}/product/202309/products/${endpoint}?shop_id=${encodeURIComponent(shopId)}`, {
@@ -3851,7 +3953,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       if (data.code !== 0) throw new Error(`TikTok API error: ${data.message}`);
 
       const verb = action.type === 'tiktok_end_listing' ? 'Deactivated' : 'Reactivated';
-      return { message: `${verb} TikTok Shop listing for "${action.product_name || action.sku}"` };
+      return withUndo(action, U, { message: `${verb} TikTok Shop listing for "${action.product_name || action.sku}"` });
     }
 
     case 'tiktok_create_product': {
@@ -3901,6 +4003,14 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
 
       const encodedSku = encodeURIComponent(amzSku);
       const amzQS = { marketplaceIds: amzMarketplaceId, issueLocale: 'en_US' };
+      let U: any = null;
+      try {
+        const { res: amzGetRes, ok: amzGetOk } = await amazonFetch('GET', `/listings/2021-08-01/items/${amzSellerId}/${encodedSku}`, { marketplaceIds: amzMarketplaceId, includedData: 'attributes' }, null);
+        if (amzGetOk) {
+          const a = (await amzGetRes.json())?.attributes || {};
+          U = { before: { price: a.purchasable_offer?.[0]?.our_price?.[0]?.schedule?.[0]?.value_with_tax, quantity: a.fulfillment_availability?.[0]?.quantity, title: a.item_name?.[0]?.value, description: a.product_description?.[0]?.value }, target: { product_type: action.product_type } };
+        }
+      } catch { /* undo data is best-effort */ }
 
       let patches: any[];
 
@@ -3972,7 +4082,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         amazon_end_listing:        `Amazon listing for SKU "${amzSku}" set to 0 quantity (effectively unlisted)`,
         amazon_renew_listing:      `Amazon listing for SKU "${amzSku}" restored to ${action.quantity ?? 1} units`,
       };
-      return { message: successMsg[action.type] };
+      return withUndo(action, U, { message: successMsg[action.type] });
     }
 
     case 'amazon_create_listing': {
@@ -5091,6 +5201,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         }
       }
       if (!wooProductId) throw new Error(`Product "${action.product_name || action.sku}" not found in WooCommerce.`);
+      const wooBefore = await safeJson(fetch(`${wooUBase}/products/${wooProductId}`, { headers: wooUHeaders }));
+      const U = wooBefore ? { before: { price: wooBefore.regular_price, quantity: wooBefore.stock_quantity, title: wooBefore.name, description: wooBefore.description, tags: (wooBefore.tags || []).map((t: any) => t.name) }, target: { sku: wooBefore.sku || action.sku } } : null;
 
       let wooBody: Record<string, any> = {};
       if (action.type === 'woo_update_price') {
@@ -5126,7 +5238,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         woo_end_listing:        `Deactivated WooCommerce product "${wooProductName}" (set to draft)`,
         woo_renew_listing:      `Reactivated WooCommerce product "${wooProductName}" (published)`,
       };
-      return { message: wooMsgs[action.type] || 'WooCommerce update complete' };
+      return withUndo(action, U, { message: wooMsgs[action.type] || 'WooCommerce update complete' });
     }
 
     // ── multi_action: multiple changes on ONE product in one confirmation ──────
@@ -5284,6 +5396,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const ecwidProduct = (searchData.items || [])[0];
       if (!ecwidProduct) throw new Error(`Product "${action.product_name || action.sku}" not found in Ecwid.`);
       const productId = ecwidProduct.id;
+      const U = { before: { price: ecwidProduct.price, quantity: ecwidProduct.quantity, title: ecwidProduct.name, description: ecwidProduct.description }, target: { sku: ecwidProduct.sku || action.sku } };
 
       if (action.type === 'ecwid_update_inventory') {
         const updateRes = await fetch(`${ecwidBase}/products/${productId}`, {
@@ -5291,7 +5404,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           body: JSON.stringify({ quantity: Number(action.quantity) }),
         });
         if (!updateRes.ok) throw new Error(`Ecwid inventory update failed: ${await updateRes.text()}`);
-        return { message: `Updated Ecwid inventory for "${ecwidProduct.name}" to ${action.quantity} units` };
+        return withUndo(action, U, { message: `Updated Ecwid inventory for "${ecwidProduct.name}" to ${action.quantity} units` });
       }
 
       if (action.type === 'ecwid_update_price') {
@@ -5300,7 +5413,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           body: JSON.stringify({ price: Number(action.price) }),
         });
         if (!updateRes.ok) throw new Error(`Ecwid price update failed: ${await updateRes.text()}`);
-        return { message: `Updated Ecwid price for "${ecwidProduct.name}" to $${action.price}` };
+        return withUndo(action, U, { message: `Updated Ecwid price for "${ecwidProduct.name}" to $${action.price}` });
       }
 
       if (action.type === 'ecwid_update_title') {
@@ -5309,7 +5422,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           body: JSON.stringify({ name: action.new_title }),
         });
         if (!updateRes.ok) throw new Error(`Ecwid title update failed: ${await updateRes.text()}`);
-        return { message: `Updated Ecwid title for "${ecwidProduct.name}" → "${action.new_title}"` };
+        return withUndo(action, U, { message: `Updated Ecwid title for "${ecwidProduct.name}" → "${action.new_title}"` });
       }
 
       if (action.type === 'ecwid_update_description') {
@@ -5318,7 +5431,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           body: JSON.stringify({ description: action.description }),
         });
         if (!updateRes.ok) throw new Error(`Ecwid description update failed: ${await updateRes.text()}`);
-        return { message: `Updated Ecwid description for "${ecwidProduct.name}"` };
+        return withUndo(action, U, { message: `Updated Ecwid description for "${ecwidProduct.name}"` });
       }
       break;
     }
@@ -5364,6 +5477,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       if (!ecwidXSearch.ok) throw new Error(`Ecwid product search failed: ${await ecwidXSearch.text()}`);
       const ecwidXFound = ((await ecwidXSearch.json()).items || [])[0];
       if (!ecwidXFound) throw new Error(`Product "${action.product_name || action.sku}" not found in Ecwid.`);
+      const U = { before: { tags: ecwidXFound.keywords ?? '' }, target: { sku: ecwidXFound.sku || action.sku } };
 
       let ecwidXBody: Record<string, any> = {};
       if (action.type === 'ecwid_update_tags') {
@@ -5387,7 +5501,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         ecwid_end_listing:  `Disabled Ecwid product "${ecwidXFound.name}"`,
         ecwid_renew_listing:`Enabled Ecwid product "${ecwidXFound.name}"`,
       };
-      return { message: ecwidXMsgs[action.type] || 'Ecwid update complete' };
+      return withUndo(action, U, { message: ecwidXMsgs[action.type] || 'Ecwid update complete' });
     }
 
     // ── Magento write actions ─────────────────────────────────────────────────
@@ -5408,6 +5522,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const sku = action.sku && action.sku !== 'N/A' ? action.sku : null;
       if (!sku) throw new Error('SKU is required for Magento actions. Ask the user for the product SKU.');
       const encodedSku = encodeURIComponent(sku);
+      const mgBefore = await safeJson(fetch(`${magentoBase}/rest/V1/products/${encodedSku}`, { headers: magentoHeaders }));
+      const U = mgBefore ? { before: { price: mgBefore.price, quantity: mgBefore.extension_attributes?.stock_item?.qty, title: mgBefore.name, description: (mgBefore.custom_attributes || []).find((c: any) => c.attribute_code === 'description')?.value ?? '' }, target: {} } : null;
 
       if (action.type === 'magento_update_inventory') {
         // Magento StockItems API
@@ -5419,7 +5535,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           body: JSON.stringify({ stockItem: { qty: Number(action.quantity), is_in_stock: Number(action.quantity) > 0 } }),
         });
         if (!updateRes.ok) throw new Error(`Magento inventory update failed: ${await updateRes.text()}`);
-        return { message: `Updated Magento inventory for "${action.product_name || sku}" to ${action.quantity} units` };
+        return withUndo(action, U, { message: `Updated Magento inventory for "${action.product_name || sku}" to ${action.quantity} units` });
       }
 
       if (action.type === 'magento_update_price') {
@@ -5428,7 +5544,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           body: JSON.stringify({ product: { sku, price: Number(action.price) } }),
         });
         if (!updateRes.ok) throw new Error(`Magento price update failed: ${await updateRes.text()}`);
-        return { message: `Updated Magento price for "${action.product_name || sku}" to $${action.price}` };
+        return withUndo(action, U, { message: `Updated Magento price for "${action.product_name || sku}" to $${action.price}` });
       }
 
       if (action.type === 'magento_update_title') {
@@ -5437,7 +5553,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           body: JSON.stringify({ product: { sku, name: action.new_title } }),
         });
         if (!updateRes.ok) throw new Error(`Magento title update failed: ${await updateRes.text()}`);
-        return { message: `Updated Magento title for "${action.product_name || sku}" → "${action.new_title}"` };
+        return withUndo(action, U, { message: `Updated Magento title for "${action.product_name || sku}" → "${action.new_title}"` });
       }
 
       if (action.type === 'magento_update_description') {
@@ -5446,7 +5562,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           body: JSON.stringify({ product: { sku, custom_attributes: [{ attribute_code: 'description', value: action.description }] } }),
         });
         if (!updateRes.ok) throw new Error(`Magento description update failed: ${await updateRes.text()}`);
-        return { message: `Updated Magento description for "${action.product_name || sku}"` };
+        return withUndo(action, U, { message: `Updated Magento description for "${action.product_name || sku}"` });
       }
       break;
     }
@@ -5492,14 +5608,15 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const magentoXSku = action.sku && action.sku !== 'N/A' ? action.sku : null;
       if (!magentoXSku) throw new Error('SKU is required for Magento actions.');
       const newStatus = action.type === 'magento_end_listing' ? 2 : 1; // 1=enabled, 2=disabled
+      const U = { before: {}, target: {} };
       const magentoXRes = await fetch(`${magentoXBase}/rest/V1/products/${encodeURIComponent(magentoXSku)}`, {
         method: 'PUT', headers: magentoXHeaders,
         body: JSON.stringify({ product: { sku: magentoXSku, status: newStatus } }),
       });
       if (!magentoXRes.ok) throw new Error(`Magento status update failed: ${await magentoXRes.text()}`);
-      return { message: action.type === 'magento_end_listing'
+      return withUndo(action, U, { message: action.type === 'magento_end_listing'
         ? `Disabled Magento product "${action.product_name || magentoXSku}"`
-        : `Enabled Magento product "${action.product_name || magentoXSku}"` };
+        : `Enabled Magento product "${action.product_name || magentoXSku}"` });
     }
 
     // ── PrestaShop write actions ──────────────────────────────────────────────
@@ -5545,6 +5662,9 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       });
       if (!getRes.ok) throw new Error(`PrestaShop product fetch failed: ${await getRes.text()}`);
       let productXml = await getRes.text();
+      const psPick = (tag: string) => productXml.match(new RegExp(`<${tag}>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?</${tag}>`))?.[1] ?? null;
+      const psLang = (tag: string) => productXml.match(new RegExp(`<${tag}>[\\s\\S]*?<language[^>]*>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?</language>`))?.[1] ?? null;
+      const U: any = { before: { price: psPick('price'), title: psLang('name'), description: psLang('description') }, target: {} };
 
       if (action.type === 'prestashop_update_price') {
         productXml = productXml.replace(/<price><!\[CDATA\[.*?\]\]><\/price>/, `<price><![CDATA[${Number(action.price).toFixed(6)}]]></price>`);
@@ -5585,6 +5705,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         });
         if (!getStockRes.ok) throw new Error(`PrestaShop stock fetch failed: ${await getStockRes.text()}`);
         let stockXml = await getStockRes.text();
+        U.before.quantity = stockXml.match(/<quantity>(?:<!\[CDATA\[)?(-?\d+)/)?.[1] ?? null;
         stockXml = stockXml.replace(/<quantity>[^<]*<\/quantity>/, `<quantity>${Number(action.quantity)}</quantity>`);
         const updateStockRes = await fetch(`${psBase}/api/stock_availables/${stockId}`, {
           method: 'PUT',
@@ -5592,7 +5713,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           body: stockXml,
         });
         if (!updateStockRes.ok) throw new Error(`PrestaShop stock update failed: ${await updateStockRes.text()}`);
-        return { message: `Updated PrestaShop inventory for "${action.product_name || action.sku}" to ${action.quantity} units` };
+        return withUndo(action, U, { message: `Updated PrestaShop inventory for "${action.product_name || action.sku}" to ${action.quantity} units` });
       }
 
       const labels: Record<string, string> = {
@@ -5602,7 +5723,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         prestashop_end_listing:        `Disabled PrestaShop product "${action.product_name || action.sku}"`,
         prestashop_renew_listing:      `Enabled PrestaShop product "${action.product_name || action.sku}"`,
       };
-      return { message: labels[action.type] || 'PrestaShop update complete' };
+      return withUndo(action, U, { message: labels[action.type] || 'PrestaShop update complete' });
     }
 
     case 'prestashop_create_product': {
@@ -5746,6 +5867,9 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const wishToken = wish.credentials.access_token;
 
       if (!action.sku || action.sku === 'N/A') throw new Error('SKU is required for Wish actions.');
+      const wishVar = await safeJson(fetch(`https://merchant.wish.com/api/v3/variant?${new URLSearchParams({ access_token: wishToken, sku: action.sku })}`));
+      const wv = wishVar?.data?.Variant || wishVar?.data || {};
+      const U = { before: { price: wv.price, quantity: wv.inventory }, target: {} };
 
       if (action.type === 'wish_update_inventory') {
         const params = new URLSearchParams({ access_token: wishToken, sku: action.sku, inventory: String(Number(action.quantity)) });
@@ -5753,7 +5877,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         if (!updateRes.ok) throw new Error(`Wish inventory update failed: ${await updateRes.text()}`);
         const data = await updateRes.json();
         if (data.code !== 0) throw new Error(data.message || 'Wish API error');
-        return { message: `Updated Wish inventory for SKU "${action.sku}" to ${action.quantity} units` };
+        return withUndo(action, U, { message: `Updated Wish inventory for SKU "${action.sku}" to ${action.quantity} units` });
       }
 
       if (action.type === 'wish_update_price') {
@@ -5762,7 +5886,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         if (!updateRes.ok) throw new Error(`Wish price update failed: ${await updateRes.text()}`);
         const data = await updateRes.json();
         if (data.code !== 0) throw new Error(data.message || 'Wish API error');
-        return { message: `Updated Wish price for SKU "${action.sku}" to $${action.price}` };
+        return withUndo(action, U, { message: `Updated Wish price for SKU "${action.sku}" to $${action.price}` });
       }
       break;
     }
@@ -5779,6 +5903,10 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       if (!action.sku || action.sku === 'N/A') throw new Error('SKU (parent_sku) is required for Wish actions.');
 
       const wishXParams = new URLSearchParams({ access_token: wishXToken, parent_sku: action.sku });
+      const wishProd = await safeJson(fetch(`https://merchant.wish.com/api/v3/product?${new URLSearchParams({ access_token: wishXToken, parent_sku: action.sku })}`));
+      const wp = wishProd?.data?.Product || wishProd?.data || {};
+      const wpTags = wp.tags == null ? null : (Array.isArray(wp.tags) ? wp.tags.map((t: any) => t?.Tag?.name ?? t?.name ?? t) : String(wp.tags).split(',')).map((t: any) => String(t).trim()).filter(Boolean);
+      const U = { before: { title: wp.name, description: wp.description, tags: wpTags }, target: {} };
       if (action.type === 'wish_update_title') {
         wishXParams.set('name', action.new_title);
       } else if (action.type === 'wish_update_description') {
@@ -5804,7 +5932,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         wish_end_listing:        `Disabled Wish product SKU "${action.sku}"`,
         wish_renew_listing:      `Enabled Wish product SKU "${action.sku}"`,
       };
-      return { message: wishXMsgs[action.type] || 'Wish update complete' };
+      return withUndo(action, U, { message: wishXMsgs[action.type] || 'Wish update complete' });
     }
 
     // ── Walmart write actions ─────────────────────────────────────────────────
@@ -5845,13 +5973,17 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         'Content-Type': 'application/xml',
       };
 
+      const wmGetH = { ...walmartHeaders, 'Content-Type': 'application/json' };
+      const wmInv = action.type === 'walmart_update_inventory' ? await safeJson(fetch(`https://marketplace.walmartapis.com/v3/inventory?sku=${encodeURIComponent(sku)}`, { headers: wmGetH })) : null;
+      const wmItem = action.type === 'walmart_update_price' ? await safeJson(fetch(`https://marketplace.walmartapis.com/v3/items/${encodeURIComponent(sku)}`, { headers: wmGetH })) : null;
+      const U = { before: { quantity: wmInv?.quantity?.amount, price: wmItem?.ItemResponse?.[0]?.price?.amount }, target: {} };
       if (action.type === 'walmart_update_inventory') {
         const inventoryXml = `<?xml version="1.0" encoding="UTF-8"?><inventory xmlns="http://walmart.com/"><sku>${sku}</sku><quantity><unit>EACH</unit><amount>${Number(action.quantity)}</amount></quantity><fulfillmentLagTime>1</fulfillmentLagTime></inventory>`;
         const updateRes = await fetch(`https://marketplace.walmartapis.com/v3/inventory?sku=${encodeURIComponent(sku)}`, {
           method: 'PUT', headers: walmartHeaders, body: inventoryXml,
         });
         if (!updateRes.ok) throw new Error(`Walmart inventory update failed: ${await updateRes.text()}`);
-        return { message: `Updated Walmart inventory for SKU "${sku}" to ${action.quantity} units` };
+        return withUndo(action, U, { message: `Updated Walmart inventory for SKU "${sku}" to ${action.quantity} units` });
       }
 
       if (action.type === 'walmart_update_price') {
@@ -5860,7 +5992,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           method: 'PUT', headers: walmartHeaders, body: priceXml,
         });
         if (!updateRes.ok) throw new Error(`Walmart price update failed: ${await updateRes.text()}`);
-        return { message: `Updated Walmart price for SKU "${sku}" to $${action.price}` };
+        return withUndo(action, U, { message: `Updated Walmart price for SKU "${sku}" to $${action.price}` });
       }
       break;
     }
@@ -5897,6 +6029,9 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         'Content-Type': 'application/xml',
       };
 
+      // Retiring a Walmart item can't be undone through the API, so only title changes get undo data.
+      const wmX = action.type === 'walmart_update_title' ? await safeJson(fetch(`https://marketplace.walmartapis.com/v3/items/${encodeURIComponent(wXSku)}`, { headers: { ...wXHeaders, 'Content-Type': 'application/json' } })) : null;
+      const U = wmX ? { before: { title: wmX?.ItemResponse?.[0]?.productName }, target: {} } : null;
       if (action.type === 'walmart_end_listing') {
         // Retire the item — removes it from Walmart storefront
         const retireRes = await fetch(`https://marketplace.walmartapis.com/v3/items/retirement`, {
@@ -5905,7 +6040,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           body: `<?xml version="1.0" encoding="UTF-8"?><ItemRetirement xmlns="http://walmart.com/"><sku>${wXSku}</sku></ItemRetirement>`,
         });
         if (!retireRes.ok) throw new Error(`Walmart retire failed: ${await retireRes.text()}`);
-        return { message: `Retired Walmart listing SKU "${wXSku}"` };
+        return withUndo(action, U, { message: `Retired Walmart listing SKU "${wXSku}"` });
       }
 
       // Title and description updates use the MP Items maintenance feed
@@ -5916,9 +6051,9 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         method: 'POST', headers: { ...wXHeaders, 'Content-Type': 'application/xml' }, body: itemXml,
       });
       if (!wXUpdateRes.ok) throw new Error(`Walmart item update failed: ${await wXUpdateRes.text()}`);
-      return { message: action.type === 'walmart_update_title'
+      return withUndo(action, U, { message: action.type === 'walmart_update_title'
         ? `Submitted Walmart title update for SKU "${wXSku}" (feed processing may take a few minutes)`
-        : `Submitted Walmart description update for SKU "${wXSku}" (feed processing may take a few minutes)` };
+        : `Submitted Walmart description update for SKU "${wXSku}" (feed processing may take a few minutes)` });
     }
 
     case 'etsy_update_price':
@@ -5955,6 +6090,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         if (!listingId) throw new Error(`Could not find Etsy listing matching "${action.product_name || action.sku}".`);
       }
       if (!listingId) throw new Error('listing_id or product_name/sku required for Etsy actions.');
+      const etsyBefore = await safeJson(fetch(`https://openapi.etsy.com/v3/application/listings/${listingId}`, { headers: { 'x-api-key': etsyClientId, 'Authorization': `Bearer ${etsyTok}` } }));
+      const U = etsyBefore ? { before: { price: etsyBefore.price ? etsyBefore.price.amount / (etsyBefore.price.divisor || 100) : null, quantity: etsyBefore.quantity, title: etsyBefore.title, description: etsyBefore.description, tags: etsyBefore.tags }, target: { listing_id: listingId }, titleKey: 'title' } : null;
 
       const etsyHeaders: Record<string, string> = {
         'x-api-key': etsyClientId,
@@ -5969,7 +6106,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           { method: 'PATCH', headers: etsyHeaders, body: JSON.stringify({ price: Number(action.price) }) }
         );
         if (!updateRes.ok) throw new Error(`Etsy price update failed: ${await updateRes.text()}`);
-        return { message: `Updated Etsy listing #${listingId} price to $${action.price}` };
+        return withUndo(action, U, { message: `Updated Etsy listing #${listingId} price to $${action.price}` });
       }
 
       if (action.type === 'etsy_update_inventory') {
@@ -5990,7 +6127,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           { method: 'PUT', headers: etsyHeaders, body: JSON.stringify({ products: offerings }) }
         );
         if (!updateRes.ok) throw new Error(`Etsy inventory update failed: ${await updateRes.text()}`);
-        return { message: `Updated Etsy listing #${listingId} quantity to ${action.quantity} units` };
+        return withUndo(action, U, { message: `Updated Etsy listing #${listingId} quantity to ${action.quantity} units` });
       }
 
       if (action.type === 'etsy_update_title') {
@@ -5999,7 +6136,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           { method: 'PATCH', headers: etsyHeaders, body: JSON.stringify({ title: action.title }) }
         );
         if (!updateRes.ok) throw new Error(`Etsy title update failed: ${await updateRes.text()}`);
-        return { message: `Updated Etsy listing #${listingId} title to "${action.title}"` };
+        return withUndo(action, U, { message: `Updated Etsy listing #${listingId} title to "${action.title}"` });
       }
 
       if (action.type === 'etsy_update_description') {
@@ -6008,7 +6145,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           { method: 'PATCH', headers: etsyHeaders, body: JSON.stringify({ description: action.description }) }
         );
         if (!updateRes.ok) throw new Error(`Etsy description update failed: ${await updateRes.text()}`);
-        return { message: `Updated Etsy listing #${listingId} description` };
+        return withUndo(action, U, { message: `Updated Etsy listing #${listingId} description` });
       }
 
       if (action.type === 'etsy_update_tags') {
@@ -6021,7 +6158,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           { method: 'PATCH', headers: etsyHeaders, body: JSON.stringify({ tags }) }
         );
         if (!updateRes.ok) throw new Error(`Etsy tags update failed: ${await updateRes.text()}`);
-        return { message: `Updated Etsy listing #${listingId} tags: ${tags.join(', ')}` };
+        return withUndo(action, U, { message: `Updated Etsy listing #${listingId} tags: ${tags.join(', ')}` });
       }
 
       if (action.type === 'etsy_end_listing') {
@@ -6030,7 +6167,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           { method: 'PATCH', headers: etsyHeaders, body: JSON.stringify({ state: 'inactive' }) }
         );
         if (!updateRes.ok) throw new Error(`Etsy end listing failed: ${await updateRes.text()}`);
-        return { message: `Deactivated Etsy listing #${listingId}` };
+        return withUndo(action, U, { message: `Deactivated Etsy listing #${listingId}` });
       }
 
       if (action.type === 'etsy_renew_listing') {
@@ -6039,7 +6176,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           { method: 'PATCH', headers: etsyHeaders, body: JSON.stringify({ state: 'active' }) }
         );
         if (!updateRes.ok) throw new Error(`Etsy renew listing failed: ${await updateRes.text()}`);
-        return { message: `Reactivated Etsy listing #${listingId}` };
+        return withUndo(action, U, { message: `Reactivated Etsy listing #${listingId}` });
       }
       break;
     }
@@ -7326,6 +7463,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const searchData = await searchRes.json();
       const sqItem = searchData.objects?.[0];
       if (!sqItem) throw new Error(`Product "${keyword}" not found in Square catalog.`);
+      const sqVar0 = sqItem.item_data?.variations?.[0];
+      const U: any = { before: { price: sqVar0?.item_variation_data?.price_money?.amount != null ? sqVar0.item_variation_data.price_money.amount / 100 : null, title: sqItem.item_data?.name, description: sqItem.item_data?.description }, target: {} };
 
       if (action.type === 'square_update_price') {
         const varId = sqItem.item_data?.variations?.[0]?.id;
@@ -7342,7 +7481,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           }),
         });
         if (!bRes.ok) throw new Error(`Square price update failed: ${await bRes.text()}`);
-        return { message: `Updated Square price for "${keyword}" to $${action.price}.` };
+        return withUndo(action, U, { message: `Updated Square price for "${keyword}" to $${action.price}.` });
       }
 
       if (action.type === 'square_update_inventory') {
@@ -7352,6 +7491,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         if (!locRes.ok) throw new Error(`Square locations fetch failed: ${await locRes.text()}`);
         const locationId = (await locRes.json()).locations?.[0]?.id;
         if (!locationId) throw new Error('No Square location found.');
+        U.before.quantity = (await safeJson(fetch(`${sqBase}/inventory/${varId}`, { headers: sqH })))?.counts?.find((c: any) => c.location_id === locationId && c.state === 'IN_STOCK')?.quantity ?? null;
         const invRes = await fetch(`${sqBase}/inventory/changes/batch-create`, {
           method: 'POST', headers: sqH,
           body: JSON.stringify({
@@ -7360,7 +7500,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           }),
         });
         if (!invRes.ok) throw new Error(`Square inventory update failed: ${await invRes.text()}`);
-        return { message: `Updated Square inventory for "${keyword}" to ${action.quantity} units.` };
+        return withUndo(action, U, { message: `Updated Square inventory for "${keyword}" to ${action.quantity} units.` });
       }
 
       if (action.type === 'square_update_title' || action.type === 'square_update_description') {
@@ -7372,7 +7512,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           body: JSON.stringify({ idempotency_key: crypto.randomUUID(), batches: [{ objects: [{ type: 'ITEM', id: sqItem.id, version: sqItem.version, item_data: updatedItemData }] }] }),
         });
         if (!bRes.ok) throw new Error(`Square update failed: ${await bRes.text()}`);
-        return { message: action.type === 'square_update_title' ? `Updated Square title for "${keyword}" to "${action.new_title}".` : `Updated Square description for "${keyword}".` };
+        return withUndo(action, U, { message: action.type === 'square_update_title' ? `Updated Square title for "${keyword}" to "${action.new_title}".` : `Updated Square description for "${keyword}".` });
       }
 
       // end_listing / renew_listing
@@ -7385,7 +7525,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         }),
       });
       if (!bRes.ok) throw new Error(`Square listing update failed: ${await bRes.text()}`);
-      return { message: presentAtAll ? `Restored "${keyword}" to all Square locations.` : `Removed "${keyword}" from all Square locations.` };
+      return withUndo(action, U, { message: presentAtAll ? `Restored "${keyword}" to all Square locations.` : `Removed "${keyword}" from all Square locations.` });
     }
 
     case 'square_create_product': {
@@ -7426,6 +7566,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const wixSearchData = await wixSearchRes.json();
       const wixProduct = wixSearchData.products?.[0];
       if (!wixProduct) throw new Error(`Product "${keyword}" not found in Wix.`);
+      const U: any = { before: { price: wixProduct.priceData?.price ?? wixProduct.actualPriceRange?.minValue?.amount, title: wixProduct.name, description: wixProduct.description }, target: {} };
 
       if (action.type === 'wix_update_inventory') {
         const variantId = wixProduct.variants?.[0]?.id;
@@ -7437,12 +7578,13 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         if (!invSearchRes.ok) throw new Error(`Wix inventory search failed: ${await invSearchRes.text()}`);
         const invItem = (await invSearchRes.json()).inventoryItems?.[0];
         if (!invItem) throw new Error(`Inventory item not found for Wix product "${keyword}".`);
+        U.before.quantity = invItem.quantity;
         const invUpd = await fetch(`${wixBase}/stores/v3/inventory-items/${invItem.id}`, {
           method: 'PATCH', headers: wixH,
           body: JSON.stringify({ inventoryItem: { quantity: action.quantity, revision: invItem.revision } }),
         });
         if (!invUpd.ok) throw new Error(`Wix inventory update failed: ${await invUpd.text()}`);
-        return { message: `Updated Wix inventory for "${keyword}" to ${action.quantity} units.` };
+        return withUndo(action, U, { message: `Updated Wix inventory for "${keyword}" to ${action.quantity} units.` });
       }
 
       const wixPatchBody: Record<string, any> = {};
@@ -7465,7 +7607,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         wix_end_listing: `Hidden Wix product "${keyword}" from storefront.`,
         wix_renew_listing: `Restored Wix product "${keyword}" to storefront.`,
       };
-      return { message: msgs[action.type] };
+      return withUndo(action, U, { message: msgs[action.type] });
     }
 
     case 'wix_create_product': {
@@ -7494,6 +7636,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const ssKw = (action.product_name || action.sku || '').toLowerCase();
       const ssProd = ssProducts.find((p: any) => (p.name || '').toLowerCase().includes(ssKw));
       if (!ssProd) throw new Error(`Product "${action.product_name || action.sku}" not found in Squarespace. Use the exact product name.`);
+      const U = { before: { price: ssProd.variants?.[0]?.pricing?.basePrice?.value, quantity: ssProd.variants?.[0]?.stock?.quantity, title: ssProd.name, description: ssProd.description }, target: {} };
 
       if (action.type === 'squarespace_update_inventory') {
         const varId = ssProd.variants?.[0]?.id;
@@ -7503,7 +7646,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           body: JSON.stringify({ variants: [{ variantId: varId, quantity: action.quantity }] }),
         });
         if (!ssInvRes.ok) throw new Error(`Squarespace inventory update failed: ${await ssInvRes.text()}`);
-        return { message: `Updated Squarespace inventory for "${action.product_name}" to ${action.quantity} units.` };
+        return withUndo(action, U, { message: `Updated Squarespace inventory for "${action.product_name}" to ${action.quantity} units.` });
       }
 
       if (action.type === 'squarespace_update_price') {
@@ -7514,7 +7657,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           body: JSON.stringify({ pricing: { basePrice: { currency: 'USD', value: String(action.price) } } }),
         });
         if (!ssVarRes.ok) throw new Error(`Squarespace price update failed: ${await ssVarRes.text()}`);
-        return { message: `Updated Squarespace price for "${action.product_name}" to $${action.price}.` };
+        return withUndo(action, U, { message: `Updated Squarespace price for "${action.product_name}" to $${action.price}.` });
       }
 
       let ssUpdBody: any = { ...ssProd };
@@ -7533,7 +7676,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         squarespace_end_listing: `Hidden Squarespace product "${action.product_name}".`,
         squarespace_renew_listing: `Restored Squarespace product "${action.product_name}".`,
       };
-      return { message: ssMsgs[action.type] };
+      return withUndo(action, U, { message: ssMsgs[action.type] });
     }
 
     case 'squarespace_create_product': {
@@ -7564,6 +7707,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       if (!bcSrchRes.ok) throw new Error(`BigCommerce product search failed: ${await bcSrchRes.text()}`);
       const bcProd = (await bcSrchRes.json()).data?.[0];
       if (!bcProd) throw new Error(`Product "${bcName}" not found in BigCommerce.`);
+      const U = { before: { price: bcProd.price, quantity: bcProd.inventory_level, title: bcProd.name, description: bcProd.description }, target: { sku: bcProd.sku || action.sku } };
 
       const bcPatch: Record<string, any> = {};
       if (action.type === 'bigcommerce_update_price') bcPatch.price = action.price;
@@ -7585,7 +7729,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         bigcommerce_end_listing: `Hidden BigCommerce product "${bcName}".`,
         bigcommerce_renew_listing: `Restored BigCommerce product "${bcName}".`,
       };
-      return { message: bcMsgs[action.type] };
+      return withUndo(action, U, { message: bcMsgs[action.type] });
     }
 
     case 'bigcommerce_create_product': {
@@ -7617,6 +7761,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         (p.options?.[0]?.sku || '').toLowerCase().includes((action.sku || '').toLowerCase())
       );
       if (!faireProd) throw new Error(`Product "${action.product_name || action.sku}" not found in Faire.`);
+      const U = { before: { price: faireProd.options?.[0]?.wholesale_price != null ? faireProd.options[0].wholesale_price / 100 : null, quantity: faireProd.options?.[0]?.available_quantity, title: faireProd.name, description: faireProd.description }, target: {} };
 
       if (action.type === 'faire_update_inventory') {
         const optionId = faireProd.options?.[0]?.id;
@@ -7626,7 +7771,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           body: JSON.stringify({ items: [{ product_option_id: optionId, quantity: action.quantity }] }),
         });
         if (!faireInvRes.ok) throw new Error(`Faire inventory update failed: ${await faireInvRes.text()}`);
-        return { message: `Updated Faire inventory for "${action.product_name}" to ${action.quantity} units.` };
+        return withUndo(action, U, { message: `Updated Faire inventory for "${action.product_name}" to ${action.quantity} units.` });
       }
 
       if (action.type === 'faire_update_price') {
@@ -7635,7 +7780,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
           body: JSON.stringify({ options: (faireProd.options || []).map((opt: any) => ({ ...opt, wholesale_price: Math.round(action.price * 100) })) }),
         });
         if (!fairePriceRes.ok) throw new Error(`Faire price update failed: ${await fairePriceRes.text()}`);
-        return { message: `Updated Faire price for "${action.product_name}" to $${action.price}.` };
+        return withUndo(action, U, { message: `Updated Faire price for "${action.product_name}" to $${action.price}.` });
       }
 
       const fairePatch: Record<string, any> = {};
@@ -7654,7 +7799,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         faire_end_listing: `Deactivated Faire product "${action.product_name}".`,
         faire_renew_listing: `Reactivated Faire product "${action.product_name}".`,
       };
-      return { message: faireMsgs[action.type] };
+      return withUndo(action, U, { message: faireMsgs[action.type] });
     }
 
     case 'faire_create_product': {
