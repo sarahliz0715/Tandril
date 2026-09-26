@@ -3339,8 +3339,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
 
     case 'update_description': {
       const targetProduct = await resolveShopifyProduct(shopDomain, accessToken, action);
-      const body_html = action.body_html || action.description;
-      if (!body_html) throw new Error('description is required for update_description.');
+      const newText = action.body_html || action.description;
+      if (!newText) throw new Error('description is required for update_description.');
 
       // The product list query above doesn't include descriptionHtml — fetch it
       // separately so the old value can be restored later via undo.
@@ -3348,6 +3348,15 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         query($id: ID!) { product(id: $id) { descriptionHtml } }
       `, { id: targetProduct._gid });
       const previousDescription = currentDescData.product?.descriptionHtml || '';
+
+      // Keep the product-details section (size, materials, care, made-to-order
+      // note, EU safety info) that print-on-demand apps put at the bottom —
+      // Orion only rewrites the selling text above it. Undo passes
+      // keep_details: false so the old description comes back exactly.
+      const details = action.keep_details === false ? '' : extractProductDetailsBlock(previousDescription);
+      const body_html = details && !newText.includes(plainTextSnippet(details))
+        ? `${textToDescriptionHtml(newText)}\n<br>\n<br>\n${details}`
+        : newText;
 
       const descUpdateData = await shopifyGraphQL(shopDomain, accessToken, `
         mutation productUpdate($input: ProductInput!) {
@@ -3359,8 +3368,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       `, { input: { id: targetProduct._gid, descriptionHtml: body_html } });
       if (descUpdateData.productUpdate.userErrors?.length) throw new Error(`Shopify description update failed: ${JSON.stringify(descUpdateData.productUpdate.userErrors)}`);
       return {
-        message: `Updated product description for "${targetProduct.title}"`,
-        previous_state: { body_html: previousDescription },
+        message: `Updated product description for "${targetProduct.title}"` + (details && body_html !== newText ? ' (product details section kept)' : ''),
+        previous_state: { body_html: previousDescription, keep_details: false },
         target: { product_id: targetProduct.id, sku: action.sku, product_name: action.product_name },
       };
     }
@@ -8933,6 +8942,9 @@ async function fetchEbayDataForOrion(supabaseClient: any, platform: any): Promis
     'Authorization': `Bearer ${accessToken}`,
     'Content-Type': 'application/json',
     'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
+    // eBay's Sell Inventory API rejects reads without these (errorId 25709).
+    'Accept-Language': 'en-US',
+    'Content-Language': 'en-US',
   };
 
   const products: any[] = [];
@@ -9736,6 +9748,47 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
 
 // ─── Claude Chat ──────────────────────────────────────────────────────────────
 
+// ─── Product-details section (print-on-demand spec block) ─────────────────────
+// Printful and similar apps end a description with a details section: bullet
+// specs (size, materials, handles), a "made especially for you" note, and EU
+// GPSR safety info. Rewriting a description must not delete it.
+const DETAILS_MARKERS = [
+  /(^|\n|<br\s*\/?>|<p[^>]*>|<div[^>]*>)\s*(<[^>]+>\s*)*•/i,
+  /<ul[\s>]/i,
+  /(^|\n|<br\s*\/?>|<p[^>]*>)\s*(<[^>]+>\s*)*(Size guide|Dimensions|Product details|Bag size)/i,
+  /This product is made (especially|just) for you/i,
+  /General Product Safety Regulation|GPSR/i,
+];
+
+function extractProductDetailsBlock(html: string): string {
+  if (!html) return '';
+  let start = -1;
+  for (const re of DETAILS_MARKERS) {
+    const m = re.exec(html);
+    if (m && (start === -1 || m.index < start)) start = m.index;
+  }
+  if (start <= 0) return ''; // no details, or the whole thing is details — nothing safe to keep separately
+  // Only treat it as a details block if it really looks like one.
+  const tail = html.slice(start).replace(/^(\n|<br\s*\/?>|\s)+/i, '');
+  const looksLikeDetails = /•|<li/i.test(tail) || /made (especially|just) for you|GPSR|Product Safety/i.test(tail);
+  return looksLikeDetails ? tail.trim() : '';
+}
+
+function plainTextSnippet(html: string): string {
+  return htmlToPlain(html).replace(/\s+/g, ' ').trim().slice(0, 40);
+}
+
+// Orion writes plain text; turn blank-line paragraphs into HTML so they don't
+// run together once real HTML follows them.
+function textToDescriptionHtml(text: string): string {
+  if (/<(p|br|div|ul|li|b|strong|em|h\d)[\s>\/]/i.test(text)) return text;
+  return text.trim().split(/\n\s*\n/).map(p => `<p>${p.trim().replace(/\n/g, '<br>')}</p>`).join('\n');
+}
+
+// Leaves room for loading store data before and card checks after, inside
+// Supabase's 150s request limit.
+const CLAUDE_REPLY_DEADLINE_MS = 115_000;
+
 async function chatWithClaude(
   message: string,
   conversationHistory: Array<{ role: string; content: string }>,
@@ -9869,10 +9922,11 @@ SYNC RULES: When a user asks "are my inventories in sync?", "when did my last sy
 === PRODUCTS YOU ALREADY CHANGED (last 14 days, from the store's real change log) ===
 ${recentEdits.length ? recentEdits.slice(0, 120).map((e: any) => `  - ${e.title} — ${e.fields.join(', ')} (${new Date(e.at).toLocaleDateString()})`).join('\n') + (recentEdits.length > 120 ? `\n  …and ${recentEdits.length - 120} more` : '') : '  (none)'}
 Rules for batches of product changes (SEO, titles, descriptions, tags…):
+- A new product description replaces only the selling text. The product-details section at the bottom (size, materials, handles, the made-to-order note, EU safety info) is kept automatically — don't repeat or rewrite those details, and don't tell the user they'll be removed.
 - Every Shopify product action MUST carry "product_id" — the ID shown next to the product in the product list. It is the only reliable way to hit the right product (titles change, SKUs repeat). Never guess an ID; if the product has no ID in the list, ask.
 - Skip products listed above unless the user names them — don't redo work, and don't present a redone product as new progress.
 - Counting: the number you say you're sending MUST equal the number of action blocks in that same message — count the blocks before you say a number. After a batch runs, report exactly what the execution result says (e.g. "7 fully done, 2 only partly — here's what failed"). Never add up a running total across batches from memory; if asked for a total, count the products in the list above.
-- Up to 10 products per message, one multi_action block each.
+- Small changes (tags, a price, a title, alt text, find-and-replace): up to 10 products per message. Full SEO rewrites or anything with a new product description: at most 3 products per message — a reply has a hard time limit and longer ones are cut off with an error. One multi_action block per product. If the user asks for more, do the first 3 and say you'll send the rest after they confirm.
 `;
 
   const adsSection = !metaAds.connected
@@ -10892,7 +10946,7 @@ A full SEO pass, and ANY request to redo/fix/correct a product's SEO or text, MU
 Bundle the applicable steps into a single multi_action so the user only has to confirm once. "product_id" must be the ID from the product list and "product_name" must be copied EXACTLY from the same line of that list — Tandril shows the seller the real product and blocks the card if the name and ID don't match. (The example below is a new product with known cotton material; for existing products, skip the URL handle and any facts you don't have.)
 [ORION_ACTION:{"type":"multi_action","product_id":"8123456789013","product_name":"Henley T-Shirt - Olive Green","sku":"HTG-001","description":"Full SEO optimization: title, description, URL handle, meta title, meta description, image alt text, tags, and material metafield","actions":[{"type":"update_title","new_title":"Casual Spring Henley T-Shirt – Lightweight Olive Green Tee"},{"type":"update_description","description":"Step into spring with our Casual Henley T-Shirt in warm olive green. Crafted from 100% breathable cotton, this lightweight tee is designed for transitional weather — warm enough for breezy mornings, cool enough for sunny afternoons. The classic Henley neckline adds a relaxed, effortless look that pairs well with jeans, chinos, or shorts. Whether you're heading to a farmer's market, a weekend brunch, or just running errands, this shirt keeps you comfortable and stylish all day. Available in a relaxed fit with reinforced stitching for lasting durability. Machine washable and easy to care for."},{"type":"update_url_handle","new_handle":"casual-spring-henley-t-shirt-olive-green"},{"type":"update_seo_listing","seo_title":"Casual Spring Henley T-Shirt | Olive Green Cotton Tee","seo_description":"Lightweight 100% cotton olive green Henley tee — perfect for spring & transitional weather. Relaxed fit, machine washable. Shop now."},{"type":"update_image_alt","alt_text":"Casual olive green Henley t-shirt on white background — lightweight spring cotton tee"},{"type":"update_tags","tags":["spring","henley","cotton","olive-green","lightweight","casual","men","transitional-weather"]},{"type":"update_metafield","metafield_key":"material","metafield_value":"100% Cotton","metafield_type":"single_line_text_field"},{"type":"update_metafield","metafield_key":"care_instructions","metafield_value":"Machine wash cold, tumble dry low","metafield_type":"single_line_text_field"}]}]
 
-When asked to SEO ALL products, emit one multi_action block per product — up to 10 per response, each with that product's \"product_id\". After the user confirms that batch, automatically continue with the next batch without waiting for the user to re-ask. Tell the user upfront how many products there are and how many are in this first batch. Never stop mid-way through without explaining where you left off and that you're continuing.
+When asked to SEO ALL products, emit one multi_action block per product — at most 3 per response (full rewrites are long, and a reply has a hard time limit), each with that product's \"product_id\". After the user confirms that batch, automatically continue with the next batch without waiting for the user to re-ask. Tell the user upfront how many products there are and how many are in this first batch. Never stop mid-way through without explaining where you left off and that you're continuing.
 
 **Etsy CSV Migration Workflow:**
 When a user uploads an Etsy CSV file and wants to migrate to WooCommerce, follow these steps:
@@ -11038,13 +11092,25 @@ ${mode === 'demo/test' ?
 
   messages.push({ role: 'user', content: currentContent });
 
+  // Supabase kills a request after 150s and the seller only sees a generic
+  // error. Stop waiting on Claude well before that and answer in plain words.
+  const deadline = Date.now() + CLAUDE_REPLY_DEADLINE_MS;
+  const tooBigReply = "Sorry, that was too much for me to write in one reply, so I stopped before making any changes. Nothing was changed in your store. Please send it again with fewer products (3 at a time works well for full SEO rewrites).";
+
   // Retry up to 3 times on overloaded errors with exponential backoff
   let lastError: Error | null = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) {
       await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
     }
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const remaining = deadline - Date.now();
+    if (remaining < 5000) return tooBigReply;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), remaining);
+    let response: Response;
+    try {
+      response = await fetch('https://api.anthropic.com/v1/messages', {
+      signal: controller.signal,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -11058,11 +11124,35 @@ ${mode === 'demo/test' ?
         messages,
       }),
     });
+    } catch (err: any) {
+      clearTimeout(timer);
+      if (err?.name === 'AbortError') {
+        console.warn('[Orion] Claude reply hit the time limit — sent the "too much in one reply" message instead.');
+        return tooBigReply;
+      }
+      throw err;
+    }
 
     if (response.ok) {
-      const data = await response.json();
+      let data: any;
+      try {
+        data = await response.json();
+      } catch (err: any) {
+        if (err?.name === 'AbortError') {
+          console.warn('[Orion] Claude reply hit the time limit while streaming the body.');
+          return tooBigReply;
+        }
+        throw err;
+      } finally {
+        clearTimeout(timer);
+      }
+      if (data.stop_reason === 'max_tokens') {
+        console.warn('[Orion] Claude reply hit max_tokens — sent the "too much in one reply" message instead.');
+        return tooBigReply;
+      }
       return data.content[0].text;
     }
+    clearTimeout(timer);
 
     const errorText = await response.text();
     let isOverloaded = false;
