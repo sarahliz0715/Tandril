@@ -100,7 +100,9 @@ serve(async (req) => {
     authUrl.searchParams.set('scope', shopifyScopes);
     authUrl.searchParams.set('redirect_uri', redirectUri);
     authUrl.searchParams.set('state', state);
-    authUrl.searchParams.set('grant_options[]', 'per-user');
+    // No grant_options[]=per-user: that asks for an online (per-user) token,
+    // which Shopify expires after 24 hours. Background work (sync, webhooks,
+    // workflows, Orion) needs the store's offline token, which doesn't expire.
 
     console.log('[Shopify Auth Init] Generated auth URL for ' + shopDomain);
 

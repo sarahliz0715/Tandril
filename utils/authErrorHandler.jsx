@@ -1,4 +1,5 @@
 import { createPageUrl } from '@/utils';
+import { isOnPublicPage } from '@/utils/authHelpers';
 
 export const handleAuthError = (error, navigate) => {
     if (error?.response?.status === 401 || 
@@ -6,6 +7,7 @@ export const handleAuthError = (error, navigate) => {
         error?.message?.includes('Unauthorized') ||
         error?.message?.includes('not authenticated')) {
         
+        if (isOnPublicPage()) return true;
         console.log('Authentication error detected, redirecting to home...');
         
         if (navigate) {

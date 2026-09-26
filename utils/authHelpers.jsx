@@ -8,6 +8,21 @@ import { createPageUrl } from '@/utils';
  * @param {Object} options - Configuration options
  * @returns {boolean} - True if it was an auth error and was handled
  */
+// Pages anyone can see without logging in. An auth error from a request that
+// was still running when the user logged out must not pull them off one of
+// these (e.g. Dashboard data retries finishing after they already clicked
+// Log in, which bounced them from the Login page back to the landing page).
+const PUBLIC_PATHS = ['/', '/home', '/login', '/signup', '/pricing', '/termsofservice', '/privacypolicy', '/privacy', '/terms', '/emailsignups', '/survey'];
+
+export const isOnPublicPage = () => {
+    try {
+        const path = window.location.pathname.toLowerCase().replace(/\/+$/, '') || '/';
+        return PUBLIC_PATHS.includes(path);
+    } catch {
+        return false;
+    }
+};
+
 export const handleAuthError = (error, navigate, options = {}) => {
     const {
         showToast = false,
@@ -17,6 +32,7 @@ export const handleAuthError = (error, navigate, options = {}) => {
 
     // Check for 401 status
     const _em = (error?.message || '').toLowerCase(); if (error.response?.status === 401 || error.status === 401 || _em.includes('session') || _em.includes('jwt') || _em.includes('auth session') || (error?.name || '').includes('Auth')) {
+        if (isOnPublicPage()) return true;
         if (showToast) {
             toast.error("Authentication Required", {
                 description: customMessage,

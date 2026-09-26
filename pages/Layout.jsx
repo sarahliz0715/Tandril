@@ -261,9 +261,12 @@ export default function Layout({ children, currentPageName }) {
     }, []);
 
     const handleLogout = async () => {
+        const from = window.location.pathname;
         setUser(null);
         await User.logout();
-        navigate(createPageUrl('Home'));
+        // Signing out waits on Supabase; if the user already clicked somewhere
+        // (e.g. Log in) in the meantime, don't yank them back to the landing page.
+        if (window.location.pathname === from) navigate(createPageUrl('Home'));
     };
 
     const publicPages = ['Home', 'Pricing', 'TermsOfService', 'PrivacyPolicy', 'EmailSignups', 'Survey', 'Login', 'Signup'];
