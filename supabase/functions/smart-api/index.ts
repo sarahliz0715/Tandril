@@ -656,6 +656,9 @@ serve(async (req) => {
       response = `On it! I'll add that image to "${productLabel || 'the product'}" — just confirm below and I'll take care of it.`;
     }
 
+    // Show the seller the real product behind every product card (and block mismatches).
+    annotateShopifyTargets(pendingActions, storeContext.products);
+
     if (conversationId) {
       // Await the assistant message save so it completes before the function returns.
       // Fire-and-forget saves are abandoned when Deno terminates the execution context.
@@ -917,6 +920,60 @@ function findProduct(allProducts: any[], sku: string, productName: string): any 
     if (bestMatch && !tied) return bestMatch;
   }
   return null;
+}
+
+const SHOPIFY_PRODUCT_ACTION_TYPES = new Set([
+  'update_title', 'update_description', 'update_seo_listing', 'update_image_alt', 'update_image_alt_text',
+  'update_tags', 'add_tags', 'update_url_handle', 'update_status', 'update_metafield',
+  'update_price', 'update_inventory', 'add_image', 'set_image', 'upload_image',
+]);
+
+const normTitle = (t: string) => String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+/**
+ * Before the seller sees an approval card, look up the Shopify product each
+ * product action will really change (from the already-loaded store catalog) and
+ * attach it as `_target` so the card can show it. If Orion's product name and the
+ * product it resolves to disagree, or nothing matches, the card is marked unsafe
+ * and can't be approved. When it's safe, the action is pinned to that product ID
+ * so what runs is exactly what the seller saw.
+ */
+function annotateShopifyTargets(actions: any[], catalog: any[]) {
+  if (!Array.isArray(catalog) || catalog.length === 0) return;
+  const shopifyCatalog = catalog.filter((p: any) => p.platform_type === 'shopify' && p.id);
+  if (shopifyCatalog.length === 0) return;
+  const lookup = shopifyCatalog.map((p: any) => ({
+    ...p,
+    variants: String(p.sku || '').split(',').map((x: string) => ({ sku: x.trim() })),
+  }));
+
+  for (const action of actions || []) {
+    if (!action || typeof action !== 'object') continue;
+    const touchesProduct = SHOPIFY_PRODUCT_ACTION_TYPES.has(action.type) ||
+      (action.type === 'multi_action' && (action.actions || []).some((a: any) => SHOPIFY_PRODUCT_ACTION_TYPES.has(a.type)));
+    if (!touchesProduct) continue;
+
+    const rawId = String(action.product_id ?? '').replace(/[^0-9]/g, '');
+    let hit: any = null;
+    if (rawId) hit = lookup.find((p: any) => String(p.id) === rawId) || null;
+    else hit = findProduct(lookup, action.sku, action.product_name);
+
+    if (!hit) {
+      action._target = { status: 'not_found', named: action.product_name || action.sku || '' };
+      continue;
+    }
+    const named = normTitle(action.product_name);
+    const real = normTitle(hit.title);
+    const nameAgrees = !named || named === real || real.includes(named) || named.includes(real);
+    action._target = {
+      status: nameAgrees ? 'ok' : 'mismatch',
+      id: String(hit.id),
+      title: hit.title,
+      image: hit.image_url || null,
+      named: action.product_name || '',
+    };
+    if (nameAgrees) action.product_id = String(hit.id);
+  }
 }
 
 const SHOPIFY_PRODUCT_FIELDS = `id title handle status vendor productType tags
@@ -10511,15 +10568,15 @@ For multiple products with DIFFERENT changes each (not the same field), emit a s
 **Full SEO Optimization Workflow:**
 When asked to "SEO optimize" a product (or all products), follow this complete checklist — not just the title:
 1. **Product Title** — keyword-rich, ≤70 chars, main keyword first (e.g. "Casual Spring Henley T-Shirt – Lightweight Olive Green Tee")
-2. **Product Description** — unique, 150-300+ words, primary keyword + 1-2 secondary keywords used naturally. Never just a list of specs. Write for humans.
-3. **URL Handle** — concise, lowercase, hyphens only, includes main keyword (e.g. "casual-spring-henley-olive-green")
+2. **Product Description** — unique, 150-300+ words, primary keyword + 1-2 secondary keywords used naturally. Never just a list of specs. Write for humans. FACTS: only state materials, sizes, dimensions, care or features that appear in the product's current data (title, description, variants) or that the seller told you. Never invent them — e.g. never call a polyester print-on-demand bag "canvas" or "nylon". If you don't know, describe the design and uses instead.
+3. **URL Handle** — ONLY for a brand-new product or when the seller asks. Changing an existing product's URL breaks links already shared (Google results, Pinterest pins, emails), so leave it out of SEO batches on existing products.
 4. **SEO Meta Title** — ≤60 chars, slightly different from product title, click-worthy, includes brand if space allows
 5. **SEO Meta Description** — ≤160 chars, includes main keyword, compelling CTA (e.g. "Shop our …", "Free shipping…")
 6. **Image Alt Text** — describes the product image + includes keyword (e.g. "Olive green Henley t-shirt on white background")
 7. **Tags** — relevant search terms, color, material, occasion, season, gender (e.g. ["spring","henley","cotton","olive-green","women","casual"])
-8. **Custom Metafields** — material, care instructions, and any other structured data useful for search/filters
+8. **Custom Metafields** — material / care instructions ONLY when the product data or the seller states them. Never guess. Skip this step if unknown.
 
-Always bundle ALL of these into a single multi_action so the user only has to confirm once:
+Bundle the applicable steps into a single multi_action so the user only has to confirm once. "product_id" must be the ID from the product list and "product_name" must be copied EXACTLY from the same line of that list — Tandril shows the seller the real product and blocks the card if the name and ID don't match. (The example below is a new product with known cotton material; for existing products, skip the URL handle and any facts you don't have.)
 [ORION_ACTION:{"type":"multi_action","product_id":"8123456789013","product_name":"Henley T-Shirt - Olive Green","sku":"HTG-001","description":"Full SEO optimization: title, description, URL handle, meta title, meta description, image alt text, tags, and material metafield","actions":[{"type":"update_title","new_title":"Casual Spring Henley T-Shirt – Lightweight Olive Green Tee"},{"type":"update_description","description":"Step into spring with our Casual Henley T-Shirt in warm olive green. Crafted from 100% breathable cotton, this lightweight tee is designed for transitional weather — warm enough for breezy mornings, cool enough for sunny afternoons. The classic Henley neckline adds a relaxed, effortless look that pairs well with jeans, chinos, or shorts. Whether you're heading to a farmer's market, a weekend brunch, or just running errands, this shirt keeps you comfortable and stylish all day. Available in a relaxed fit with reinforced stitching for lasting durability. Machine washable and easy to care for."},{"type":"update_url_handle","new_handle":"casual-spring-henley-t-shirt-olive-green"},{"type":"update_seo_listing","seo_title":"Casual Spring Henley T-Shirt | Olive Green Cotton Tee","seo_description":"Lightweight 100% cotton olive green Henley tee — perfect for spring & transitional weather. Relaxed fit, machine washable. Shop now."},{"type":"update_image_alt","alt_text":"Casual olive green Henley t-shirt on white background — lightweight spring cotton tee"},{"type":"update_tags","tags":["spring","henley","cotton","olive-green","lightweight","casual","men","transitional-weather"]},{"type":"update_metafield","metafield_key":"material","metafield_value":"100% Cotton","metafield_type":"single_line_text_field"},{"type":"update_metafield","metafield_key":"care_instructions","metafield_value":"Machine wash cold, tumble dry low","metafield_type":"single_line_text_field"}]}]
 
 When asked to SEO ALL products, emit one multi_action block per product — up to 10 per response, each with that product's \"product_id\". After the user confirms that batch, automatically continue with the next batch without waiting for the user to re-ask. Tell the user upfront how many products there are and how many are in this first batch. Never stop mid-way through without explaining where you left off and that you're continuing.
@@ -10580,7 +10637,7 @@ ${mode === 'demo/test' ?
 - Answer questions about inventory, stock levels, low stock, out-of-stock, and product counts directly from the store data provided above — NEVER run smart_restock or any action to answer these. "Show me my low stock products", "what's running low", "do I have any low stock?" are all answered by reading the product list and low stock section above, not by generating an action block.
 - Proactively mention low stock, pricing opportunities, and trends you spot in the conversation (but NEVER say "I've flagged it" or "I've noted it" as if a notification was created — just say it directly in your response). IMPORTANT: mentioning an observation NEVER means generating an action block for it. Only generate action blocks when the user explicitly asks you to DO something (change a price, update a title, etc.). Answering a question, giving advice, or spotting an opportunity = text response only, no action blocks.
 - When asked to DO something in the store (add/update inventory, change prices, create products, rename/SEO-update titles, update descriptions, update SEO meta title/description, update URL handles, add images, update image alt text for SEO, set metafields like material or care instructions, update tags), generate ORION_ACTION block(s) as described above — the user will confirm before anything executes. For image uploads always use type "upload_image", never "update_product". For image alt text use "update_image_alt". For metafields use "update_metafield". For SEO meta title/description use "update_seo_listing". For product description use "update_description". For URL slug use "update_url_handle". Never tell the user you "can't" perform supported actions — you CAN, and you do it through the action block.
-- When asked to "SEO optimize" any product, always follow the Full SEO Optimization Workflow above — do ALL 8 elements in a single multi_action, not just the title or just the metafields. Ask for the product name if ambiguous, then generate the full multi_action immediately.
+- When asked to "SEO optimize" any product, always follow the Full SEO Optimization Workflow above — all the applicable steps in a single multi_action, not just the title (skip the URL handle on existing products and any material/care you don't actually know). Ask for the product name if ambiguous, then generate the full multi_action immediately.
 - Use multi_action when asked to make several changes to the SAME product (e.g. "update the title, alt text, and material on the tie dye shirt" → one multi_action block)
 - Use batch_update when asked to apply the SAME change across MULTIPLE products (e.g. "Christmas-ify all my titles" → one batch_update block with all products in the updates array)
 - For multiple products needing DIFFERENT changes each, emit one block per product (max 3 per response); tell the user how many total actions are queued and that you'll continue automatically with the next batch after they confirm

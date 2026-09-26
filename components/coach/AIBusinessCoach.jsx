@@ -1685,6 +1685,14 @@ export default function AIBusinessCoach() {
                           const selectedPlatforms = isMultiPlatform
                             ? (platformSelections[selectionKey] ?? currentAction.platforms)
                             : null;
+                          // Server-checked product behind each card (see annotateShopifyTargets
+                          // in smart-api). One unsafe card blocks the whole batch, since the
+                          // apply buttons run every queued card.
+                          const target = currentAction._target;
+                          const unsafeCards = pendingActions
+                            .map((a, i) => ({ a, i }))
+                            .filter(({ a }) => a._target && a._target.status !== 'ok');
+                          const blocked = unsafeCards.length > 0;
 
                           return (
                             <div className="mt-3 rounded-xl border border-amber-200 bg-white shadow-sm overflow-hidden">
@@ -1701,6 +1709,38 @@ export default function AIBusinessCoach() {
                                   {isExecuting ? 'Executing…' : 'Awaiting approval'}
                                 </span>
                               </div>
+
+                              {/* The real product this card will change */}
+                              {target && (
+                                target.status === 'ok' ? (
+                                  <div className="flex items-center gap-3 px-4 py-2 bg-white border-b border-amber-100">
+                                    {target.image && (
+                                      <img src={target.image} alt="" className="w-10 h-10 rounded object-cover border border-slate-200" />
+                                    )}
+                                    <p className="text-xs text-slate-600">
+                                      Will change: <span className="font-semibold text-slate-800">{target.title}</span>
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-start gap-3 px-4 py-2 bg-red-50 border-b border-red-200">
+                                    {target.image && (
+                                      <img src={target.image} alt="" className="w-10 h-10 rounded object-cover border border-red-200" />
+                                    )}
+                                    <p className="text-xs text-red-800">
+                                      {target.status === 'mismatch'
+                                        ? <>⚠️ Orion called this "{target.named}", but the product it points to in your store is <span className="font-semibold">"{target.title}"</span>. Not safe to apply.</>
+                                        : <>⚠️ Couldn't find "{target.named}" in your store. Not safe to apply.</>}
+                                    </p>
+                                  </div>
+                                )
+                              )}
+                              {blocked && (
+                                <div className="px-4 py-2 bg-red-50 border-b border-red-200">
+                                  <p className="text-xs text-red-800">
+                                    Approval is turned off for this batch because {unsafeCards.length === 1 ? `card ${unsafeCards[0].i + 1} doesn't` : `cards ${unsafeCards.map(u => u.i + 1).join(', ')} don't`} match a product in your store. Cancel, then ask Orion again and name the products exactly.
+                                  </p>
+                                </div>
+                              )}
 
                               {/* Previously completed in this queue */}
                               {completedResults.length > 0 && (
@@ -1777,7 +1817,7 @@ export default function AIBusinessCoach() {
                                         handleApproveAndApplyAll(idx);
                                       }
                                     }}
-                                    disabled={isMultiPlatform && (selectedPlatforms ?? currentAction.platforms).length === 0}
+                                    disabled={blocked || (isMultiPlatform && (selectedPlatforms ?? currentAction.platforms).length === 0)}
                                     className="px-4 py-2 text-sm font-semibold bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                   >
                                     {total > 1 && queueIdx < total - 1
@@ -1789,7 +1829,8 @@ export default function AIBusinessCoach() {
                                   {remainingCount > 1 && (
                                     <button
                                       onClick={() => handleConfirmAll(idx)}
-                                      className="px-4 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                                      disabled={blocked}
+                                      className="px-4 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                       Skip Review — Apply All ({remainingCount})
                                     </button>
