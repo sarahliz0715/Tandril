@@ -738,6 +738,14 @@ export default function History() {
                         }
                       </Button>
                     )}
+                    {!canUndo(command) && command.source === 'orion' && command.status === 'completed' && (
+                      <span
+                        className="inline-flex items-center justify-center w-9 h-8 text-slate-300 cursor-help"
+                        title="Undo isn't available for this change: Tandril didn't save the before-values for this kind of change when it was made."
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                      </span>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"

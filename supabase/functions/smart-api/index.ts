@@ -2064,7 +2064,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
               for (const m of activeListXml.matchAll(/<Item>([\s\S]*?)<\/Item>/g)) {
                 const x = m[1];
                 const itemId = x.match(/<ItemID>([^<]+)<\/ItemID>/)?.[1]?.trim();
-                const title = x.match(/<Title>([^<]+)<\/Title>/)?.[1]?.trim() || 'eBay Item';
+                const title = (x.match(/<Title>([^<]+)<\/Title>/)?.[1]?.trim() || 'eBay Item')
+                  .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
                 const sku = x.match(/<SKU>([^<]+)<\/SKU>/)?.[1]?.trim() || `ebay-${itemId}`;
                 const price = parseFloat(x.match(/<CurrentPrice[^>]*>([^<]+)<\/CurrentPrice>/)?.[1] || '0') || 0;
                 const totalStock = parseInt(x.match(/<QuantityAvailable>([^<]+)<\/QuantityAvailable>/)?.[1] || x.match(/<Quantity>([^<]+)<\/Quantity>/)?.[1] || '0') || 0;
@@ -2873,7 +2874,13 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         }
         return { message: msgs.join('\n') };
       }
-      const syntheticAction = { ...(target || {}), type: original_type, ...previous_state };
+      // Actions whose undo is a different action (end ↔ relist, delete → restore).
+      const UNDO_TYPE: Record<string, string> = {
+        ebay_end_listing: 'ebay_relist',
+        ebay_relist: 'ebay_end_listing',
+        ebay_delete_inventory_record: 'ebay_restore_inventory_record',
+      };
+      const syntheticAction = { ...(target || {}), type: UNDO_TYPE[original_type] || original_type, ...previous_state };
       const undone = await executeStoreAction(supabaseClient, userId, syntheticAction);
       // The replayed handler captures its own previous_state (i.e. the value we're
       // undoing FROM) — strip it so the undo itself doesn't show as further undoable.
@@ -3278,7 +3285,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       });
       if (!putRes.ok) throw new Error(`eBay inventory update failed: ${await putRes.text()}`);
       await syncEbayOfferQuantities(apiBase, ebayHeaders, sku, Number(action.quantity));
-      return { message: `Updated eBay inventory for "${action.product_name || sku}" to ${action.quantity} units` };
+      const prevQty = currentItem.availability?.shipToLocationAvailability?.quantity;
+      return {
+        message: `Updated eBay inventory for "${action.product_name || sku}" to ${action.quantity} units`,
+        ...(prevQty != null ? { previous_state: { quantity: prevQty }, target: { sku, product_name: action.product_name } } : {}),
+      };
     }
 
     case 'ebay_update_price': {
@@ -3308,7 +3319,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         body: JSON.stringify(offerBody),
       });
       if (!putRes.ok) throw new Error(`eBay price update failed: ${await putRes.text()}`);
-      return { message: `Updated eBay price for "${action.product_name || sku}" to $${action.price}` };
+      const prevPrice = offer.pricingSummary?.price?.value;
+      return {
+        message: `Updated eBay price for "${action.product_name || sku}" to $${action.price}`,
+        ...(prevPrice != null ? { previous_state: { price: prevPrice }, target: { sku, product_name: action.product_name } } : {}),
+      };
     }
 
     case 'ebay_update_title': {
@@ -3327,7 +3342,10 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         body: JSON.stringify({ ...currentItem, product: { ...currentItem.product, title: action.new_title } }),
       });
       if (!putRes.ok) throw new Error(`eBay title update failed: ${await putRes.text()}`);
-      return { message: `Updated eBay listing title for "${action.product_name || sku}" to "${action.new_title}"` };
+      return {
+        message: `Updated eBay listing title for "${action.product_name || sku}" to "${action.new_title}"`,
+        ...(currentItem.product?.title ? { previous_state: { new_title: currentItem.product.title }, target: { sku, product_name: action.product_name } } : {}),
+      };
     }
 
     case 'ebay_update_description': {
@@ -3346,7 +3364,10 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         body: JSON.stringify({ ...currentItem, product: { ...currentItem.product, description: action.description } }),
       });
       if (!putRes.ok) throw new Error(`eBay description update failed: ${await putRes.text()}`);
-      return { message: `Updated eBay description for "${action.product_name || sku}"` };
+      return {
+        message: `Updated eBay description for "${action.product_name || sku}"`,
+        ...(currentItem.product?.description ? { previous_state: { description: currentItem.product.description }, target: { sku, product_name: action.product_name } } : {}),
+      };
     }
 
     case 'ebay_update_image': {
@@ -3380,7 +3401,10 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         body: JSON.stringify({ ...currentItem, product: { ...currentItem.product, imageUrls: finalUrls } }),
       });
       if (!putRes.ok) throw new Error(`eBay image update failed: ${await putRes.text()}`);
-      return { message: `Updated images for eBay listing "${action.product_name || sku}" (${finalUrls.length} image${finalUrls.length !== 1 ? 's' : ''})` };
+      return {
+        message: `Updated images for eBay listing "${action.product_name || sku}" (${finalUrls.length} image${finalUrls.length !== 1 ? 's' : ''})`,
+        ...(existingUrls.length ? { previous_state: { image_urls: existingUrls, replace_images: true }, target: { sku, product_name: action.product_name } } : {}),
+      };
     }
 
     case 'ebay_delete_inventory_record': {
@@ -3404,7 +3428,24 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       }
       const delRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, { method: 'DELETE', headers: ebayHeaders });
       if (!delRes.ok && delRes.status !== 204) throw new Error(`eBay wouldn't delete SKU ${sku}: ${delRes.status} ${await delRes.text()}`);
-      return { message: `Deleted the leftover eBay record "${item.product?.title || sku}" (SKU ${sku}). It had no live listing, so nothing buyers can see changed.` };
+      return {
+        message: `Deleted the leftover eBay record "${item.product?.title || sku}" (SKU ${sku}). It had no live listing, so nothing buyers can see changed.`,
+        previous_state: { item },
+        target: { sku, product_name: item.product?.title },
+      };
+    }
+
+    case 'ebay_restore_inventory_record': {
+      // Undo for ebay_delete_inventory_record: puts the saved record back.
+      const { apiBase, headers: ebayHeaders } = await getEbayClientForActions(supabaseClient, userId);
+      const sku = action.sku;
+      if (!sku || !action.item) throw new Error('sku and the saved record are required to restore an eBay record.');
+      const { sku: _s, ...itemBody } = action.item;
+      const putRes = await fetch(`${apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, {
+        method: 'PUT', headers: ebayHeaders, body: JSON.stringify(itemBody),
+      });
+      if (!putRes.ok) throw new Error(`eBay wouldn't restore SKU ${sku}: ${putRes.status} ${await putRes.text()}`);
+      return { message: `Restored the eBay record "${action.item.product?.title || sku}" (SKU ${sku}).` };
     }
 
     case 'ebay_end_listing': {
@@ -3427,7 +3468,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         headers: ebayHeaders,
       });
       if (!withdrawRes.ok) throw new Error(`eBay end listing failed: ${await withdrawRes.text()}`);
-      return { message: `Ended eBay listing for "${action.product_name || sku}". It has been removed from eBay — inventory is preserved and it can be relisted anytime.` };
+      return {
+        message: `Ended eBay listing for "${action.product_name || sku}". It has been removed from eBay — inventory is preserved and it can be relisted anytime.`,
+        previous_state: { was_live: true },
+        target: { sku, product_name: action.product_name },
+      };
     }
 
     case 'ebay_relist': {
@@ -3450,7 +3495,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         headers: ebayHeaders,
       });
       if (!publishRes.ok) throw new Error(`eBay relist failed: ${await publishRes.text()}`);
-      return { message: `Relisted "${action.product_name || sku}" on eBay successfully.` };
+      return {
+        message: `Relisted "${action.product_name || sku}" on eBay successfully.`,
+        previous_state: { was_live: false },
+        target: { sku, product_name: action.product_name },
+      };
     }
 
     case 'ebay_update_item_specifics': {
@@ -3483,7 +3532,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       if (!putRes.ok) throw new Error(`eBay item specifics update failed: ${await putRes.text()}`);
 
       const updatedKeys = Object.keys(normalized).join(', ');
-      return { message: `Updated eBay item specifics for "${action.product_name || sku}": ${updatedKeys}` };
+      return {
+        message: `Updated eBay item specifics for "${action.product_name || sku}": ${updatedKeys}`,
+        previous_state: { item_specifics: existingAspects, replace_all: true },
+        target: { sku, product_name: action.product_name },
+      };
     }
 
     case 'ebay_create_listing': {

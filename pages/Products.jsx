@@ -6,9 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   Package, Search, RefreshCw, AlertTriangle, CheckCircle,
-  Bot, Loader2, Store, ChevronDown, ChevronUp,
+  Bot, Loader2, Store, ChevronDown, ChevronUp, ExternalLink, ImageOff,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabaseClient';
@@ -48,10 +49,47 @@ const STATUS_COLORS = {
   publish:  'bg-green-100 text-green-800',
 };
 
+// Link to the product in its own store's admin / listing page, when we know how to build one.
+function storeLinkFor(product, platforms) {
+  const store = platforms.find(p => p.platform_type === product.platform_type) || {};
+  const id = product.listing_id || product.id;
+  if (!id) return null;
+  const domain = store.shop_domain || '';
+  const base = String(store.store_url || '').replace(/\/+$/, '');
+  switch (product.platform_type) {
+    case 'shopify': return domain ? { href: `https://${domain}/admin/products/${id}`, label: 'Open in Shopify' } : null;
+    case 'ebay': return /^\d+$/.test(String(id)) ? { href: `https://www.ebay.com/itm/${id}`, label: 'View on eBay' } : null;
+    case 'etsy': return { href: `https://www.etsy.com/listing/${id}`, label: 'View on Etsy' };
+    case 'woocommerce': return base ? { href: `${base}/wp-admin/post.php?post=${id}&action=edit`, label: 'Open in WooCommerce' } : null;
+    default: return null;
+  }
+}
+
+function ProductThumb({ src, size = 'w-10 h-10' }) {
+  const [broken, setBroken] = useState(false);
+  if (!src || broken) {
+    return (
+      <div className={`${size} rounded-md bg-slate-100 border border-slate-200 flex items-center justify-center flex-shrink-0`}>
+        <ImageOff className="w-4 h-4 text-slate-300" />
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt=""
+      loading="lazy"
+      onError={() => setBroken(true)}
+      className={`${size} rounded-md object-cover border border-slate-200 bg-white flex-shrink-0`}
+    />
+  );
+}
+
 export default function Products() {
   const navigate = useNavigate();
   const [products, setProducts] = useState([]);
   const [platforms, setPlatforms] = useState([]);
+  const [openProduct, setOpenProduct] = useState(null);
   const [reconnectStores, setReconnectStores] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -101,6 +139,7 @@ export default function Products() {
           product_type: item.category || '',
           platform_type: pt,
           image_url: item.image_url || null,
+          listing_id: item.platform_listings?.[0]?.listing_id || null,
         };
       });
 
@@ -408,8 +447,14 @@ export default function Products() {
                           const isLowStock = stock != null && stock > 0 && stock <= 5;
 
                           return (
-                            <tr key={product.id || i} className="hover:bg-slate-50/60 transition-colors">
+                            <tr
+                              key={product.id || i}
+                              onClick={() => setOpenProduct(product)}
+                              className="hover:bg-slate-50/60 transition-colors cursor-pointer"
+                            >
                               <td className="px-5 py-3">
+                                <div className="flex items-center gap-3">
+                                <ProductThumb src={product.image_url} />
                                 <div>
                                   <p className="font-medium text-slate-900 leading-tight">
                                     {product.title || '—'}
@@ -420,6 +465,7 @@ export default function Products() {
                                   {product.product_type && (
                                     <p className="text-xs text-slate-400">{product.product_type}</p>
                                   )}
+                                </div>
                                 </div>
                               </td>
                               <td className="px-4 py-3 hidden sm:table-cell">
@@ -456,10 +502,10 @@ export default function Products() {
                                   size="sm"
                                   className="text-xs text-emerald-700 hover:text-emerald-900 hover:bg-emerald-50 px-2"
                                   title="Ask Orion about this product"
-                                  onClick={() => navigate(
+                                  onClick={(e) => { e.stopPropagation(); navigate(
                                     createPageUrl('AIAdvisor') +
                                     `?prompt=${encodeURIComponent(`Tell me about "${product.title}" and suggest optimizations for pricing, SEO, and inventory.`)}`
-                                  )}
+                                  ); }}
                                 >
                                   <Bot className="w-3 h-3 mr-1" />
                                   Orion
@@ -477,6 +523,63 @@ export default function Products() {
           })}
         </div>
       )}
+
+      <Dialog open={!!openProduct} onOpenChange={(o) => { if (!o) setOpenProduct(null); }}>
+        <DialogContent className="max-w-lg">
+          {openProduct && (() => {
+            const link = storeLinkFor(openProduct, platforms);
+            const cfg = PLATFORM_CONFIG[openProduct.platform_type];
+            const stock = openProduct.inventory_quantity;
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="leading-snug pr-6">{openProduct.title}</DialogTitle>
+                </DialogHeader>
+                {openProduct.image_url ? (
+                  <img src={openProduct.image_url} alt="" className="w-full max-h-80 object-contain rounded-lg border border-slate-200 bg-slate-50" />
+                ) : (
+                  <div className="w-full h-40 rounded-lg border border-slate-200 bg-slate-50 flex flex-col items-center justify-center text-slate-400 text-sm gap-2">
+                    <ImageOff className="w-6 h-6" /> No photo
+                  </div>
+                )}
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm mt-2">
+                  <dt className="text-slate-500">Store</dt>
+                  <dd className="text-slate-900">{platformNameMap[openProduct.platform_type] || cfg?.label || openProduct.platform_type}</dd>
+                  <dt className="text-slate-500">SKU</dt>
+                  <dd className="font-mono text-xs text-slate-700 break-all">{openProduct.sku || '—'}</dd>
+                  <dt className="text-slate-500">Price</dt>
+                  <dd className="text-slate-900">{openProduct.price != null ? `$${parseFloat(openProduct.price).toFixed(2)}` : '—'}</dd>
+                  <dt className="text-slate-500">Stock</dt>
+                  <dd className="text-slate-900">{stock != null ? stock : '—'}</dd>
+                  <dt className="text-slate-500">Status</dt>
+                  <dd className="text-slate-900">{openProduct.status || '—'}</dd>
+                  {openProduct.vendor && (<><dt className="text-slate-500">Vendor</dt><dd className="text-slate-900">{openProduct.vendor}</dd></>)}
+                  {openProduct.product_type && (<><dt className="text-slate-500">Type</dt><dd className="text-slate-900">{openProduct.product_type}</dd></>)}
+                </dl>
+                <div className="flex flex-wrap gap-2 pt-3">
+                  {link && (
+                    <Button asChild variant="outline" size="sm">
+                      <a href={link.href} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="w-4 h-4 mr-1" /> {link.label}
+                      </a>
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    className="bg-emerald-600 hover:bg-emerald-700"
+                    onClick={() => navigate(
+                      createPageUrl('AIAdvisor') +
+                      `?prompt=${encodeURIComponent(`Tell me about "${openProduct.title}" and suggest optimizations for pricing, SEO, and inventory.`)}`
+                    )}
+                  >
+                    <Bot className="w-4 h-4 mr-1" /> Ask Orion
+                  </Button>
+                </div>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
