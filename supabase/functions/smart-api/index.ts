@@ -106,66 +106,73 @@ function fromShopifyGid(gid: string): string {
 // Bracket-aware extraction of [ORION_ACTION:{...}] blocks.
 // The naive regex /\[ORION_ACTION:([\s\S]*?)\]/ stops at the first ] it finds,
 // which breaks any action block that contains arrays (multi_action, batch_update, etc.).
-function extractOrionActionBlocks(text: string): string[] {
-  const blocks: string[] = [];
+// Orion sometimes packs several cards into one block — [ORION_ACTION:{a},{b}] or
+// [ORION_ACTION:[{a},{b}]] — and may close with a stray </ORION_ACTION>. Every
+// object in the block becomes its own card; before this, only the first did and
+// the rest leaked into the chat as raw JSON.
+
+// Index just past the JSON object/array starting at i, or -1 if it never closes.
+function scanJsonValue(text: string, i: number): number {
+  let depth = 0, inStr = false, esc = false;
+  for (let j = i; j < text.length; j++) {
+    const ch = text[j];
+    if (esc) { esc = false; continue; }
+    if (inStr) { if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === '{' || ch === '[') depth++;
+    else if (ch === '}' || ch === ']') { depth--; if (depth === 0) return j + 1; }
+  }
+  return -1;
+}
+
+function skipSpace(text: string, i: number): number {
+  while (i < text.length && /\s/.test(text[i])) i++;
+  return i;
+}
+
+// Finds every action block: [{start, end, jsons}] where end is just past the block.
+function scanOrionActionBlocks(text: string): { start: number; end: number; jsons: string[] }[] {
   const PREFIX = '[ORION_ACTION:';
+  const found: { start: number; end: number; jsons: string[] }[] = [];
   let pos = 0;
   while (pos < text.length) {
     const start = text.indexOf(PREFIX, pos);
     if (start === -1) break;
-    let depth = 0;
-    let inStr = false;
-    let esc = false;
-    const jsonStart = start + PREFIX.length;
-    let end = -1;
-    for (let i = jsonStart; i < text.length; i++) {
-      const ch = text[i];
-      if (esc) { esc = false; continue; }
-      if (inStr) { if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
-      if (ch === '"') { inStr = true; continue; }
-      if (ch === '{' || ch === '[') depth++;
-      else if (ch === '}' || ch === ']') { depth--; if (depth === 0) { end = i; break; } }
+    const jsons: string[] = [];
+    let i = skipSpace(text, start + PREFIX.length);
+    let ok = false;
+    while (text[i] === '{' || text[i] === '[') {
+      const end = scanJsonValue(text, i);
+      if (end === -1) break;
+      jsons.push(text.slice(i, end));
+      ok = true;
+      i = skipSpace(text, end);
+      if (text[i] !== ',') break;
+      i = skipSpace(text, i + 1);
     }
-    if (end !== -1) {
-      blocks.push(text.slice(jsonStart, end + 1));
-      // skip the closing ] of the outer [ORION_ACTION:...]
-      pos = end + (text[end + 1] === ']' ? 2 : 1);
-    } else {
-      break;
-    }
+    if (!ok) break;
+    if (text[i] === ']') i++;
+    const closeTag = text.slice(skipSpace(text, i)).match(/^<\/ORION_ACTION>/);
+    if (closeTag) i = skipSpace(text, i) + closeTag[0].length;
+    found.push({ start, end: i, jsons });
+    pos = i;
   }
-  return blocks;
+  return found;
+}
+
+function extractOrionActionBlocks(text: string): string[] {
+  return scanOrionActionBlocks(text).flatMap((b) => b.jsons);
 }
 
 function removeOrionActionBlocks(text: string): string {
-  const PREFIX = '[ORION_ACTION:';
   let result = '';
   let pos = 0;
-  while (pos < text.length) {
-    const start = text.indexOf(PREFIX, pos);
-    if (start === -1) { result += text.slice(pos); break; }
-    result += text.slice(pos, start);
-    let depth = 0;
-    let inStr = false;
-    let esc = false;
-    const jsonStart = start + PREFIX.length;
-    let end = -1;
-    for (let i = jsonStart; i < text.length; i++) {
-      const ch = text[i];
-      if (esc) { esc = false; continue; }
-      if (inStr) { if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
-      if (ch === '"') { inStr = true; continue; }
-      if (ch === '{' || ch === '[') depth++;
-      else if (ch === '}' || ch === ']') { depth--; if (depth === 0) { end = i; break; } }
-    }
-    if (end !== -1) {
-      pos = end + (text[end + 1] === ']' ? 2 : 1);
-    } else {
-      result += text.slice(start);
-      break;
-    }
+  for (const b of scanOrionActionBlocks(text)) {
+    result += text.slice(pos, b.start);
+    pos = b.end;
   }
-  return result.trim();
+  result += text.slice(pos);
+  return result.replace(/<\/?ORION_ACTION>/g, '').trim();
 }
 
 // Human-readable summary of an Orion action for the Activity Log.
@@ -602,7 +609,10 @@ serve(async (req) => {
       response = removeOrionActionBlocks(rawResponse);
       for (const json of allActionBlocks) {
         try {
-          pendingActions.push(JSON.parse(json));
+          const parsed = JSON.parse(json);
+          for (const act of (Array.isArray(parsed) ? parsed : [parsed])) {
+            if (act && typeof act === 'object' && act.type) pendingActions.push(act);
+          }
         } catch {
           // skip malformed blocks
         }
