@@ -354,7 +354,7 @@ export default function AIBusinessCoach() {
   const reportToOrion = async (results, errors, actions) => {
     const total = results.length + errors.length;
     if (total === 0) return;
-    const lines = [`Action execution complete: ${results.length} of ${total} succeeded.`];
+    const lines = [`Action execution complete: ${results.length} of ${total} fully succeeded${errors.length ? `, ${errors.length} failed or only partly applied` : ''}.`];
     if (results.length > 0) {
       lines.push('Succeeded:');
       results.forEach(r => lines.push(`✅ ${r}`));
@@ -543,7 +543,9 @@ export default function AIBusinessCoach() {
       try {
         const resolvedAction = await resolveAction(pendingActions[i]);
         const result = await executeOrionAction(resolvedAction);
-        localResults.push(result.execution_result?.message || 'Done');
+        // A multi-change where some steps failed counts as failed, not done.
+        if (result.execution_result?.partial) localErrors.push(result.execution_result.message);
+        else localResults.push(result.execution_result?.message || 'Done');
       } catch (error) {
         console.error('[Orion] Action error:', error);
         const label = pendingActions[i].product_name || `Action ${i + 1}`;
@@ -585,7 +587,8 @@ export default function AIBusinessCoach() {
         const resolvedAction = await resolveAction(remaining[i]);
         const result = await executeOrionAction(resolvedAction);
         const resultMsg = result.execution_result?.message || 'Done';
-        localResults.push(resultMsg);
+        if (result.execution_result?.partial) localErrors.push(resultMsg);
+        else localResults.push(resultMsg);
         setChatMessages(prev => prev.map((m, idx) =>
           idx === messageIdx ? { ...m, queueResults: [...(m.queueResults || []), resultMsg] } : m
         ));

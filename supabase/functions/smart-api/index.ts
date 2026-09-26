@@ -898,20 +898,88 @@ function findProduct(allProducts: any[], sku: string, productName: string): any 
   }
   // 5. Significant word overlap, ignoring short words.
   // Also checks partial word containment so "shirt" matches "t-shirt", "vesting" matches "vesting".
-  // Threshold is 3 for long queries, 2 for short ones (≤3 meaningful words).
+  // Must cover most of the name (≥75% of its words, at least 2) and be the single best
+  // match — a loose match here writes to the WRONG product (e.g. a tote's tags landed on
+  // a laptop sleeve that merely shared "tote/fashion/accessory").
   const needleWords = needle.replace(/['"]/g, '').split(/\s+/).filter((w: string) => w.length > 3);
   if (needleWords.length > 0) {
-    const threshold = needleWords.length <= 3 ? 2 : 3;
+    const threshold = Math.max(2, Math.ceil(needleWords.length * 0.75));
     let bestMatch: any = null;
     let bestScore = 0;
+    let tied = false;
     for (const p of allProducts) {
       const titleWords = p.title.toLowerCase().replace(/['"]/g, '').split(/\s+/);
       const score = needleWords.filter((w: string) => titleWords.some((tw: string) => tw === w || tw.includes(w) || w.includes(tw))).length;
-      if (score >= threshold && score > bestScore) { bestScore = score; bestMatch = p; }
+      if (score < threshold) continue;
+      if (score > bestScore) { bestScore = score; bestMatch = p; tied = false; }
+      else if (score === bestScore) tied = true;
     }
-    if (bestMatch) return bestMatch;
+    if (bestMatch && !tied) return bestMatch;
   }
   return null;
+}
+
+const SHOPIFY_PRODUCT_FIELDS = `id title handle status vendor productType tags
+  images(first: 1) { edges { node { url altText } } }
+  variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } }`;
+
+function normalizeShopifyProduct(node: any) {
+  return {
+    ...node,
+    _gid: node.id,
+    id: fromShopifyGid(node.id),
+    images: (node.images?.edges || []).map((i: any) => ({ src: i.node.url })),
+    variants: (node.variants?.edges || []).map((v: any) => ({
+      ...v.node,
+      id: fromShopifyGid(v.node.id),
+      inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null,
+      inventory_quantity: v.node.inventoryQuantity,
+    })),
+  };
+}
+
+/**
+ * Finds the Shopify product an Orion write action is about, across the WHOLE
+ * store (not just the first 250 products). Order: explicit product_id → exact
+ * variant SKU (any of a comma-separated list) → product name across every page.
+ * Throws instead of guessing when nothing matches.
+ */
+async function resolveShopifyProduct(shopDomain: string, accessToken: string, action: any): Promise<any> {
+  const label = action.product_id || action.sku || action.product_name;
+
+  const rawId = String(action.product_id ?? '').replace(/[^0-9]/g, '');
+  if (rawId) {
+    const d = await shopifyGraphQL(shopDomain, accessToken,
+      `query($id: ID!) { product(id: $id) { ${SHOPIFY_PRODUCT_FIELDS} } }`,
+      { id: toShopifyGid('Product', rawId) });
+    if (d?.product) return normalizeShopifyProduct(d.product);
+    throw new Error(`Could not find product ID ${rawId} in Shopify.`);
+  }
+
+  const skus = String(action.sku || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+  for (const sku of skus) {
+    const d = await shopifyGraphQL(shopDomain, accessToken,
+      `query($q: String!) { productVariants(first: 10, query: $q) { edges { node { sku product { ${SHOPIFY_PRODUCT_FIELDS} } } } } }`,
+      { q: `sku:${JSON.stringify(sku)}` });
+    const hit = (d?.productVariants?.edges || []).find((e: any) => e.node.sku === sku);
+    if (hit) return normalizeShopifyProduct(hit.node.product);
+  }
+
+  const name = action.product_name || (skus.length === 0 ? action.sku : '');
+  if (name) {
+    const all: any[] = [];
+    let cursor: string | null = null;
+    do {
+      const after = cursor ? `, after: ${JSON.stringify(cursor)}` : '';
+      const d = await shopifyGraphQL(shopDomain, accessToken,
+        `query { products(first: 250${after}) { pageInfo { hasNextPage endCursor } edges { node { ${SHOPIFY_PRODUCT_FIELDS} } } } }`);
+      all.push(...(d.products.edges || []).map((e: any) => normalizeShopifyProduct(e.node)));
+      cursor = d.products.pageInfo?.hasNextPage ? d.products.pageInfo.endCursor : null;
+    } while (cursor);
+    const p = findProduct(all, '', name);
+    if (p) return p;
+  }
+  throw new Error(`Could not find product "${label}" in Shopify.`);
 }
 
 // ─── eBay Client Helper ───────────────────────────────────────────────────────
@@ -2592,40 +2660,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     }
 
     case 'update_inventory': {
-      const invGqlData = await shopifyGraphQL(shopDomain, accessToken, `
-        query {
-          products(first: 250) {
-            edges {
-              node {
-                id title handle status vendor productType tags
-                images(first: 1) { edges { node { url altText } } }
-                variants(first: 100) {
-                  edges {
-                    node {
-                      id price sku inventoryQuantity
-                      inventoryItem { id }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      `);
-      const allInvProducts = invGqlData.products.edges.map((e: any) => ({
-        ...e.node,
-        id: fromShopifyGid(e.node.id),
-        images: e.node.images.edges.map((i: any) => ({ src: i.node.url })),
-        variants: e.node.variants.edges.map((v: any) => ({
-          ...v.node,
-          id: fromShopifyGid(v.node.id),
-          inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null,
-          inventory_quantity: v.node.inventoryQuantity,
-        })),
-      }));
-
-      const invProduct = findProduct(allInvProducts, action.sku, action.product_name);
-      if (!invProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      const invProduct = await resolveShopifyProduct(shopDomain, accessToken, action);
       const targetVariant = action.sku
         ? (invProduct.variants || []).find((v: any) => v.sku === action.sku) || invProduct.variants?.[0]
         : invProduct.variants?.[0];
@@ -2668,46 +2703,12 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return {
         message: `Updated inventory for "${action.sku || action.product_name}" to ${action.quantity} units`,
         previous_state: { quantity: targetVariant.inventory_quantity },
-        target: { sku: action.sku, product_name: action.product_name },
+        target: { product_id: invProduct.id, sku: action.sku, product_name: action.product_name },
       };
     }
 
     case 'update_price': {
-      const priceGqlData = await shopifyGraphQL(shopDomain, accessToken, `
-        query {
-          products(first: 250) {
-            edges {
-              node {
-                id title handle status vendor productType tags
-                images(first: 1) { edges { node { url altText } } }
-                variants(first: 100) {
-                  edges {
-                    node {
-                      id price sku inventoryQuantity
-                      inventoryItem { id }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      `);
-      const allPriceProducts = priceGqlData.products.edges.map((e: any) => ({
-        ...e.node,
-        _gid: e.node.id,
-        id: fromShopifyGid(e.node.id),
-        images: e.node.images.edges.map((i: any) => ({ src: i.node.url })),
-        variants: e.node.variants.edges.map((v: any) => ({
-          ...v.node,
-          id: fromShopifyGid(v.node.id),
-          inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null,
-          inventory_quantity: v.node.inventoryQuantity,
-        })),
-      }));
-
-      const priceProduct = findProduct(allPriceProducts, action.sku, action.product_name);
-      if (!priceProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      const priceProduct = await resolveShopifyProduct(shopDomain, accessToken, action);
 
       const variants: any[] = priceProduct.variants || [];
       if (variants.length === 0) throw new Error(`Product "${priceProduct.title}" has no variants.`);
@@ -2799,6 +2800,21 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const { original_type, target, previous_state } = action;
       if (!original_type || !previous_state) {
         throw new Error('undo_action requires original_type and previous_state.');
+      }
+      if (original_type === 'multi_action' && Array.isArray(previous_state.steps)) {
+        // Undo each step of a multi-change, newest first.
+        const msgs: string[] = [];
+        for (const step of [...previous_state.steps].reverse()) {
+          try {
+            const r = await executeStoreAction(supabaseClient, userId, {
+              type: 'undo_action', original_type: step.type, target: step.target, previous_state: step.previous_state,
+            });
+            msgs.push(`✅ ${r?.message || `Undid ${step.type}`}`);
+          } catch (e: any) {
+            msgs.push(`❌ ${step.type}: ${e.message}`);
+          }
+        }
+        return { message: msgs.join('\n') };
       }
       const syntheticAction = { ...(target || {}), type: original_type, ...previous_state };
       const undone = await executeStoreAction(supabaseClient, userId, syntheticAction);
@@ -2923,24 +2939,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     }
 
     case 'update_title': {
-      let titleHasNextPage = true;
-      let titleCursor: string | null = null;
-      const titleAllEdges: any[] = [];
-      while (titleHasNextPage) {
-        const titleAfter = titleCursor ? `, after: "${titleCursor}"` : '';
-        const titleGqlData = await shopifyGraphQL(shopDomain, accessToken, `
-          query { products(first: 250${titleAfter}) { pageInfo { hasNextPage endCursor } edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
-        `);
-        titleAllEdges.push(...titleGqlData.products.edges);
-        titleHasNextPage = titleGqlData.products.pageInfo?.hasNextPage ?? false;
-        titleCursor = titleGqlData.products.pageInfo?.endCursor ?? null;
-      }
-      const allTitleProducts = titleAllEdges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
-
-      // If sku looks like a bare product ID (no underscore), prefer name-based lookup
-      const titleSku = action.sku && action.sku.includes('_') ? action.sku : null;
-      const targetProduct = findProduct(allTitleProducts, titleSku, action.product_name || action.sku);
-      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      const targetProduct = await resolveShopifyProduct(shopDomain, accessToken, action);
 
       const titleUpdateData = await shopifyGraphQL(shopDomain, accessToken, `
         mutation productUpdate($input: ProductInput!) {
@@ -2954,19 +2953,13 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return {
         message: `Updated title from "${targetProduct.title}" to "${titleUpdateData.productUpdate.product.title}"`,
         previous_state: { new_title: targetProduct.title },
-        target: { sku: action.sku, product_name: action.product_name },
+        target: { product_id: targetProduct.id, sku: action.sku, product_name: action.product_name },
       };
     }
 
     case 'update_tags':
     case 'add_tags': {
-      const tagsGqlData = await shopifyGraphQL(shopDomain, accessToken, `
-        query { products(first: 250) { edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
-      `);
-      const allTagsProducts = tagsGqlData.products.edges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
-
-      const targetProduct = findProduct(allTagsProducts, action.sku, action.product_name);
-      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      const targetProduct = await resolveShopifyProduct(shopDomain, accessToken, action);
 
       // Accept tags as an array or a comma-separated string
       const newTags = Array.isArray(action.tags)
@@ -2985,19 +2978,13 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return {
         message: `Updated tags on "${targetProduct.title}" to: ${newTags.join(', ')}`,
         previous_state: { tags: targetProduct.tags },
-        target: { sku: action.sku, product_name: action.product_name },
+        target: { product_id: targetProduct.id, sku: action.sku, product_name: action.product_name },
       };
     }
     case 'add_image':
     case 'set_image':
     case 'upload_image': {
-      const imgGqlData = await shopifyGraphQL(shopDomain, accessToken, `
-        query { products(first: 250) { edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
-      `);
-      const allImgProducts = imgGqlData.products.edges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
-
-      const targetProduct = findProduct(allImgProducts, action.sku, action.product_name);
-      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify. Make sure the product exists and try again.`);
+      const targetProduct = await resolveShopifyProduct(shopDomain, accessToken, action);
       if (!action.image_data) throw new Error('No image data provided. Please re-upload the image and try again.');
 
       const uploadRes = await fetch(`https://${shopDomain}/admin/api/2025-01/products/${targetProduct.id}/images.json`, {
@@ -3015,13 +3002,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
     }
 
     case 'update_metafield': {
-      const mfGqlData = await shopifyGraphQL(shopDomain, accessToken, `
-        query { products(first: 250) { edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
-      `);
-      const allMfProducts = mfGqlData.products.edges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
-
-      const targetProduct = findProduct(allMfProducts, action.sku, action.product_name);
-      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      const targetProduct = await resolveShopifyProduct(shopDomain, accessToken, action);
 
       const namespace = action.metafield_namespace || 'custom';
       const key = action.metafield_key;
@@ -3059,20 +3040,14 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         // created metafield "back" to nothing isn't a clean restore.
         ...(existing ? {
           previous_state: { metafield_value: existing.value },
-          target: { sku: action.sku, product_name: action.product_name, metafield_namespace: namespace, metafield_key: key, metafield_type: type },
+          target: { product_id: targetProduct.id, sku: action.sku, product_name: action.product_name, metafield_namespace: namespace, metafield_key: key, metafield_type: type },
         } : {}),
       };
     }
 
     case 'update_image_alt_text':
     case 'update_image_alt': {
-      const altGqlData = await shopifyGraphQL(shopDomain, accessToken, `
-        query { products(first: 250) { edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
-      `);
-      const allAltProducts = altGqlData.products.edges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
-
-      const targetProduct = findProduct(allAltProducts, action.sku, action.product_name);
-      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      const targetProduct = await resolveShopifyProduct(shopDomain, accessToken, action);
       if (!action.alt_text) throw new Error('alt_text is required for update_image_alt.');
       const restHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
 
@@ -3090,18 +3065,12 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return {
         message: `Updated image alt text for "${targetProduct.title}" to "${action.alt_text}"`,
         previous_state: { alt_text: firstImage.alt || '' },
-        target: { sku: action.sku, product_name: action.product_name },
+        target: { product_id: targetProduct.id, sku: action.sku, product_name: action.product_name },
       };
     }
 
     case 'update_description': {
-      const descGqlData = await shopifyGraphQL(shopDomain, accessToken, `
-        query { products(first: 250) { edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
-      `);
-      const allDescProducts = descGqlData.products.edges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
-
-      const targetProduct = findProduct(allDescProducts, action.sku, action.product_name);
-      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      const targetProduct = await resolveShopifyProduct(shopDomain, accessToken, action);
       const body_html = action.body_html || action.description;
       if (!body_html) throw new Error('description is required for update_description.');
 
@@ -3124,18 +3093,12 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return {
         message: `Updated product description for "${targetProduct.title}"`,
         previous_state: { body_html: previousDescription },
-        target: { sku: action.sku, product_name: action.product_name },
+        target: { product_id: targetProduct.id, sku: action.sku, product_name: action.product_name },
       };
     }
 
     case 'update_seo_listing': {
-      const seoGqlData = await shopifyGraphQL(shopDomain, accessToken, `
-        query { products(first: 250) { edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
-      `);
-      const allSeoProducts = seoGqlData.products.edges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
-
-      const targetProduct = findProduct(allSeoProducts, action.sku, action.product_name);
-      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      const targetProduct = await resolveShopifyProduct(shopDomain, accessToken, action);
       if (!action.seo_title && !action.seo_description) throw new Error('At least one of seo_title or seo_description is required.');
       const seoRestHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
 
@@ -3177,18 +3140,12 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return {
         message: `Updated SEO listing for "${targetProduct.title}": ${parts.join(', ')}`,
         previous_state: previousState,
-        target: { sku: action.sku, product_name: action.product_name },
+        target: { product_id: targetProduct.id, sku: action.sku, product_name: action.product_name },
       };
     }
 
     case 'update_url_handle': {
-      const handleGqlData = await shopifyGraphQL(shopDomain, accessToken, `
-        query { products(first: 250) { edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
-      `);
-      const allHandleProducts = handleGqlData.products.edges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
-
-      const targetProduct = findProduct(allHandleProducts, action.sku, action.product_name);
-      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      const targetProduct = await resolveShopifyProduct(shopDomain, accessToken, action);
       if (!action.new_handle) throw new Error('new_handle is required for update_url_handle.');
 
       const handle = action.new_handle.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
@@ -3204,18 +3161,12 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return {
         message: `Updated URL handle for "${targetProduct.title}" to "/products/${handle}"`,
         previous_state: { new_handle: targetProduct.handle },
-        target: { sku: action.sku, product_name: action.product_name },
+        target: { product_id: targetProduct.id, sku: action.sku, product_name: action.product_name },
       };
     }
 
     case 'update_status': {
-      const statusGqlData = await shopifyGraphQL(shopDomain, accessToken, `
-        query { products(first: 250) { edges { node { id title handle status vendor productType tags images(first: 1) { edges { node { url } } } variants(first: 100) { edges { node { id price sku inventoryQuantity inventoryItem { id } } } } } } } }
-      `);
-      const allStatusProducts = statusGqlData.products.edges.map((e: any) => ({ ...e.node, _gid: e.node.id, id: fromShopifyGid(e.node.id), images: e.node.images.edges.map((i: any) => ({ src: i.node.url })), variants: e.node.variants.edges.map((v: any) => ({ ...v.node, id: fromShopifyGid(v.node.id), inventory_item_id: v.node.inventoryItem ? fromShopifyGid(v.node.inventoryItem.id) : null, inventory_quantity: v.node.inventoryQuantity })) }));
-
-      const targetProduct = findProduct(allStatusProducts, action.sku, action.product_name);
-      if (!targetProduct) throw new Error(`Could not find product "${action.sku || action.product_name}" in Shopify.`);
+      const targetProduct = await resolveShopifyProduct(shopDomain, accessToken, action);
 
       const validStatuses = ['active', 'draft', 'archived'];
       const newStatus = (action.status || '').toLowerCase();
@@ -3236,7 +3187,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       return {
         message: `Set "${targetProduct.title}" status to ${labels[newStatus] || newStatus}`,
         previous_state: { status: String(targetProduct.status || '').toLowerCase() },
-        target: { sku: action.sku, product_name: action.product_name },
+        target: { product_id: targetProduct.id, sku: action.sku, product_name: action.product_name },
       };
     }
 
@@ -5126,19 +5077,39 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const subActions: any[] = action.actions || [];
       if (subActions.length === 0) throw new Error('multi_action requires at least one action in the actions array.');
 
+      // Find the product ONCE and pin every Shopify sub-action to its ID. Looking it
+      // up again per step broke after the title step renamed it: later steps searched
+      // for the old name and wrote tags/descriptions onto a different product.
+      const SHOPIFY_PRODUCT_STEPS = new Set([
+        'update_title', 'update_description', 'update_seo_listing', 'update_image_alt', 'update_image_alt_text',
+        'update_tags', 'add_tags', 'update_url_handle', 'update_status', 'update_metafield',
+        'update_price', 'update_inventory', 'add_image', 'set_image', 'upload_image',
+      ]);
+      const needsShopifyProduct = subActions.some((a: any) => SHOPIFY_PRODUCT_STEPS.has(a.type) && !a.product_id);
+      let pinned: any = null;
+      if (needsShopifyProduct && shopDomain) {
+        pinned = await resolveShopifyProduct(shopDomain, accessToken, action); // throws → nothing applied
+      }
+
       const results: string[] = [];
       const errors: string[] = [];
+      const undoSteps: any[] = [];
 
       for (const subAction of subActions) {
         // Inherit product identity from the parent action if the sub-action omits it
-        const resolved = {
+        const resolved: any = {
+          product_id: action.product_id,
           product_name: action.product_name,
           sku: action.sku,
           ...subAction,
         };
+        if (pinned && SHOPIFY_PRODUCT_STEPS.has(subAction.type) && !subAction.product_id) {
+          resolved.product_id = pinned.id;
+        }
         try {
           const r = await executeStoreAction(supabaseClient, userId, resolved);
           results.push(r.message || 'Done');
+          if (r?.previous_state) undoSteps.push({ type: subAction.type, target: r.target, previous_state: r.previous_state });
         } catch (e: any) {
           errors.push(`${subAction.type}: ${e.message}`);
         }
@@ -5146,12 +5117,24 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
 
       const successCount = results.length;
       const failCount = errors.length;
+      const productLabel = pinned?.title || action.product_name || action.sku;
       const lines = [
-        `${successCount}/${subActions.length} changes applied to "${action.product_name || action.sku}".`,
+        failCount === 0
+          ? `${successCount}/${subActions.length} changes applied to "${productLabel}".`
+          : `⚠️ Only ${successCount} of ${subActions.length} changes applied to "${productLabel}".`,
         ...results.map((r) => `✅ ${r}`),
         ...errors.map((e) => `❌ ${e}`),
       ];
-      return { message: lines.join('\n'), success_count: successCount, fail_count: failCount, results, errors };
+      if (successCount === 0) throw new Error(lines.join('\n'));
+      return {
+        message: lines.join('\n'),
+        success_count: successCount,
+        fail_count: failCount,
+        partial: failCount > 0,
+        results,
+        errors,
+        ...(undoSteps.length ? { previous_state: { steps: undoSteps }, target: { product_id: pinned?.id } } : {}),
+      };
     }
 
     // ── batch_update: same field across MULTIPLE products in one confirmation ──
@@ -5168,20 +5151,21 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         let subAction: any;
         switch (field) {
           case 'title':
-            subAction = { type: 'update_title', product_name: upd.product_name, sku: upd.sku, new_title: upd.new_value };
+            subAction = { type: 'update_title', product_id: upd.product_id, product_name: upd.product_name, sku: upd.sku, new_title: upd.new_value };
             break;
           case 'price':
-            subAction = { type: 'update_price', product_name: upd.product_name, sku: upd.sku, price: upd.new_value };
+            subAction = { type: 'update_price', product_id: upd.product_id, product_name: upd.product_name, sku: upd.sku, price: upd.new_value };
             break;
           case 'inventory':
-            subAction = { type: 'update_inventory', product_name: upd.product_name, sku: upd.sku, quantity: upd.new_value };
+            subAction = { type: 'update_inventory', product_id: upd.product_id, product_name: upd.product_name, sku: upd.sku, quantity: upd.new_value };
             break;
           case 'image_alt':
-            subAction = { type: 'update_image_alt', product_name: upd.product_name, sku: upd.sku, alt_text: upd.new_value };
+            subAction = { type: 'update_image_alt', product_id: upd.product_id, product_name: upd.product_name, sku: upd.sku, alt_text: upd.new_value };
             break;
           case 'metafield':
             subAction = {
               type: 'update_metafield',
+              product_id: upd.product_id,
               product_name: upd.product_name,
               sku: upd.sku,
               metafield_key: upd.metafield_key || action.metafield_key,
@@ -5191,13 +5175,13 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             };
             break;
           case 'description':
-            subAction = { type: 'update_description', product_name: upd.product_name, sku: upd.sku, description: upd.new_value };
+            subAction = { type: 'update_description', product_id: upd.product_id, product_name: upd.product_name, sku: upd.sku, description: upd.new_value };
             break;
           case 'url_handle':
-            subAction = { type: 'update_url_handle', product_name: upd.product_name, sku: upd.sku, new_handle: upd.new_value };
+            subAction = { type: 'update_url_handle', product_id: upd.product_id, product_name: upd.product_name, sku: upd.sku, new_handle: upd.new_value };
             break;
           case 'seo_listing':
-            subAction = { type: 'update_seo_listing', product_name: upd.product_name, sku: upd.sku, seo_title: upd.seo_title, seo_description: upd.seo_description };
+            subAction = { type: 'update_seo_listing', product_id: upd.product_id, product_name: upd.product_name, sku: upd.sku, seo_title: upd.seo_title, seo_description: upd.seo_description };
             break;
           default:
             errors.push(`Unknown batch field: ${field}`);
@@ -9326,11 +9310,45 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
       : false,
   } : { connected: false };
 
+  // ── Products Orion changed recently, so it doesn't redo them or lose count ──
+  const recentEdits: Array<{ title: string; fields: string[]; at: string }> = [];
+  try {
+    const { data: editRows } = await supabaseClient
+      .from('ai_commands')
+      .select('created_at, execution_results')
+      .eq('user_id', userId)
+      .eq('status', 'completed')
+      .gte('created_at', new Date(Date.now() - 14 * 86400000).toISOString())
+      .order('created_at', { ascending: false })
+      .limit(300);
+    const byTitle = new Map<string, { title: string; fields: Set<string>; at: string }>();
+    for (const row of editRows || []) {
+      const t = row.execution_results?.action_type;
+      if (t !== 'multi_action' && !String(t || '').startsWith('update_')) continue;
+      const msg: string = row.execution_results?.result?.message || '';
+      for (const line of msg.split('\n')) {
+        if (!line.startsWith('✅')) continue;
+        const renamed = line.match(/Updated title from ".*?" to "(.*?)"/);
+        const other = line.match(/(SEO listing|image alt text|product description|tags) (?:for|on) "(.*?)"/);
+        const title = renamed ? renamed[1] : other ? other[2] : null;
+        if (!title) continue;
+        const field = renamed ? 'title' : other![1].replace('product ', '').replace('image alt text', 'image alt').replace('SEO listing', 'meta tags');
+        const entry = byTitle.get(title) || { title, fields: new Set<string>(), at: row.created_at };
+        entry.fields.add(field);
+        byTitle.set(title, entry);
+      }
+    }
+    for (const e of byTitle.values()) recentEdits.push({ title: e.title, fields: [...e.fields], at: e.at });
+  } catch (e: any) {
+    console.warn('[Orion] recent edits lookup failed:', e.message);
+  }
+
   return {
     platforms: platforms || [],
     products,
     total_products: productCount,
     meta_ads: metaAds,
+    recent_edits: recentEdits,
     ad_campaigns: adCampaigns,
     orders,
     total_orders: totalOrders,
@@ -9381,7 +9399,8 @@ async function chatWithClaude(
       const images = p.image_count != null
         ? ` | Images: ${p.image_count > 0 ? `${p.image_count} ✓` : '0 ❌'}`
         : '';
-      return `  - ${name} | SKU: ${sku} | Price: ${price} | Stock: ${stock}${vendor ? ` | Vendor: ${vendor}` : ''}${type ? ` | Type: ${type}` : ''}${status ? ` | Status: ${status}` : ''}${handle}${images}`;
+      const pid = p.platform_type === 'shopify' && p.id ? ` | ID: ${p.id}` : '';
+      return `  - ${name}${pid} | SKU: ${sku} | Price: ${price} | Stock: ${stock}${vendor ? ` | Vendor: ${vendor}` : ''}${type ? ` | Type: ${type}` : ''}${status ? ` | Status: ${status}` : ''}${handle}${images}`;
     }).join('\n');
   };
 
@@ -9479,6 +9498,17 @@ SYNC RULES: When a user asks "are my inventories in sync?", "when did my last sy
     const perf = c.launched_at ? ` | spend $${Number(m.spend || 0).toFixed(2)}, ${m.impressions || 0} impressions, ${m.clicks || 0} clicks${c.last_synced_at ? ` (as of ${new Date(c.last_synced_at).toLocaleString()})` : ''}` : '';
     return `  - "${c.name}" | id: ${c.id} | status: ${c.status} | $${c.budget?.daily_amount ?? '?'}/day | ${c.objective || 'LINK_CLICKS'}${perf}${c.error_message ? ` | last error: ${c.error_message}` : ''}`;
   }).join('\n');
+
+  const recentEdits: any[] = storeContext.recent_edits || [];
+  const recentEditsSection = `
+=== PRODUCTS YOU ALREADY CHANGED (last 14 days, from the store's real change log) ===
+${recentEdits.length ? recentEdits.slice(0, 120).map((e: any) => `  - ${e.title} — ${e.fields.join(', ')} (${new Date(e.at).toLocaleDateString()})`).join('\n') + (recentEdits.length > 120 ? `\n  …and ${recentEdits.length - 120} more` : '') : '  (none)'}
+Rules for batches of product changes (SEO, titles, descriptions, tags…):
+- Every Shopify product action MUST carry "product_id" — the ID shown next to the product in the product list. It is the only reliable way to hit the right product (titles change, SKUs repeat). Never guess an ID; if the product has no ID in the list, ask.
+- Skip products listed above unless the user names them — don't redo work, and don't present a redone product as new progress.
+- Counting: the number you say you're sending MUST equal the number of action blocks in that same message — count the blocks before you say a number. After a batch runs, report exactly what the execution result says (e.g. "7 fully done, 2 only partly — here's what failed"). Never add up a running total across batches from memory; if asked for a total, count the products in the list above.
+- Up to 10 products per message, one multi_action block each.
+`;
 
   const adsSection = !metaAds.connected
     ? `\n**Meta (Facebook/Instagram) Ads:** Not connected. If the user asks to run, launch, or draft a Facebook/Instagram ad, tell them to connect it first: Platforms tab → "Connect Facebook / Meta". Do NOT generate ad action blocks until it's connected.\n`
@@ -10468,7 +10498,7 @@ When the user asks "what do I need to reorder?", "which products are running low
 ⚠️ check_reorder_needs currently checks Shopify inventory. Other platforms are checked through the product list in context.
 
 To make MULTIPLE changes to ONE product (title + metafield + alt text, etc.) — one confirmation card, all run together:
-[ORION_ACTION:{"type":"multi_action","product_name":"Tie Dye T-Shirt","sku":"TDT-001","description":"Update title, SEO alt text, and material metafield","actions":[{"type":"update_title","new_title":"Vibrant Handmade Tie Dye T-Shirt"},{"type":"update_image_alt","alt_text":"Colorful handmade tie dye t-shirt on white background"},{"type":"update_metafield","metafield_key":"material","metafield_value":"100% Cotton","metafield_type":"single_line_text_field"}]}]
+[ORION_ACTION:{"type":"multi_action","product_id":"8123456789012","product_name":"Tie Dye T-Shirt","sku":"TDT-001","description":"Update title, SEO alt text, and material metafield","actions":[{"type":"update_title","new_title":"Vibrant Handmade Tie Dye T-Shirt"},{"type":"update_image_alt","alt_text":"Colorful handmade tie dye t-shirt on white background"},{"type":"update_metafield","metafield_key":"material","metafield_value":"100% Cotton","metafield_type":"single_line_text_field"}]}]
 
 To update the SAME field across MULTIPLE products (e.g. rename all titles, restick prices, etc.) — one confirmation card:
 [ORION_ACTION:{"type":"batch_update","field":"title","description":"Christmas-themed titles for all shirts","updates":[{"product_name":"Basic White Tee","sku":"BWT-001","new_value":"Cozy Christmas White Tee"},{"product_name":"Blue Denim Shirt","sku":"BDS-002","new_value":"Holiday Blue Denim Shirt"},{"product_name":"Striped Polo","sku":"SP-003","new_value":"Festive Striped Holiday Polo"}]}]
@@ -10490,9 +10520,9 @@ When asked to "SEO optimize" a product (or all products), follow this complete c
 8. **Custom Metafields** — material, care instructions, and any other structured data useful for search/filters
 
 Always bundle ALL of these into a single multi_action so the user only has to confirm once:
-[ORION_ACTION:{"type":"multi_action","product_name":"Henley T-Shirt - Olive Green","sku":"HTG-001","description":"Full SEO optimization: title, description, URL handle, meta title, meta description, image alt text, tags, and material metafield","actions":[{"type":"update_title","new_title":"Casual Spring Henley T-Shirt – Lightweight Olive Green Tee"},{"type":"update_description","description":"Step into spring with our Casual Henley T-Shirt in warm olive green. Crafted from 100% breathable cotton, this lightweight tee is designed for transitional weather — warm enough for breezy mornings, cool enough for sunny afternoons. The classic Henley neckline adds a relaxed, effortless look that pairs well with jeans, chinos, or shorts. Whether you're heading to a farmer's market, a weekend brunch, or just running errands, this shirt keeps you comfortable and stylish all day. Available in a relaxed fit with reinforced stitching for lasting durability. Machine washable and easy to care for."},{"type":"update_url_handle","new_handle":"casual-spring-henley-t-shirt-olive-green"},{"type":"update_seo_listing","seo_title":"Casual Spring Henley T-Shirt | Olive Green Cotton Tee","seo_description":"Lightweight 100% cotton olive green Henley tee — perfect for spring & transitional weather. Relaxed fit, machine washable. Shop now."},{"type":"update_image_alt","alt_text":"Casual olive green Henley t-shirt on white background — lightweight spring cotton tee"},{"type":"update_tags","tags":["spring","henley","cotton","olive-green","lightweight","casual","men","transitional-weather"]},{"type":"update_metafield","metafield_key":"material","metafield_value":"100% Cotton","metafield_type":"single_line_text_field"},{"type":"update_metafield","metafield_key":"care_instructions","metafield_value":"Machine wash cold, tumble dry low","metafield_type":"single_line_text_field"}]}]
+[ORION_ACTION:{"type":"multi_action","product_id":"8123456789013","product_name":"Henley T-Shirt - Olive Green","sku":"HTG-001","description":"Full SEO optimization: title, description, URL handle, meta title, meta description, image alt text, tags, and material metafield","actions":[{"type":"update_title","new_title":"Casual Spring Henley T-Shirt – Lightweight Olive Green Tee"},{"type":"update_description","description":"Step into spring with our Casual Henley T-Shirt in warm olive green. Crafted from 100% breathable cotton, this lightweight tee is designed for transitional weather — warm enough for breezy mornings, cool enough for sunny afternoons. The classic Henley neckline adds a relaxed, effortless look that pairs well with jeans, chinos, or shorts. Whether you're heading to a farmer's market, a weekend brunch, or just running errands, this shirt keeps you comfortable and stylish all day. Available in a relaxed fit with reinforced stitching for lasting durability. Machine washable and easy to care for."},{"type":"update_url_handle","new_handle":"casual-spring-henley-t-shirt-olive-green"},{"type":"update_seo_listing","seo_title":"Casual Spring Henley T-Shirt | Olive Green Cotton Tee","seo_description":"Lightweight 100% cotton olive green Henley tee — perfect for spring & transitional weather. Relaxed fit, machine washable. Shop now."},{"type":"update_image_alt","alt_text":"Casual olive green Henley t-shirt on white background — lightweight spring cotton tee"},{"type":"update_tags","tags":["spring","henley","cotton","olive-green","lightweight","casual","men","transitional-weather"]},{"type":"update_metafield","metafield_key":"material","metafield_value":"100% Cotton","metafield_type":"single_line_text_field"},{"type":"update_metafield","metafield_key":"care_instructions","metafield_value":"Machine wash cold, tumble dry low","metafield_type":"single_line_text_field"}]}]
 
-When asked to SEO ALL products, emit one multi_action block per product — maximum 3 per response. After the user confirms that batch, automatically continue with the next 3 without waiting for the user to re-ask. Tell the user upfront: "I'll optimize [X] products — starting with the first 3. I'll continue automatically after each batch." Never stop mid-way through without explaining where you left off and that you're continuing.
+When asked to SEO ALL products, emit one multi_action block per product — up to 10 per response, each with that product's \"product_id\". After the user confirms that batch, automatically continue with the next batch without waiting for the user to re-ask. Tell the user upfront how many products there are and how many are in this first batch. Never stop mid-way through without explaining where you left off and that you're continuing.
 
 **Etsy CSV Migration Workflow:**
 When a user uploads an Etsy CSV file and wants to migrate to WooCommerce, follow these steps:
@@ -10533,7 +10563,7 @@ Action grouping — choose the most efficient approach:
 - Revenue last 30 days: $${(storeContext.metrics.revenue_last_30d || 0).toFixed(2)} (${storeContext.metrics.orders_last_30d || 0} orders)
 - Average Order Value (last 30d): $${storeContext.metrics.orders_last_30d > 0 ? (storeContext.metrics.revenue_last_30d / storeContext.metrics.orders_last_30d).toFixed(2) : '0.00'}
 ${storeContext.metrics.revenue_by_platform_30d ? `- Revenue by platform (last 30d): ${storeContext.metrics.revenue_by_platform_30d}` : ''}
-${reconnectSection}${lowStockSection}${ebayErrorSection}${memorySection}${syncSection}${mode !== 'demo/test' ? adsSection + linkingSection : ''}
+${reconnectSection}${lowStockSection}${ebayErrorSection}${memorySection}${syncSection}${mode !== 'demo/test' ? recentEditsSection : ''}${mode !== 'demo/test' ? adsSection + linkingSection : ''}
 ${mode !== 'demo/test' ? `**Product Inventory (${storeContext.products.length} of ${storeContext.total_products} products):**
 ${formatProducts(storeContext.products)}
 
