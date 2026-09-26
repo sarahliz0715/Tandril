@@ -59,7 +59,7 @@ Tandril is an AI-powered multi-platform e-commerce automation SaaS. Sellers conn
 **All credentials are stored in Supabase secrets and .env — never hardcode them in files.**
 
 - Supabase project: **Tandril_workingmvp** (production)
-- Shopify app: **Tandril Beta** (Draft) — client_id in Supabase secrets
+- Shopify app: **Tandril Beta** (submitted and **approved** on the Shopify App Store — see Platform Status) — client_id in Supabase secrets
 - eBay App ID: in Supabase secrets as `EBAY_APP_ID` (add if missing)
 - Test Shopify reviewer account: credentials in Supabase secrets / shared separately
 - Sarah's account: sarahliz0715@gmail.com (Google OAuth)
@@ -264,10 +264,8 @@ Outbound email is sent via Resend (resend.com). The `RESEND_FROM_EMAIL` Supabase
 ## Platform Status
 
 ### Shopify App Store
-- App "Tandril Beta" — currently Draft status
-- **Blockers before submission:**
-  - [x] GDPR compliance webhooks — deployed (customers-data-request, customers-redact, shop-redact)
-  - [ ] Arcade screencast demo for app listing
+- App "Tandril Beta" — **submitted and approved** (confirmed by Sarah Sept 26, 2026; this section wrongly said "Draft" with a screencast "blocker" for a long time — don't repeat that). There is no pending submission or screencast task.
+- The reviewer test account below is still worth keeping connected and working for any future re-review (listing updates, scope changes). As of Sept 26, 2026 `omhbridge-dev` is reconnected on `shopify-test@tandril.org` with the non-expiring offline token.
 - Test account for Shopify reviewers:
   - Shopify store: `omhbridge-dev.myshopify.com`
   - Tandril login: `shopify-test@tandril.org`
@@ -300,7 +298,6 @@ Click **Commands** in the sidebar. In the command box, type `Lower the price of 
 **Step 5 — Workflows**
 Click **Workflows** in the sidebar. Open any existing workflow and review its trigger type and steps. Check the run history to confirm past executions are recorded.
 ---
-- Once screencast is done: ready to submit, then 5–10 business day review
 
 ### Etsy
 - **Status: BLOCKED — do not resubmit yet**
@@ -332,7 +329,6 @@ Click **Workflows** in the sidebar. Open any existing workflow and review its tr
 
 - [ ] Verify + deploy remaining edge functions with updated model ID (see table above)
 - [x] GDPR webhooks deployed — Shopify App Store blocker cleared
-- [ ] Record Arcade screencast for Shopify app listing — last blocker before submission
 - [ ] Test Stripe upgrade flow end-to-end with a test card
 - [ ] Add `EBAY_APP_ID` secret to Supabase if not already present
 - [ ] Wait for Shivangi (Etsy) approval before any resubmission
