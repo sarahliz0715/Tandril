@@ -3339,8 +3339,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
 
     case 'update_description': {
       const targetProduct = await resolveShopifyProduct(shopDomain, accessToken, action);
-      const body_html = action.body_html || action.description;
-      if (!body_html) throw new Error('description is required for update_description.');
+      const newText = action.body_html || action.description;
+      if (!newText) throw new Error('description is required for update_description.');
 
       // The product list query above doesn't include descriptionHtml — fetch it
       // separately so the old value can be restored later via undo.
@@ -3348,6 +3348,15 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         query($id: ID!) { product(id: $id) { descriptionHtml } }
       `, { id: targetProduct._gid });
       const previousDescription = currentDescData.product?.descriptionHtml || '';
+
+      // Keep the product-details section (size, materials, care, made-to-order
+      // note, EU safety info) that print-on-demand apps put at the bottom —
+      // Orion only rewrites the selling text above it. Undo passes
+      // keep_details: false so the old description comes back exactly.
+      const details = action.keep_details === false ? '' : extractProductDetailsBlock(previousDescription);
+      const body_html = details && !newText.includes(plainTextSnippet(details))
+        ? `${textToDescriptionHtml(newText)}\n<br>\n<br>\n${details}`
+        : newText;
 
       const descUpdateData = await shopifyGraphQL(shopDomain, accessToken, `
         mutation productUpdate($input: ProductInput!) {
@@ -3359,8 +3368,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       `, { input: { id: targetProduct._gid, descriptionHtml: body_html } });
       if (descUpdateData.productUpdate.userErrors?.length) throw new Error(`Shopify description update failed: ${JSON.stringify(descUpdateData.productUpdate.userErrors)}`);
       return {
-        message: `Updated product description for "${targetProduct.title}"`,
-        previous_state: { body_html: previousDescription },
+        message: `Updated product description for "${targetProduct.title}"` + (details && body_html !== newText ? ' (product details section kept)' : ''),
+        previous_state: { body_html: previousDescription, keep_details: false },
         target: { product_id: targetProduct.id, sku: action.sku, product_name: action.product_name },
       };
     }
@@ -9739,6 +9748,43 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
 
 // ─── Claude Chat ──────────────────────────────────────────────────────────────
 
+// ─── Product-details section (print-on-demand spec block) ─────────────────────
+// Printful and similar apps end a description with a details section: bullet
+// specs (size, materials, handles), a "made especially for you" note, and EU
+// GPSR safety info. Rewriting a description must not delete it.
+const DETAILS_MARKERS = [
+  /(^|\n|<br\s*\/?>|<p[^>]*>|<div[^>]*>)\s*(<[^>]+>\s*)*•/i,
+  /<ul[\s>]/i,
+  /(^|\n|<br\s*\/?>|<p[^>]*>)\s*(<[^>]+>\s*)*(Size guide|Dimensions|Product details|Bag size)/i,
+  /This product is made (especially|just) for you/i,
+  /General Product Safety Regulation|GPSR/i,
+];
+
+function extractProductDetailsBlock(html: string): string {
+  if (!html) return '';
+  let start = -1;
+  for (const re of DETAILS_MARKERS) {
+    const m = re.exec(html);
+    if (m && (start === -1 || m.index < start)) start = m.index;
+  }
+  if (start <= 0) return ''; // no details, or the whole thing is details — nothing safe to keep separately
+  // Only treat it as a details block if it really looks like one.
+  const tail = html.slice(start).replace(/^(\n|<br\s*\/?>|\s)+/i, '');
+  const looksLikeDetails = /•|<li/i.test(tail) || /made (especially|just) for you|GPSR|Product Safety/i.test(tail);
+  return looksLikeDetails ? tail.trim() : '';
+}
+
+function plainTextSnippet(html: string): string {
+  return htmlToPlain(html).replace(/\s+/g, ' ').trim().slice(0, 40);
+}
+
+// Orion writes plain text; turn blank-line paragraphs into HTML so they don't
+// run together once real HTML follows them.
+function textToDescriptionHtml(text: string): string {
+  if (/<(p|br|div|ul|li|b|strong|em|h\d)[\s>\/]/i.test(text)) return text;
+  return text.trim().split(/\n\s*\n/).map(p => `<p>${p.trim().replace(/\n/g, '<br>')}</p>`).join('\n');
+}
+
 // Leaves room for loading store data before and card checks after, inside
 // Supabase's 150s request limit.
 const CLAUDE_REPLY_DEADLINE_MS = 115_000;
@@ -9876,6 +9922,7 @@ SYNC RULES: When a user asks "are my inventories in sync?", "when did my last sy
 === PRODUCTS YOU ALREADY CHANGED (last 14 days, from the store's real change log) ===
 ${recentEdits.length ? recentEdits.slice(0, 120).map((e: any) => `  - ${e.title} — ${e.fields.join(', ')} (${new Date(e.at).toLocaleDateString()})`).join('\n') + (recentEdits.length > 120 ? `\n  …and ${recentEdits.length - 120} more` : '') : '  (none)'}
 Rules for batches of product changes (SEO, titles, descriptions, tags…):
+- A new product description replaces only the selling text. The product-details section at the bottom (size, materials, handles, the made-to-order note, EU safety info) is kept automatically — don't repeat or rewrite those details, and don't tell the user they'll be removed.
 - Every Shopify product action MUST carry "product_id" — the ID shown next to the product in the product list. It is the only reliable way to hit the right product (titles change, SKUs repeat). Never guess an ID; if the product has no ID in the list, ask.
 - Skip products listed above unless the user names them — don't redo work, and don't present a redone product as new progress.
 - Counting: the number you say you're sending MUST equal the number of action blocks in that same message — count the blocks before you say a number. After a batch runs, report exactly what the execution result says (e.g. "7 fully done, 2 only partly — here's what failed"). Never add up a running total across batches from memory; if asked for a total, count the products in the list above.
