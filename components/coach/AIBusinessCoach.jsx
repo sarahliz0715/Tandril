@@ -974,6 +974,25 @@ export default function AIBusinessCoach() {
           ].filter(Boolean),
         };
       }
+      case 'replace_text': {
+        // _preview is read live from the store by smart-api before the card is shown.
+        const pv = action._preview || {};
+        const fieldLabel = pv.field || ({ title: 'title', seo_title: 'search title', seo_description: 'search description' }[action.field] || 'description');
+        return {
+          icon: '✏️', title: `Change words in the ${fieldLabel}`,
+          fields: pv.error
+            ? [
+                { label: 'Change', value: `"${action.find}" → "${action.replace}"` },
+                { label: '⚠️ Problem', value: pv.error },
+              ]
+            : [
+                { label: 'Change', value: `"${action.find}" → "${action.replace || '(remove)'}"${pv.count > 1 ? ` (${pv.count} places)` : ''}` },
+                pv.before && { label: 'Before', value: pv.before },
+                pv.after && { label: 'After', value: pv.after },
+                pv.case_insensitive && { label: 'Note', value: 'Matched with different capitalization' },
+              ].filter(Boolean),
+        };
+      }
       case 'multi_action': {
         const subActions = action.actions || [];
         const actionLabels = subActions.map((a) => {
@@ -1723,7 +1742,7 @@ export default function AIBusinessCoach() {
                           const target = currentAction._target;
                           const unsafeCards = pendingActions
                             .map((a, i) => ({ a, i }))
-                            .filter(({ a }) => a._target && a._target.status !== 'ok');
+                            .filter(({ a }) => (a._target && a._target.status !== 'ok') || a._preview?.error);
                           const blocked = unsafeCards.length > 0;
 
                           return (
@@ -1769,7 +1788,7 @@ export default function AIBusinessCoach() {
                               {blocked && (
                                 <div className="px-4 py-2 bg-red-50 border-b border-red-200">
                                   <p className="text-xs text-red-800">
-                                    Approval is turned off for this batch because {unsafeCards.length === 1 ? `card ${unsafeCards[0].i + 1} doesn't` : `cards ${unsafeCards.map(u => u.i + 1).join(', ')} don't`} match a product in your store. Cancel, then ask Orion again and name the products exactly.
+                                    Approval is turned off for this batch because {unsafeCards.length === 1 ? `card ${unsafeCards[0].i + 1} doesn't` : `cards ${unsafeCards.map(u => u.i + 1).join(', ')} don't`} can't be applied safely (the product or the words to change weren't found). Cancel, then ask Orion again and name the products or words exactly.
                                   </p>
                                   <div className="flex flex-wrap gap-2 mt-2">
                                     {pendingActions.map((_, ci) => (
