@@ -3354,9 +3354,15 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       // Orion only rewrites the selling text above it. Undo passes
       // keep_details: false so the old description comes back exactly.
       const details = action.keep_details === false ? '' : extractProductDetailsBlock(previousDescription);
-      const body_html = details && !newText.includes(plainTextSnippet(details))
-        ? `${textToDescriptionHtml(newText)}\n<br>\n<br>\n${details}`
-        : newText;
+      // Orion writes plain text with blank lines between paragraphs; Shopify
+      // shows that as one run-on block unless it's turned into <p> tags.
+      const newHtml = action.keep_details === false ? newText : textToDescriptionHtml(newText);
+      // Don't add the details again if the new text already contains them
+      // (find-and-replace passes the whole description back in).
+      const hasDetailsAlready = !!details && htmlToPlain(newText).replace(/\s+/g, ' ').includes(plainTextSnippet(details));
+      const body_html = details && !hasDetailsAlready
+        ? `${newHtml}\n<br>\n<br>\n${details}`
+        : newHtml;
 
       const descUpdateData = await shopifyGraphQL(shopDomain, accessToken, `
         mutation productUpdate($input: ProductInput!) {
@@ -3368,7 +3374,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       `, { input: { id: targetProduct._gid, descriptionHtml: body_html } });
       if (descUpdateData.productUpdate.userErrors?.length) throw new Error(`Shopify description update failed: ${JSON.stringify(descUpdateData.productUpdate.userErrors)}`);
       return {
-        message: `Updated product description for "${targetProduct.title}"` + (details && body_html !== newText ? ' (product details section kept)' : ''),
+        message: `Updated product description for "${targetProduct.title}"` + (details && !hasDetailsAlready ? ' (product details section kept)' : ''),
         previous_state: { body_html: previousDescription, keep_details: false },
         target: { product_id: targetProduct.id, sku: action.sku, product_name: action.product_name },
       };
@@ -9752,11 +9758,13 @@ async function getUserStoreContext(supabaseClient: any, userId: string) {
 // Printful and similar apps end a description with a details section: bullet
 // specs (size, materials, handles), a "made especially for you" note, and EU
 // GPSR safety info. Rewriting a description must not delete it.
+const SPEC_LINE = '(•\\s*|<li[^>]*>\\s*)(\\d{1,3}% |Bag size|Capacity|Maximum weight|Dimensions|Handle length|Dual handles|Material|Fabric|One size|Size:)';
 const DETAILS_MARKERS = [
-  /(^|\n|<br\s*\/?>|<p[^>]*>|<div[^>]*>)\s*(<[^>]+>\s*)*•/i,
-  /<ul[\s>]/i,
-  /(^|\n|<br\s*\/?>|<p[^>]*>)\s*(<[^>]+>\s*)*(Size guide|Dimensions|Product details|Bag size)/i,
-  /This product is made (especially|just) for you/i,
+  // A real spec bullet ("• 100% polyester", "• Bag size: 15″ × 15″") — not
+  // marketing bullets like "• Beautiful rain design".
+  new RegExp('(^|\\n|<br\\s*\\/?>|<p[^>]*>|<div[^>]*>|<ul[^>]*>)\\s*(<[^>]+>\\s*)*' + SPEC_LINE, 'i'),
+  /(^|\n|<br\s*\/?>|<p[^>]*>)\s*(<[^>]+>\s*)*Size guide/i,
+  /This product is made especially for you as soon as you place an order, which is why/i,
   /General Product Safety Regulation|GPSR/i,
 ];
 
@@ -9768,10 +9776,41 @@ function extractProductDetailsBlock(html: string): string {
     if (m && (start === -1 || m.index < start)) start = m.index;
   }
   if (start <= 0) return ''; // no details, or the whole thing is details — nothing safe to keep separately
-  // Only treat it as a details block if it really looks like one.
+  // Start at the beginning of that line, not mid-sentence.
+  const lineStart = Math.max(html.lastIndexOf('\n', start), html.lastIndexOf('<br', start), html.lastIndexOf('<p', start));
+  if (lineStart > 0 && lineStart < start) start = lineStart;
   const tail = html.slice(start).replace(/^(\n|<br\s*\/?>|\s)+/i, '');
-  const looksLikeDetails = /•|<li/i.test(tail) || /made (especially|just) for you|GPSR|Product Safety/i.test(tail);
-  return looksLikeDetails ? tail.trim() : '';
+  const looksLikeDetails = new RegExp(SPEC_LINE, 'i').test(tail)
+    || /made especially for you as soon as you place an order, which is why|General Product Safety Regulation|GPSR/i.test(tail);
+  return looksLikeDetails ? cleanDetailsBlock(tail.trim()) : '';
+}
+
+// Keep only the real details: the run of spec bullets, then the made-to-order
+// note and safety info. Drops marketing sections an earlier rewrite wedged in
+// between ("Perfect For:", "Contemporary Appeal:") and a tacked-on
+// "exceptional quality" line at the very end.
+function cleanDetailsBlock(block: string): string {
+  let out = block;
+  const restRe = /This product is made especially for you as soon as you place an order, which is why|Age restrictions:|General Product Safety Regulation|GPSR/i;
+  if (/^•/.test(out)) {
+    const lines = out.split(/<br\s*\/?>\s*|\n/);
+    const bullets: string[] = [];
+    for (const l of lines) {
+      const t = l.trim();
+      if (!t) { if (bullets.length) break; continue; }
+      if (!t.startsWith('•')) break;
+      bullets.push(t);
+    }
+    const m = restRe.exec(out);
+    if (bullets.length && m) {
+      let restStart = m.index;
+      const ls = Math.max(out.lastIndexOf('\n', restStart), out.lastIndexOf('<br', restStart));
+      if (ls >= 0) restStart = ls;
+      const rest = out.slice(restStart).replace(/^(\n|<br\s*\/?>|\s)+/i, '');
+      out = bullets.join('<br>\n') + '<br>\n<br>\n' + rest;
+    }
+  }
+  return out.replace(/(\s|<br\s*\/?>)*Perfect for everyday use with exceptional quality and style\.?\s*$/i, '').trim();
 }
 
 function plainTextSnippet(html: string): string {
