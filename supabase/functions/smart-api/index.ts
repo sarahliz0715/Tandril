@@ -2897,8 +2897,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       if (!locationId) throw new Error('Could not find inventory location for this product.');
 
       const invSetRes = await shopifyGraphQL(shopDomain, accessToken, `
-        mutation setInventory($input: InventorySetQuantitiesInput!) {
-          inventorySetQuantities(input: $input) {
+        mutation setInventory($input: InventorySetQuantitiesInput!, $idempotencyKey: String!) {
+          inventorySetQuantities(input: $input) @idempotent(key: $idempotencyKey) {
             inventoryAdjustmentGroup { reason }
             userErrors { field message }
           }
@@ -2907,13 +2907,14 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         input: {
           reason: 'correction',
           name: 'available',
-          ignoreCompareQuantity: true,
           quantities: [{
             inventoryItemId: toShopifyGid('InventoryItem', targetVariant.inventory_item_id),
             locationId: toShopifyGid('Location', locationId),
             quantity: action.quantity,
+            changeFromQuantity: null, // null = set it without checking the old number first
           }],
         },
+        idempotencyKey: crypto.randomUUID(),
       });
       const invErrs = invSetRes?.inventorySetQuantities?.userErrors || [];
       if (invErrs.length) throw new Error(`Shopify rejected the stock update: ${invErrs.map((e: any) => e.message).join('; ')}`);

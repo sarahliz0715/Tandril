@@ -543,8 +543,8 @@ async function syncShopify(platform: any, link: any, qty: number, token: string,
   if (!locationId) throw new Error('No Shopify location found');
 
   const invSetRes = await shopifyGraphQL(shopDomain, token, `
-    mutation($input: InventorySetQuantitiesInput!) {
-      inventorySetQuantities(input: $input) {
+    mutation($input: InventorySetQuantitiesInput!, $idempotencyKey: String!) {
+      inventorySetQuantities(input: $input) @idempotent(key: $idempotencyKey) {
         inventoryAdjustmentGroup { reason }
         userErrors { field message }
       }
@@ -553,13 +553,14 @@ async function syncShopify(platform: any, link: any, qty: number, token: string,
     input: {
       reason: 'correction',
       name: 'available',
-      ignoreCompareQuantity: true,
       quantities: [{
         inventoryItemId: toShopifyGid('InventoryItem', inventoryItemId),
         locationId: toShopifyGid('Location', locationId),
         quantity: qty,
+        changeFromQuantity: null, // null = set it without checking the old number first
       }],
     },
+    idempotencyKey: crypto.randomUUID(),
   });
   const invErrs = invSetRes?.inventorySetQuantities?.userErrors || [];
   // Print-on-demand items (e.g. Printful) keep stock at the fulfillment app's own

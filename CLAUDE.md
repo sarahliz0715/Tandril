@@ -21,6 +21,8 @@ Tandril is an AI-powered multi-platform e-commerce automation SaaS. Sellers conn
 
 ## Architecture
 
+**Tandril runs only on Vercel (project `tandril-mvp`) + Supabase, with Claude (Anthropic) as its AI.** There is no Railway, OpenAI or Redis anywhere in the stack. The old Railway account (an unused leftover) was **deleted Oct 22, 2026** after Railway's Oct 21 breach leaked the legacy Supabase `service_role` key stored there. Don't add new hosting or AI providers without asking Sarah.
+
 - **Frontend:** React + Vite, deployed on Vercel
 - **Backend:** Supabase (auth, database, edge functions)
 - **AI:** Anthropic Claude API — model: `claude-haiku-4-5-20251001`
@@ -58,7 +60,7 @@ Tandril is an AI-powered multi-platform e-commerce automation SaaS. Sellers conn
 ## Credentials & Accounts
 **All credentials are stored in Supabase secrets and .env — never hardcode them in files.**
 
-**Supabase API keys (since Oct 22, 2026): only the new keys are used.** The legacy `service_role` key leaked in the Railway breach (Oct 21, 2026). Never use `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_ANON_KEY` again, anywhere.
+**Supabase API keys (since Oct 22, 2026): only the new publishable (`sb_publishable_...`) and secret (`sb_secret_...`) keys are used.** The legacy `anon` and `service_role` keys are **disabled** in Supabase, and the legacy JWT secret is **revoked** (user logins are signed with the new ES256 key). The `service_role` key leaked in the Railway breach (Oct 21, 2026). **Never reintroduce the legacy keys** — not `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_ANON_KEY` / `VITE_SUPABASE_ANON_KEY`, not a JWT-shaped key pasted into a cron job, not re-enabling them in the dashboard.
 - Edge functions: always `getSecretKey()` / `getPublishableKey()` from `/home/user/Tandril/supabase/functions/_shared/supabaseKeys.ts` (reads the auto-injected `SUPABASE_SECRET_KEYS` / `SUPABASE_PUBLISHABLE_KEYS`, fallback `SB_SECRET_KEY` / `SB_PUBLISHABLE_KEY`).
 - One function / cron job calling another: send `serviceHeaders()` (secret key on the **`apikey`** header — never `Authorization: Bearer`, the new keys aren't JWTs). The receiving function must check `isServiceRequest(req)` itself and be on the `--no-verify-jwt` list in `.github/workflows/deploy-edge-functions.yml`. If signed-in users call it too, also check `getSignedInUserId(req, supabase)` and scope to that user.
 - Cron jobs read the key from Vault: `(select decrypted_secret from vault.decrypted_secrets where name = 'tandril_secret_key')` on the `apikey` header — see `supabase/migrations/20261022000001_cron_use_new_secret_key.sql`. Never paste a key into a cron command.
@@ -90,6 +92,11 @@ Outbound email is sent via Resend (resend.com). The `RESEND_FROM_EMAIL` Supabase
 - GoDaddy email plan is Microsoft 365-style (paid), used to satisfy Etsy developer account requirement
 
 ## Shopify API Credentials
+- **The live app is "Tandril Beta" in the OMH organization of the Shopify Dev Dashboard.** `SHOPIFY_API_KEY` in Supabase is its client ID. Other Tandril apps that appear in the Shopify dashboards are **not live** — don't configure, deploy to, or copy credentials from them.
+- **⚠️ Tandril Beta's Dev Dashboard shows two Shopify deadlines, both Jan 1, 2027 (seen Oct 22, 2026):**
+  1. ~~**Deprecated calls — `compareQuantity` / `ignoreCompareQuantity`**~~ — **fixed Oct 22, 2026 (code; goes live on merge).** Every `inventorySetQuantities` call now passes `changeFromQuantity` on each quantity (`null` = set without checking; `_shared/shopifyStock.ts`'s Printful check passes the current quantity, i.e. a compare-and-set) instead of the removed fields, and every inventory mutation (incl. `sync-po-inventory`'s `inventoryAdjustQuantities`, which also gets `changeFromQuantity: null` since `2026-04` requires it there) carries `@idempotent(key: $idempotencyKey)` with `crypto.randomUUID()` — optional on `2026-01`, required from `2026-04`. Files: `smart-api` (update_inventory), `sync-inventory-levels`, `execute-command`, `enhanced-execute-command` (2 sites), `_shared/shopifyStock.ts`, `sync-po-inventory`. Syntax verified live against Shopify (both mutations accepted on a Printful item, which Shopify answers with "location could not be found", so no stock changed). **Any new inventory write must use this same shape.** The Dev Dashboard warning should clear a while after the next real stock write runs the new code. (The Supabase CLI token in Claude Code sessions stopped working Oct 22 — `Invalid access token` — so deploys from a session need a fresh `SUPABASE_ACCESS_TOKEN`; merging to `main` still auto-deploys.)
+  2. **Deprecated offline token** — Tandril stores **non-expiring** offline Shopify tokens. From Jan 1, 2027 public apps must use **expiring** offline tokens (valid 60 min, plus a refresh token); non-expiring tokens will then get auth errors, i.e. every Shopify call breaks. Fix = request expiring tokens in every connect path, store `refresh_token` + expiry (encrypted, like the access token), and refresh before calls via one shared helper (same pattern as `_shared/etsyAuth.ts`) used by every function and `api/` route that calls Shopify; existing stores then reconnect once. This is a bigger, separate job — don't leave it until December.
+  - Also: the code pins old API versions — `2024-01` (connect/install/webhook-registration paths and `api/shopify-callback.js`), `2025-01` (most functions) and `2025-10` (billing/auth callback) — while the oldest version Shopify still supports is `2026-01`; Shopify serves those requests with the oldest supported version, so removed fields silently stop working. Move to a current version when doing the fixes above.
 - **Client ID** = `SHOPIFY_API_KEY` in code/Vercel/Supabase
 - **Client Secret** = `SHOPIFY_API_SECRET` in code/Vercel/Supabase
 - Shopify rebranded "API key/secret" to "Client ID/Secret" — they are the same thing
