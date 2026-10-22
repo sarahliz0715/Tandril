@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getSecretKey, getSignedInUserId, isServiceRequest, serviceHeaders } from '../_shared/supabaseKeys.ts';
 // --- Inlined from _shared/encryption.ts ---
 const _ENC_ALGORITHM = 'AES-GCM';
 const _ENC_IV_LENGTH = 12;
@@ -96,17 +97,30 @@ serve(async (req) => {
   }
 
   try {
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const serviceRoleKey = getSecretKey();
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       serviceRoleKey
     );
+
+    // Deployed with --no-verify-jwt. Our cron job sends the secret key on the apikey
+    // header and runs every due workflow; a signed-in user (Workflows → Run Now) may
+    // only run one of their own workflows by id.
+    const isService = isServiceRequest(req);
+    const callerId = isService ? null : await getSignedInUserId(req, supabaseAdmin);
+    if (!isService && !callerId) {
+      return new Response(JSON.stringify({ success: false, error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
+    }
 
     let body: { workflow_id?: string } = {};
     try {
       const text = await req.text();
       if (text) body = JSON.parse(text);
     } catch { /* empty body */ }
+
+    if (callerId && !body.workflow_id) {
+      return new Response(JSON.stringify({ success: false, error: 'workflow_id required' }), { status: 400, headers: corsHeaders });
+    }
 
     const now = new Date();
 
@@ -122,6 +136,7 @@ serve(async (req) => {
         .from('ai_workflows')
         .select('*')
         .eq('id', body.workflow_id);
+      if (callerId) query = query.eq('user_id', callerId);
     }
 
     const { data: workflows, error: wfError } = await query;
@@ -310,11 +325,8 @@ async function proxyToSmartApi(userId: string, cfg: any, serviceRoleKey: string)
 
   const res = await fetch(smartApiUrl, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      // Use service role key; smart-api will trust service_user_id when this key is presented
-      'Authorization': `Bearer ${serviceRoleKey}`,
-    },
+    // Secret key on the apikey header; smart-api trusts service_user_id only with it
+    headers: serviceHeaders(),
     body: JSON.stringify({ execute_action, service_user_id: userId }),
   });
 
@@ -332,10 +344,7 @@ async function runAiCommand(userId: string, cfg: any, serviceRoleKey: string): P
 
   const res = await fetch(smartApiUrl, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${serviceRoleKey}`,
-    },
+    headers: serviceHeaders(),
     body: JSON.stringify({
       message: cfg.command_text,
       service_user_id: userId,

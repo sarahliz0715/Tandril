@@ -8,6 +8,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { markNeedsReconnect } from '../_shared/platformHealth.ts';
 import { reconnectEmailDue, sendReconnectEmail } from '../_shared/connectionAlerts.ts';
+import { getSecretKey } from '../_shared/supabaseKeys.ts';
 
 async function verifyShopifyWebhook(
   body: string,
@@ -78,7 +79,7 @@ serve(async (req) => {
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      getSecretKey()
     );
 
     // 1. Immediately revoke the access token — most important step.

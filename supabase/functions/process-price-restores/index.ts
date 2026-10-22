@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
+import { getSecretKey, isServiceRequest } from '../_shared/supabaseKeys.ts';
 
 // Called by pg_cron every 5 minutes.
 // Restores prices / ends promotions for expired flash sales.
@@ -62,9 +63,15 @@ function isEncrypted(v: string): boolean {
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
+  // Only our own cron job (secret key on the apikey header) may call this.
+  // Deployed with --no-verify-jwt, so this is the only gate.
+  if (!isServiceRequest(req)) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
+  }
+
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    getSecretKey()
   );
 
   try {

@@ -3,6 +3,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getPublishableKey } from '../_shared/supabaseKeys.ts';
 // --- Inlined from _shared/encryption.ts ---
 const _ENC_ALGORITHM = 'AES-GCM';
 const _ENC_IV_LENGTH = 12;
@@ -74,7 +75,7 @@ serve(async (req) => {
     // Create Supabase client
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      getPublishableKey(),
       {
         global: {
           headers: { Authorization: authHeader },

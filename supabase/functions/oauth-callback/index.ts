@@ -5,6 +5,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { signSpApiRequest, refreshLwaToken } from '../_shared/awsSigV4.ts';
+import { getSecretKey, serviceHeaders } from '../_shared/supabaseKeys.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -525,7 +526,7 @@ serve(async (req) => {
     const { code, state, context } = body;
     if (!code || !state) throw new Error('Missing code or state');
 
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const serviceRoleKey = getSecretKey();
     if (!serviceRoleKey) throw new Error('Service role key not configured');
 
     const supabase = createClient(Deno.env.get('SUPABASE_URL') ?? '', serviceRoleKey);
@@ -800,7 +801,7 @@ serve(async (req) => {
     // Fire-and-forget: link products across platforms by SKU
     fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/link-products`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}` },
+      headers: serviceHeaders(),
       body: JSON.stringify({ user_id: userId }),
     }).catch(e => console.warn('[oauth-callback] link-products trigger failed:', e.message));
 

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getSecretKey, isServiceRequest, serviceHeaders } from '../_shared/supabaseKeys.ts';
 
 // Called by pg_cron every 15 minutes.
 // Processes sync_retry_queue with exponential backoff:
@@ -26,10 +27,16 @@ const corsHeaders = {
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
+  // Only our own cron job (secret key on the apikey header) may call this.
+  // Deployed with --no-verify-jwt, so this is the only gate.
+  if (!isServiceRequest(req)) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
+  }
+
   try {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      getSecretKey()
     );
 
     const now = new Date();
@@ -61,7 +68,7 @@ serve(async (req) => {
     console.log(`[process-sync-retries] ${due.length} of ${queue.length} queued entries are due`);
 
     const syncUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/sync-inventory-levels`;
-    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const serviceKey = getSecretKey();
 
     let succeeded = 0;
     let failed = 0;
@@ -70,7 +77,7 @@ serve(async (req) => {
       try {
         const res = await fetch(syncUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceKey}` },
+          headers: serviceHeaders(),
           body: JSON.stringify({
             user_id: entry.user_id,
             sku: entry.sku,

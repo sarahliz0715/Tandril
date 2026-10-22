@@ -8,9 +8,10 @@
 // catch-up and made-to-order top-up, just swept across every multi-platform-linked SKU on
 // an interval instead of waiting for a specific trigger.
 //
-// Service-role only, scheduled via pg_cron every ~20 minutes (see the matching migration).
+// Secret key on the apikey header only (deployed with --no-verify-jwt), scheduled via pg_cron every ~20 minutes (see the matching migration).
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getSecretKey, isServiceRequest, serviceHeaders } from '../_shared/supabaseKeys.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -26,14 +27,12 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
-    const authHeader = req.headers.get('Authorization') ?? '';
-    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-    if (authHeader !== `Bearer ${serviceKey}`) {
+    if (!isServiceRequest(req)) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-    const supabase = createClient(supabaseUrl, serviceKey);
+    const supabase = createClient(supabaseUrl, getSecretKey());
 
     // Every (user_id, sku) with 2+ platform links is a candidate — a single-platform link
     // has nothing to reconcile against.
@@ -72,7 +71,7 @@ serve(async (req) => {
       try {
         const res = await fetch(`${supabaseUrl}/functions/v1/sync-inventory-levels`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${serviceKey}`, 'Content-Type': 'application/json' },
+          headers: serviceHeaders(),
           body: JSON.stringify({ user_id: candidate.user_id, sku: candidate.sku, mode: 'lowest', triggered_by: 'reconciliation_sweep' }),
         });
         const out = await res.json().catch(() => ({}));

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getSecretKey, serviceHeaders } from '../_shared/supabaseKeys.ts';
 
 async function verifyWooHmac(body: string, signatureHeader: string, secret: string): Promise<boolean> {
   const encoder = new TextEncoder();
@@ -25,7 +26,7 @@ serve(async (req) => {
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      getSecretKey()
     );
 
     const { data: platform } = await supabase
@@ -95,12 +96,12 @@ serve(async (req) => {
     if (skuUpdates.length === 0) return new Response('ok', { status: 200 });
 
     const syncUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/sync-inventory-levels`;
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const serviceRoleKey = getSecretKey();
 
     await Promise.all(skuUpdates.map(({ sku, quantity }) =>
       fetch(syncUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceRoleKey}` },
+        headers: serviceHeaders(),
         body: JSON.stringify({
           user_id: platform.user_id,
           sku,
