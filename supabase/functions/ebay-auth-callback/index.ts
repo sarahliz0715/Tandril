@@ -220,7 +220,18 @@ console.log(`[eBay Callback] Created new platform ${data.id}`);
 
 console.log(`[eBay Callback] Successfully connected eBay account for user ${userId}`);
 
-// Register eBay Commerce Notification subscription for order events
+// Register eBay Commerce Notification subscription for order events.
+//
+// Verified live against the real eBay API (Oct 21, 2026) that this previously silently did
+// nothing — neither call below ever checked res.ok, so a 400 looked identical to success in
+// the logs. The real required shapes (confirmed via direct test calls, then cleaned up):
+//   - createDestination requires `name` + `status` ("Invalid or missing destination status").
+//   - `marketplace.ORDER` is not a real topic (GET /commerce/notification/v1/topic lists the
+//     real 28 — the "item sold" one is `ORDER_CONFIRMATION`).
+//   - createSubscription needs `status`, a `destinationId` (not inline deliveryConfig), and a
+//     `payload` of {format, schemaVersion, deliveryProtocol} — discovered one field at a time
+//     from eBay's validation errors (195007/195008/195010).
+let notificationSubscriptionResult: Record<string, any> = { attempted: false };
 try {
 const isSandbox = ebayEnvironment === 'sandbox';
 const apiBase = isSandbox ? 'https://api.sandbox.ebay.com' : 'https://api.ebay.com';
@@ -230,17 +241,21 @@ const endpointUrl = `${supabaseUrl}/functions/v1/ebay-notification-webhook`;
 const verificationToken = Deno.env.get('EBAY_NOTIFICATION_VERIFICATION_TOKEN');
 
 if (verificationToken) {
+notificationSubscriptionResult.attempted = true;
 const notifHeaders = {
 'Authorization': `Bearer ${accessToken}`,
 'Content-Type': 'application/json',
 'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US',
 };
 
-// Register destination endpoint (idempotent — eBay ignores duplicates)
-await fetch(`${apiBase}/commerce/notification/v1/destination`, {
+// Register destination endpoint (idempotent by endpoint+token — a rerun on reconnect
+// just returns the existing destination rather than erroring).
+const destRes = await fetch(`${apiBase}/commerce/notification/v1/destination`, {
 method: 'POST',
 headers: notifHeaders,
 body: JSON.stringify({
+name: 'tandril-order-sync',
+status: 'ENABLED',
 deliveryConfig: {
 endpoint: endpointUrl,
 verificationToken,
@@ -248,22 +263,67 @@ verificationToken,
 }),
 });
 
-// Subscribe to marketplace ORDER topic
-await fetch(`${apiBase}/commerce/notification/v1/subscription`, {
+if (!destRes.ok) {
+const destErrText = await destRes.text();
+console.error(`[eBay Callback] Destination registration failed: ${destRes.status} - ${destErrText}`);
+notificationSubscriptionResult = { attempted: true, step: 'destination', status: destRes.status, error: destErrText };
+} else {
+// eBay returns the new/existing destinationId in the Location header on 201/200, and
+// usually echoes it in the body too — check both since that's not fully documented.
+let destinationId: string | null = null;
+const destLocation = destRes.headers.get('Location');
+if (destLocation) destinationId = destLocation.split('/').filter(Boolean).pop() ?? null;
+if (!destinationId) {
+try {
+const destBody = await destRes.json();
+destinationId = destBody?.destinationId ?? null;
+} catch (_) { /* no JSON body — Location header already handled above */ }
+}
+
+if (!destinationId) {
+console.error('[eBay Callback] Destination created but no destinationId found in response');
+notificationSubscriptionResult = { attempted: true, step: 'destination', error: 'no destinationId in response' };
+} else {
+// Subscribe to the real "order placed" topic, pointed at our destination.
+const subRes = await fetch(`${apiBase}/commerce/notification/v1/subscription`, {
 method: 'POST',
 headers: notifHeaders,
 body: JSON.stringify({
-topicId: 'marketplace.ORDER',
-deliveryConfig: { endpoint: endpointUrl, verificationToken },
+topicId: 'ORDER_CONFIRMATION',
+status: 'ENABLED',
+destinationId,
+payload: { format: 'JSON', schemaVersion: '1.0', deliveryProtocol: 'HTTPS' },
 }),
 });
 
-console.log('[eBay Callback] Registered Commerce Notification subscription for ORDER events');
+if (!subRes.ok) {
+const subErrText = await subRes.text();
+console.error(`[eBay Callback] Subscription creation failed: ${subRes.status} - ${subErrText}`);
+notificationSubscriptionResult = { attempted: true, step: 'subscription', status: subRes.status, error: subErrText, destinationId };
+} else {
+console.log(`[eBay Callback] Registered Commerce Notification subscription for ORDER_CONFIRMATION (destination ${destinationId})`);
+notificationSubscriptionResult = { attempted: true, ok: true, destinationId, topicId: 'ORDER_CONFIRMATION' };
+}
+}
+}
 } else {
 console.warn('[eBay Callback] EBAY_NOTIFICATION_VERIFICATION_TOKEN not set — skipping notification subscription');
+notificationSubscriptionResult = { attempted: false, error: 'EBAY_NOTIFICATION_VERIFICATION_TOKEN not set' };
 }
 } catch (notifErr: any) {
 console.warn('[eBay Callback] Notification subscription failed (non-critical):', notifErr.message);
+notificationSubscriptionResult = { attempted: true, error: notifErr.message };
+}
+
+// Record the real outcome instead of letting it stay silently unknown — this is exactly
+// the kind of failure that looked like success for months because nothing checked it.
+try {
+await supabaseClient
+.from('platforms')
+.update({ metadata: { ...(platform.metadata || {}), notification_subscription: notificationSubscriptionResult } })
+.eq('id', platform.id);
+} catch (metaErr: any) {
+console.warn('[eBay Callback] Could not record notification_subscription result:', metaErr.message);
 }
 
 if (isPostFromFrontend) {
