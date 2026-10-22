@@ -22,7 +22,7 @@ function supabaseUrl() {
 // New Supabase secret key (sb_secret_...). The legacy SUPABASE_SERVICE_ROLE_KEY
 // leaked in the Railway breach (Oct 2026) and must not be used.
 function serviceKey() {
-  return process.env.SUPABASE_SECRET_KEY;
+  return (process.env.SUPABASE_SECRET_KEY || '').trim();
 }
 
 async function supabaseFetch(path, options = {}) {
