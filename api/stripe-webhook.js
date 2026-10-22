@@ -3,7 +3,7 @@
 // Stripe calls this endpoint after payment events. We verify the signature,
 // then update the user's subscription tier in Supabase auth metadata.
 //
-// Required Vercel env vars: STRIPE_WEBHOOK_SECRET, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+// Required Vercel env vars: STRIPE_WEBHOOK_SECRET, SUPABASE_URL, SUPABASE_SECRET_KEY (sb_secret_...)
 // Register this URL in Stripe Dashboard → Webhooks: https://www.tandril.org/api/stripe-webhook
 // Events to subscribe: checkout.session.completed, customer.subscription.updated, customer.subscription.deleted
 
@@ -84,7 +84,7 @@ export default async function handler(req, res) {
 
   const supabase = createClient(
     process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
+    process.env.SUPABASE_SECRET_KEY
   );
 
   try {

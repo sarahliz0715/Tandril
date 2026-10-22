@@ -1,7 +1,7 @@
 // register-shopify-webhooks
 //
 // One-time utility: (re-)registers all required Shopify webhooks for every
-// active platform row. Call with service-role bearer to fix stores that
+// active platform row. Call with the secret key on the apikey header to fix stores that
 // connected before app_subscriptions/update was added to shopify-auth-exchange,
 // and to backfill orders/cancelled, refunds/create and inventory_levels/update
 // (added Sept 25, 2026) for stores connected before then.
@@ -11,6 +11,7 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getSecretKey, isServiceRequest } from '../_shared/supabaseKeys.ts';
 
 const ALGORITHM = 'AES-GCM';
 const KEY_LENGTH = 256;
@@ -40,10 +41,9 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { status: 200 });
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 });
 
-  // Require service-role bearer
-  const auth = req.headers.get('Authorization') ?? '';
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-  if (!auth.includes(serviceKey)) {
+  // Require the secret key on the apikey header. Deployed with --no-verify-jwt.
+  const serviceKey = getSecretKey();
+  if (!isServiceRequest(req)) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
 

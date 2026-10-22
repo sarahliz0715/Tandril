@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getSecretKey, serviceHeaders } from '../_shared/supabaseKeys.ts';
 
 // eBay Commerce Notification API endpoint
 // GET  ?challenge_code=xxx  → respond with SHA256(challengeCode + verificationToken + endpointUrl)
@@ -14,7 +15,7 @@ serve(async (req) => {
   const url = new URL(req.url);
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    getSecretKey()
   );
 
   // ── Challenge verification (eBay sends GET with challenge_code to activate endpoint) ──
@@ -136,7 +137,7 @@ async function processEbayOrder(platform: any, orderId: string, supabase: any) {
 
   const order = await orderRes.json();
   const syncUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/sync-inventory-levels`;
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+  const serviceKey = getSecretKey();
 
   const syncs: Promise<any>[] = [];
 
@@ -157,7 +158,7 @@ async function processEbayOrder(platform: any, orderId: string, supabase: any) {
 
     syncs.push(fetch(syncUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceKey}` },
+      headers: serviceHeaders(),
       body: JSON.stringify({
         user_id: platform.user_id,
         sku,

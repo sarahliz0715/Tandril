@@ -6,6 +6,7 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getSecretKey } from '../_shared/supabaseKeys.ts';
 
 // --- Decryption helpers (mirrors shopify-billing/shopify-auth-exchange) ---
 const ALGORITHM = 'AES-GCM';
@@ -167,7 +168,7 @@ serve(async (req) => {
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      getSecretKey()
     );
 
     // Find the user who owns this shop. A shop_domain can end up matched by

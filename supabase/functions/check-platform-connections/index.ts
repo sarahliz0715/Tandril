@@ -18,7 +18,7 @@
 //   3. Emails the seller about every broken connection (any platform) — immediately, then
 //      reminders at 24h and 72h. See _shared/connectionAlerts.ts.
 //
-// POST /functions/v1/check-platform-connections   (service-role bearer only)
+// POST /functions/v1/check-platform-connections   (secret key on apikey header only)
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -26,6 +26,7 @@ import { decrypt, isEncrypted } from '../_shared/encryption.ts';
 import { isAuthFailure, markNeedsReconnect, markHealthy } from '../_shared/platformHealth.ts';
 import { reconnectEmailDue, sendReconnectEmail, PLATFORM_LABELS } from '../_shared/connectionAlerts.ts';
 import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
+import { getSecretKey, isServiceRequest, serviceHeaders } from '../_shared/supabaseKeys.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const CHECKED_PLATFORMS = ['shopify', 'woocommerce', 'ebay', 'etsy'];
@@ -204,8 +205,9 @@ const CHECKERS: Record<string, (supabase: any, platform: any) => Promise<CheckRe
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { status: 200 });
 
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-  if ((req.headers.get('Authorization') ?? '') !== `Bearer ${serviceKey}`) {
+  const serviceKey = getSecretKey();
+  // Secret key on the apikey header only (cron job). Deployed with --no-verify-jwt.
+  if (!isServiceRequest(req)) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
 
@@ -275,7 +277,7 @@ serve(async (req) => {
         try {
           const res = await fetch(`${SUPABASE_URL}/functions/v1/sync-inventory-levels`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${serviceKey}`, 'Content-Type': 'application/json' },
+            headers: serviceHeaders(),
             body: JSON.stringify({ user_id: platform.user_id, sku, mode: 'lowest', triggered_by: 'reconnect_catchup' }),
           });
           if (!res.ok) failed++;
@@ -303,7 +305,7 @@ serve(async (req) => {
       try {
         const res = await fetch(`${SUPABASE_URL}/functions/v1/sync-inventory-levels`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${serviceKey}`, 'Content-Type': 'application/json' },
+          headers: serviceHeaders(),
           body: JSON.stringify({ user_id: l.user_id, sku: l.sku, mode: 'lowest', triggered_by: 'keep_stocked' }),
         });
         const out = await res.json().catch(() => ({}));

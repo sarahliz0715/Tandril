@@ -3,6 +3,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getSecretKey } from '../_shared/supabaseKeys.ts';
 
 const corsHeaders = {
 'Access-Control-Allow-Origin': '*',
@@ -45,9 +46,9 @@ throw new Error('Missing authorization code or state');
 }
 
 // Create Supabase admin client (no user auth required for callback)
-const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+const serviceRoleKey = getSecretKey();
 if (!serviceRoleKey) {
-console.error('[eBay Callback] SUPABASE_SERVICE_ROLE_KEY not configured!');
+console.error('[eBay Callback] Supabase secret key not configured!');
 throw new Error('Server configuration error - missing service role key');
 }
 

@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
+import { getSecretKey, serviceHeaders } from '../_shared/supabaseKeys.ts';
 
 // Etsy v3 webhook handler for RECEIPT events (order placed)
 // Etsy sends POST with { subscription_id, trigger_event, shop_id, receipt_id }
@@ -60,7 +61,7 @@ serve(async (req) => {
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      getSecretKey()
     );
 
     // Find the Etsy platform by shop_id stored in metadata
@@ -100,7 +101,7 @@ serve(async (req) => {
     const receipt = await receiptRes.json();
 
     const syncUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/sync-inventory-levels`;
-    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const serviceKey = getSecretKey();
 
     // Each transaction in the receipt = one purchased listing
     const seenListings = new Set<string>();
@@ -147,7 +148,7 @@ serve(async (req) => {
 
       syncs.push(fetch(syncUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceKey}` },
+        headers: serviceHeaders(),
         body: JSON.stringify({
           user_id: platform.user_id,
           sku: link.sku,

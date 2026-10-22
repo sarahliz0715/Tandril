@@ -1,5 +1,5 @@
 # Tandril — Project Context for Claude
-**Last updated:** September 25, 2026 | **Repo:** private | **Owner:** Sarah Evenson
+**Last updated:** October 22, 2026 | **Repo:** private | **Owner:** Sarah Evenson
 
 ---
 
@@ -57,6 +57,12 @@ Tandril is an AI-powered multi-platform e-commerce automation SaaS. Sellers conn
 
 ## Credentials & Accounts
 **All credentials are stored in Supabase secrets and .env — never hardcode them in files.**
+
+**Supabase API keys (since Oct 22, 2026): only the new keys are used.** The legacy `service_role` key leaked in the Railway breach (Oct 21, 2026). Never use `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_ANON_KEY` again, anywhere.
+- Edge functions: always `getSecretKey()` / `getPublishableKey()` from `/home/user/Tandril/supabase/functions/_shared/supabaseKeys.ts` (reads the auto-injected `SUPABASE_SECRET_KEYS` / `SUPABASE_PUBLISHABLE_KEYS`, fallback `SB_SECRET_KEY` / `SB_PUBLISHABLE_KEY`).
+- One function / cron job calling another: send `serviceHeaders()` (secret key on the **`apikey`** header — never `Authorization: Bearer`, the new keys aren't JWTs). The receiving function must check `isServiceRequest(req)` itself and be on the `--no-verify-jwt` list in `.github/workflows/deploy-edge-functions.yml`. If signed-in users call it too, also check `getSignedInUserId(req, supabase)` and scope to that user.
+- Cron jobs read the key from Vault: `(select decrypted_secret from vault.decrypted_secrets where name = 'tandril_secret_key')` on the `apikey` header — see `supabase/migrations/20261022000001_cron_use_new_secret_key.sql`. Never paste a key into a cron command.
+- Vercel (`tandril-mvp`): `VITE_SUPABASE_PUBLISHABLE_KEY` (website), `SUPABASE_SECRET_KEY` (`api/*.js`, `scripts/`).
 
 - Supabase project: **Tandril_workingmvp** (production)
 - Shopify app: **Tandril Beta** (submitted and **approved** on the Shopify App Store — see Platform Status) — client_id in Supabase secrets
@@ -241,6 +247,7 @@ Outbound email is sent via Resend (resend.com). The `RESEND_FROM_EMAIL` Supabase
 - **Orion now told which products are already linked (Sept 25, 2026):** Orion answered "which products are on both Shopify and eBay?" correctly (the tote) but then said the stores "aren't linked yet". Its sync context only listed bare SKUs with no platforms, so it couldn't tell the tote was linked. `smart-api`'s `syncSection` now lists each linked SKU with its platforms and last synced qty, and tells Orion those ARE linked and auto-syncing. Deployed via CLI before merge.
 - **"N syncs failed after all retry attempts" banner stuck forever — fixed (Sept 25, 2026):** a later successful sync resolves a failed `sync_retry_queue` row (`resolved_at`) but left its `last_error`, and `SyncLinksPanel.jsx` treated *any* resolved-with-error row as "gave up" — so after two early failures on the tote, the red banner and a red chip stayed even though every later sync succeeded. Now: `sync-inventory-levels` clears `last_error` when it resolves a retry on success; the panel only counts a give-up when `attempt_count >= 5` (process-sync-retries' `MAX_ATTEMPTS`) and the link hasn't synced successfully since, the chip only turns red for *unresolved* retries, and the red banner has a ✕ that dismisses the current give-ups (ids kept in `localStorage` `tandril.dismissedSyncFailures`). Failures stay in Recent Sync Activity.
 - **Inventory page product table was always empty — fixed (Sept 25, 2026):** `pages/Inventory.jsx` rendered `<InventoryTable items={...}>` but `components/inventory/InventoryTable.jsx` reads an `inventory` prop, so the table always got `undefined` and showed "No products match your filters." even while the stat cards above it counted the real items (453 for Sarah). Prop renamed to `inventory`; also guarded `item.status.replace` against a missing status.
+- **Migrated off the leaked legacy Supabase keys (Oct 22, 2026, after the Oct 21 Railway breach):** all 73 edge-function files, the three Vercel `api/` routes, the website and `scripts/` switched to the new publishable/secret keys (see Credentials & Accounts). Found and closed while doing it: `smart-api` (verify_jwt off) let anyone presenting the old service_role key act as any user via `service_user_id`, and that check was a plain string compare against the function's env var, so disabling legacy keys in the dashboard alone would NOT have closed it; `register-shopify-webhooks` used `auth.includes(serviceKey)` (passes everyone if the key is blank); `execute-scheduled-workflows`, `process-sync-retries`, `process-price-restores`, `process-scheduled-sales`, `generate-orion-digest` and `sync-inventory-levels` had no caller check at all (only verify_jwt, so any logged-in user could trigger them). Now: those 11 server-to-server functions are `--no-verify-jwt` and check `isServiceRequest()`; Workflows → Run Now only runs the caller's own workflow (previously any workflow id); dashboard digest refresh only builds the caller's digest (previously regenerated everyone's); `sync-inventory-levels` only lets a signed-in user sync their own `user_id`. Logs for Oct 20–22 showed the old service key used only from Supabase's own edge runtime, no outside callers. Pre-existing, left alone: `check-alerts` and `daily-briefing-cron` cron jobs have been rejected by the gateway (401, verify_jwt on, no Authorization header — 96×/day) so they never ran; they use a hard-coded `x-cron-secret` (`tandril-alerts-2026`) instead of a Supabase key. A leftover `diagnostic-secret-check` function (deployed Oct 22 by another session, public, shows whether some secrets are set + Stripe key prefix) should be deleted from the dashboard. **Full retirement also needs:** disable legacy API keys, then JWT Keys → migrate/rotate → revoke the legacy JWT secret (the leaked key is also a JWT signed with it).
 ---
 
 ## How Flows Work
@@ -360,7 +367,7 @@ Audited for a live demo (shirt linked across Shopify + eBay, change inventory on
 ## What NOT to Change
 - Internal `competitor_analysis` data_type string — kept for backward compatibility
 - `CompetitorInsightsCard` component name — internal only, not user-facing
-- JWT verification on edge functions — leave ON
+- JWT verification on edge functions — leave ON for functions only signed-in users call. Functions called by cron/other functions/webhooks must be `--no-verify-jwt` and check the caller in code (see Credentials & Accounts above)
 - Mock data behavior before store connection — intentional UX
 
 ---
