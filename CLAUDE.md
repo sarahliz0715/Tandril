@@ -21,6 +21,8 @@ Tandril is an AI-powered multi-platform e-commerce automation SaaS. Sellers conn
 
 ## Architecture
 
+**Tandril runs only on Vercel (project `tandril-mvp`) + Supabase, with Claude (Anthropic) as its AI.** There is no Railway, OpenAI or Redis anywhere in the stack. The old Railway account (an unused leftover) was **deleted Oct 22, 2026** after Railway's Oct 21 breach leaked the legacy Supabase `service_role` key stored there. Don't add new hosting or AI providers without asking Sarah.
+
 - **Frontend:** React + Vite, deployed on Vercel
 - **Backend:** Supabase (auth, database, edge functions)
 - **AI:** Anthropic Claude API — model: `claude-haiku-4-5-20251001`
@@ -58,7 +60,7 @@ Tandril is an AI-powered multi-platform e-commerce automation SaaS. Sellers conn
 ## Credentials & Accounts
 **All credentials are stored in Supabase secrets and .env — never hardcode them in files.**
 
-**Supabase API keys (since Oct 22, 2026): only the new keys are used.** The legacy `service_role` key leaked in the Railway breach (Oct 21, 2026). Never use `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_ANON_KEY` again, anywhere.
+**Supabase API keys (since Oct 22, 2026): only the new publishable (`sb_publishable_...`) and secret (`sb_secret_...`) keys are used.** The legacy `anon` and `service_role` keys are **disabled** in Supabase, and the legacy JWT secret is **revoked** (user logins are signed with the new ES256 key). The `service_role` key leaked in the Railway breach (Oct 21, 2026). **Never reintroduce the legacy keys** — not `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_ANON_KEY` / `VITE_SUPABASE_ANON_KEY`, not a JWT-shaped key pasted into a cron job, not re-enabling them in the dashboard.
 - Edge functions: always `getSecretKey()` / `getPublishableKey()` from `/home/user/Tandril/supabase/functions/_shared/supabaseKeys.ts` (reads the auto-injected `SUPABASE_SECRET_KEYS` / `SUPABASE_PUBLISHABLE_KEYS`, fallback `SB_SECRET_KEY` / `SB_PUBLISHABLE_KEY`).
 - One function / cron job calling another: send `serviceHeaders()` (secret key on the **`apikey`** header — never `Authorization: Bearer`, the new keys aren't JWTs). The receiving function must check `isServiceRequest(req)` itself and be on the `--no-verify-jwt` list in `.github/workflows/deploy-edge-functions.yml`. If signed-in users call it too, also check `getSignedInUserId(req, supabase)` and scope to that user.
 - Cron jobs read the key from Vault: `(select decrypted_secret from vault.decrypted_secrets where name = 'tandril_secret_key')` on the `apikey` header — see `supabase/migrations/20261022000001_cron_use_new_secret_key.sql`. Never paste a key into a cron command.
@@ -90,6 +92,8 @@ Outbound email is sent via Resend (resend.com). The `RESEND_FROM_EMAIL` Supabase
 - GoDaddy email plan is Microsoft 365-style (paid), used to satisfy Etsy developer account requirement
 
 ## Shopify API Credentials
+- **The live app is "Tandril Beta" in the OMH organization of the Shopify Dev Dashboard.** `SHOPIFY_API_KEY` in Supabase is its client ID. Other Tandril apps that appear in the Shopify dashboards are **not live** — don't configure, deploy to, or copy credentials from them.
+- **⚠️ "Deprecated API calls" warning on Tandril Beta (seen Oct 22, 2026): 2 calls must be updated by Jan 1, 2027.** The dashboard names them; the two most likely, both called regularly from the code: (1) `webhookSubscriptions { endpoint { ... on WebhookHttpEndpoint { callbackUrl } } }` and `webhookSubscriptionCreate(webhookSubscription: { callbackUrl })` in `check-platform-connections` (runs hourly) — deprecated in favour of `uri`; (2) `productUpdate(input: ProductInput)` — deprecated in favour of `productUpdate(product: ProductUpdateInput)`, used by Orion product edits in `smart-api` (5 places) and by `inventory-protection`, `dead-product-cleanup`, `enhanced-execute-command`, `seo-fixer`, `ai-content-generator` (`ai-coach-chat` is retired). Also note the code pins old API versions — `2024-01` (connect/install/webhook-registration paths and `api/shopify-callback.js`), `2025-01` (most functions) and `2025-10` (billing/auth callback) — while the oldest version Shopify still supports is `2026-01`; Shopify serves old-version requests with the oldest supported version, so fields it has removed silently stop working. Confirm the exact 2 calls in the dashboard before fixing, then live-test on the reviewer store `omhbridge-dev`.
 - **Client ID** = `SHOPIFY_API_KEY` in code/Vercel/Supabase
 - **Client Secret** = `SHOPIFY_API_SECRET` in code/Vercel/Supabase
 - Shopify rebranded "API key/secret" to "Client ID/Secret" — they are the same thing
