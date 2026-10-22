@@ -29,21 +29,22 @@ export async function isExternallyManagedLocation(
   if (cache.has(key)) return cache.get(key)!;
   try {
     const json = await gql(domain, token, `
-      mutation($input: InventorySetQuantitiesInput!) {
-        inventorySetQuantities(input: $input) { userErrors { field message } }
+      mutation($input: InventorySetQuantitiesInput!, $idempotencyKey: String!) {
+        inventorySetQuantities(input: $input) @idempotent(key: $idempotencyKey) { userErrors { field message } }
       }
     `, {
       input: {
         reason: 'correction',
         name: 'available',
-        quantities: [{ inventoryItemId: inventoryItemGid, locationId: locationGid, quantity: currentQty, compareQuantity: currentQty }],
+        quantities: [{ inventoryItemId: inventoryItemGid, locationId: locationGid, quantity: currentQty, changeFromQuantity: currentQty }],
       },
+      idempotencyKey: crypto.randomUUID(),
     });
     if (!json || json.errors?.length) return false; // unknown — don't guess
     const errs = json.data?.inventorySetQuantities?.userErrors || [];
     const external = errs.some((e: any) => isLocationNotFoundError(e.message));
     console.log(`[shopifyStock] location ${locationGid} on ${domain}: ${external ? 'managed by a fulfillment app' : 'managed by the store'}`);
-    // Only cache a definite answer; a stale compareQuantity just means "try again later".
+    // Only cache a definite answer; a stale changeFromQuantity just means "try again later".
     if (external || errs.length === 0) cache.set(key, external);
     return external;
   } catch {

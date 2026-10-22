@@ -273,8 +273,8 @@ serve(async (req) => {
 
         // Adjust inventory via GraphQL mutation
         const invAdjRes = await shopifyGraphQL(shopDomain, accessToken, `
-          mutation($input: InventoryAdjustQuantitiesInput!) {
-            inventoryAdjustQuantities(input: $input) {
+          mutation($input: InventoryAdjustQuantitiesInput!, $idempotencyKey: String!) {
+            inventoryAdjustQuantities(input: $input) @idempotent(key: $idempotencyKey) {
               inventoryAdjustmentGroup { reason }
               userErrors { field message }
             }
@@ -287,8 +287,10 @@ serve(async (req) => {
               inventoryItemId: toShopifyGid('InventoryItem', inventoryItemId),
               locationId: toShopifyGid('Location', locationId),
               delta: item.quantity_ordered,
+              changeFromQuantity: null, // null = add without checking the old number first
             }],
           },
+          idempotencyKey: crypto.randomUUID(),
         });
         const invErrs = invAdjRes?.inventoryAdjustQuantities?.userErrors || [];
         if (invErrs.length) throw new Error(`Shopify rejected the stock update: ${invErrs.map((e: any) => e.message).join('; ')}`);

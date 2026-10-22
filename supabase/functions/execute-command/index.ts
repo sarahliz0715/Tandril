@@ -413,8 +413,8 @@ async function updateInventory(platform: any, parameters: any): Promise<any> {
   const { inventory_item_id, location_id, available } = parameters;
 
   const invSetRes = await shopifyGraphQL(platform.shop_domain, platform.access_token, `
-    mutation($input: InventorySetQuantitiesInput!) {
-      inventorySetQuantities(input: $input) {
+    mutation($input: InventorySetQuantitiesInput!, $idempotencyKey: String!) {
+      inventorySetQuantities(input: $input) @idempotent(key: $idempotencyKey) {
         userErrors { field message }
       }
     }
@@ -422,13 +422,14 @@ async function updateInventory(platform: any, parameters: any): Promise<any> {
     input: {
       reason: 'correction',
       name: 'available',
-      ignoreCompareQuantity: true,
       quantities: [{
         inventoryItemId: toShopifyGid('InventoryItem', inventory_item_id),
         locationId: toShopifyGid('Location', location_id),
         quantity: available,
+        changeFromQuantity: null, // null = set it without checking the old number first
       }],
     },
+    idempotencyKey: crypto.randomUUID(),
   });
   const invErrs = invSetRes?.inventorySetQuantities?.userErrors || [];
   if (invErrs.length) throw new Error(`Shopify rejected the stock update: ${invErrs.map((e: any) => e.message).join('; ')}`);

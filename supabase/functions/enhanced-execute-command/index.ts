@@ -593,8 +593,8 @@ async function updateInventoryEnhanced(
     }
 
     const invSetRes = await shopifyGraphQL(platform.shop_domain, platform.access_token, `
-      mutation($input: InventorySetQuantitiesInput!) {
-        inventorySetQuantities(input: $input) {
+      mutation($input: InventorySetQuantitiesInput!, $idempotencyKey: String!) {
+        inventorySetQuantities(input: $input) @idempotent(key: $idempotencyKey) {
           userErrors { field message }
         }
       }
@@ -602,13 +602,14 @@ async function updateInventoryEnhanced(
       input: {
         reason: 'correction',
         name: 'available',
-        ignoreCompareQuantity: true,
         quantities: [{
           inventoryItemId: toShopifyGid('InventoryItem', inventory_item_id),
           locationId: toShopifyGid('Location', location_id),
           quantity: targetQty,
+          changeFromQuantity: null, // null = set it without checking the old number first
         }],
       },
+      idempotencyKey: crypto.randomUUID(),
     });
     const invErrs = invSetRes?.inventorySetQuantities?.userErrors || [];
     if (invErrs.length) throw new Error(`Shopify rejected the stock update: ${invErrs.map((e: any) => e.message).join('; ')}`);
@@ -686,8 +687,8 @@ async function updateInventoryEnhanced(
   for (const variant of variantsToUpdate) {
     try {
       const invSetRes = await shopifyGraphQL(platform.shop_domain, platform.access_token, `
-        mutation($input: InventorySetQuantitiesInput!) {
-          inventorySetQuantities(input: $input) {
+        mutation($input: InventorySetQuantitiesInput!, $idempotencyKey: String!) {
+          inventorySetQuantities(input: $input) @idempotent(key: $idempotencyKey) {
             userErrors { field message }
           }
         }
@@ -695,13 +696,14 @@ async function updateInventoryEnhanced(
         input: {
           reason: 'correction',
           name: 'available',
-          ignoreCompareQuantity: true,
           quantities: [{
             inventoryItemId: toShopifyGid('InventoryItem', variant.inventory_item_id),
             locationId: toShopifyGid('Location', resolvedLocationId),
             quantity: targetQty,
+            changeFromQuantity: null, // null = set it without checking the old number first
           }],
         },
+        idempotencyKey: crypto.randomUUID(),
       });
       const invErrs = invSetRes?.inventorySetQuantities?.userErrors || [];
       if (invErrs.length) throw new Error(`Shopify rejected the stock update: ${invErrs.map((e: any) => e.message).join('; ')}`);
