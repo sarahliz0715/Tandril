@@ -7,10 +7,11 @@
 // and caches both on the ad_campaigns row, so the Ads page and Orion see current numbers
 // without anyone having to ask for them.
 //
-// POST /functions/v1/sync-ad-performance   (service-role bearer only)
+// POST /functions/v1/sync-ad-performance   (secret key on apikey header only)
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getSecretKey, isServiceRequest } from '../_shared/supabaseKeys.ts';
 
 const GRAPH = 'https://graph.facebook.com/v19.0';
 
@@ -29,8 +30,9 @@ function mapMetaStatus(effectiveStatus: string | undefined): string | null {
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { status: 200 });
 
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-  if ((req.headers.get('Authorization') ?? '') !== `Bearer ${serviceKey}`) {
+  const serviceKey = getSecretKey();
+  // Secret key on the apikey header only (cron job). Deployed with --no-verify-jwt.
+  if (!isServiceRequest(req)) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
 

@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { isExternallyManagedLocation } from '../_shared/shopifyStock.ts';
+import { getSecretKey, serviceHeaders } from '../_shared/supabaseKeys.ts';
 
 // --- Inlined encryption helpers ---
 const ALGORITHM = 'AES-GCM';
@@ -109,7 +110,7 @@ serve(async (req) => {
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      getSecretKey()
     );
 
     // A shop can have more than one platforms row (reconnects) — take the most recently updated
@@ -234,12 +235,12 @@ serve(async (req) => {
     if (skuUpdates.length === 0) return new Response('ok', { status: 200 });
 
     const syncUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/sync-inventory-levels`;
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const serviceRoleKey = getSecretKey();
 
     await Promise.all(skuUpdates.map(({ sku, quantity }) =>
       fetch(syncUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${serviceRoleKey}` },
+        headers: serviceHeaders(),
         body: JSON.stringify({
           user_id: platform.user_id, sku, new_quantity: quantity,
           source_platform_id: platform.id, source_platform_type: 'shopify', triggered_by: 'webhook',

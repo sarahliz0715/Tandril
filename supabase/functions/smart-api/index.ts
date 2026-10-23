@@ -6,6 +6,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
 import { isAuthFailure, markNeedsReconnect, markHealthy } from '../_shared/platformHealth.ts';
 import { resolveShopifyVariant } from '../_shared/shopifyVariant.ts';
+import { getPublishableKey, getSecretKey, isServiceRequest, serviceHeaders } from '../_shared/supabaseKeys.ts';
 
 // --- Inlined from _shared/awsSigV4.ts ---
 async function _sha256hex(data: string | Uint8Array): Promise<string> {
@@ -384,20 +385,18 @@ serve(async (req) => {
   }
 
   try {
+    // Service calls (from execute-scheduled-workflows) send the secret key on the apikey
+    // header and service_user_id in the body instead of a user JWT.
+    const isServiceRoleCall = isServiceRequest(req);
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) throw new Error('Missing authorization header');
-
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-    const isServiceRoleCall = serviceRoleKey && authHeader === `Bearer ${serviceRoleKey}`;
+    if (!authHeader && !isServiceRoleCall) throw new Error('Missing authorization header');
 
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: authHeader } } }
+      getPublishableKey(),
+      authHeader ? { global: { headers: { Authorization: authHeader } } } : undefined
     );
 
-    // Service-role calls (from execute-scheduled-workflows) pass service_user_id in the body
-    // instead of a user JWT, so we skip auth.getUser() for those.
     let userId: string;
     const rawBody = await req.json();
     if (isServiceRoleCall && rawBody.service_user_id) {
@@ -405,7 +404,7 @@ serve(async (req) => {
       // Use service role client for DB ops so RLS doesn't block us
       const supabaseAdmin = createClient(
         Deno.env.get('SUPABASE_URL') ?? '',
-        serviceRoleKey
+        getSecretKey()
       );
       // Swap the client so the rest of the handler uses admin privileges
       Object.assign(supabaseClient, supabaseAdmin);
@@ -1840,7 +1839,7 @@ const normTitleWords = (s: string) => new Set(
 async function callSyncInventory(body: Record<string, any>) {
   const res = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/sync-inventory-levels`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}` },
+    headers: serviceHeaders(),
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
@@ -2898,8 +2897,8 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       if (!locationId) throw new Error('Could not find inventory location for this product.');
 
       const invSetRes = await shopifyGraphQL(shopDomain, accessToken, `
-        mutation setInventory($input: InventorySetQuantitiesInput!) {
-          inventorySetQuantities(input: $input) {
+        mutation setInventory($input: InventorySetQuantitiesInput!, $idempotencyKey: String!) {
+          inventorySetQuantities(input: $input) @idempotent(key: $idempotencyKey) {
             inventoryAdjustmentGroup { reason }
             userErrors { field message }
           }
@@ -2908,13 +2907,14 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
         input: {
           reason: 'correction',
           name: 'available',
-          ignoreCompareQuantity: true,
           quantities: [{
             inventoryItemId: toShopifyGid('InventoryItem', targetVariant.inventory_item_id),
             locationId: toShopifyGid('Location', locationId),
             quantity: action.quantity,
+            changeFromQuantity: null, // null = set it without checking the old number first
           }],
         },
+        idempotencyKey: crypto.randomUUID(),
       });
       const invErrs = invSetRes?.inventorySetQuantities?.userErrors || [];
       if (invErrs.length) throw new Error(`Shopify rejected the stock update: ${invErrs.map((e: any) => e.message).join('; ')}`);

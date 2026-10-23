@@ -8,7 +8,8 @@
 import { createClient } from '@supabase/supabase-js';
 
 function supabaseUrl() { return process.env.SUPABASE_URL; }
-function serviceKey()  { return process.env.SUPABASE_SERVICE_ROLE_KEY; }
+// New Supabase secret key (sb_secret_...); the legacy service_role key leaked (Oct 2026).
+function serviceKey()  { return (process.env.SUPABASE_SECRET_KEY || '').trim(); }
 
 const ALGORITHM  = 'AES-GCM';
 const KEY_LENGTH = 256;

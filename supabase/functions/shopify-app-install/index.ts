@@ -7,6 +7,7 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getSecretKey, isServiceRequest } from '../_shared/supabaseKeys.ts';
 
 const ALGORITHM = 'AES-GCM';
 const KEY_LENGTH = 256;
@@ -40,11 +41,10 @@ serve(async (req) => {
   }
 
   try {
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-    const authHeader = req.headers.get('Authorization') ?? '';
-    const bearer = authHeader.replace('Bearer ', '');
-
-    if (bearer !== serviceRoleKey) {
+    // Called only by Vercel's api/shopify-callback.js with the secret key on the apikey
+    // header. Deployed with --no-verify-jwt.
+    const serviceRoleKey = getSecretKey();
+    if (!isServiceRequest(req)) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
     }
 

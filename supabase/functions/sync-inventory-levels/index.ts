@@ -4,6 +4,7 @@ import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
 import { isAuthFailure, markNeedsReconnect } from '../_shared/platformHealth.ts';
 import { resolveShopifyVariant } from '../_shared/shopifyVariant.ts';
 import { isExternallyManagedLocation, isLocationNotFoundError, EXTERNAL_STOCK_REASON, isMadeToOrderVariant, DEFAULT_KEEP_STOCKED_AT } from '../_shared/shopifyStock.ts';
+import { getSecretKey, getSignedInUserId, isServiceRequest } from '../_shared/supabaseKeys.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -68,7 +69,7 @@ serve(async (req) => {
   try {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      getSecretKey()
     );
 
     let body: any = {};
@@ -79,6 +80,17 @@ serve(async (req) => {
 
     if (!user_id || !sku) {
       throw new Error('Missing required fields: user_id, sku');
+    }
+
+    // Deployed with --no-verify-jwt: our own functions/cron send the secret key on the
+    // apikey header; anyone else must be signed in and may only sync their own SKUs.
+    if (!isServiceRequest(req)) {
+      const callerId = await getSignedInUserId(req, supabase);
+      if (!callerId || callerId !== user_id) {
+        return new Response(JSON.stringify({ success: false, error: 'Unauthorized' }), {
+          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
     }
 
     // Load ALL links for this SKU so we can resolve qty from source if needed
@@ -531,8 +543,8 @@ async function syncShopify(platform: any, link: any, qty: number, token: string,
   if (!locationId) throw new Error('No Shopify location found');
 
   const invSetRes = await shopifyGraphQL(shopDomain, token, `
-    mutation($input: InventorySetQuantitiesInput!) {
-      inventorySetQuantities(input: $input) {
+    mutation($input: InventorySetQuantitiesInput!, $idempotencyKey: String!) {
+      inventorySetQuantities(input: $input) @idempotent(key: $idempotencyKey) {
         inventoryAdjustmentGroup { reason }
         userErrors { field message }
       }
@@ -541,13 +553,14 @@ async function syncShopify(platform: any, link: any, qty: number, token: string,
     input: {
       reason: 'correction',
       name: 'available',
-      ignoreCompareQuantity: true,
       quantities: [{
         inventoryItemId: toShopifyGid('InventoryItem', inventoryItemId),
         locationId: toShopifyGid('Location', locationId),
         quantity: qty,
+        changeFromQuantity: null, // null = set it without checking the old number first
       }],
     },
+    idempotencyKey: crypto.randomUUID(),
   });
   const invErrs = invSetRes?.inventorySetQuantities?.userErrors || [];
   // Print-on-demand items (e.g. Printful) keep stock at the fulfillment app's own

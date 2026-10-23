@@ -19,8 +19,10 @@ import crypto from 'crypto';
 function supabaseUrl() {
   return process.env.SUPABASE_URL;
 }
+// New Supabase secret key (sb_secret_...). The legacy SUPABASE_SERVICE_ROLE_KEY
+// leaked in the Railway breach (Oct 2026) and must not be used.
 function serviceKey() {
-  return process.env.SUPABASE_SERVICE_ROLE_KEY;
+  return (process.env.SUPABASE_SECRET_KEY || '').trim();
 }
 
 async function supabaseFetch(path, options = {}) {
@@ -193,9 +195,10 @@ export default async function handler(req, res) {
     // Write platform row (encrypt token + register webhooks) via edge function
     const installRes = await fetch(`${supabaseUrl()}/functions/v1/shopify-app-install`, {
       method: 'POST',
+      // Secret key on the apikey header only — it isn't a JWT, so it can't go in Authorization.
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${serviceKey()}`,
+        'apikey': serviceKey(),
       },
       body: JSON.stringify({ user_id: userId, shop, shop_name: shopName, access_token, scope }),
     });

@@ -3,6 +3,7 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getSecretKey } from '../_shared/supabaseKeys.ts';
 // --- Inlined from _shared/encryption.ts ---
 const _ENC_ALGORITHM = 'AES-GCM';
 const _ENC_IV_LENGTH = 12;
@@ -120,7 +121,7 @@ serve(async (req) => {
   try {
     // Create Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabaseKey = getSecretKey();
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Get request body
@@ -272,8 +273,8 @@ serve(async (req) => {
 
         // Adjust inventory via GraphQL mutation
         const invAdjRes = await shopifyGraphQL(shopDomain, accessToken, `
-          mutation($input: InventoryAdjustQuantitiesInput!) {
-            inventoryAdjustQuantities(input: $input) {
+          mutation($input: InventoryAdjustQuantitiesInput!, $idempotencyKey: String!) {
+            inventoryAdjustQuantities(input: $input) @idempotent(key: $idempotencyKey) {
               inventoryAdjustmentGroup { reason }
               userErrors { field message }
             }
@@ -286,8 +287,10 @@ serve(async (req) => {
               inventoryItemId: toShopifyGid('InventoryItem', inventoryItemId),
               locationId: toShopifyGid('Location', locationId),
               delta: item.quantity_ordered,
+              changeFromQuantity: null, // null = add without checking the old number first
             }],
           },
+          idempotencyKey: crypto.randomUUID(),
         });
         const invErrs = invAdjRes?.inventoryAdjustQuantities?.userErrors || [];
         if (invErrs.length) throw new Error(`Shopify rejected the stock update: ${invErrs.map((e: any) => e.message).join('; ')}`);

@@ -84,3 +84,19 @@ jobs:
         run: supabase functions deploy etsy-order-webhook --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      # Called by our own cron jobs, other edge functions, or Vercel's api/ routes with the
+      # new secret key (sb_secret_...) on the apikey header. That key isn't a JWT, so the
+      # platform's JWT check would reject these calls; each function checks the key itself
+      # with isServiceRequest() from _shared/supabaseKeys.ts (and, for the ones users also
+      # call — sync-inventory-levels, link-products — validates the user's login).
+      - name: Deploy server-to-server functions without JWT verification
+        run: |
+          for fn in execute-scheduled-workflows process-sync-retries process-price-restores \
+                    process-scheduled-sales generate-orion-digest sync-ad-performance \
+                    check-platform-connections sync-inventory-levels link-products \
+                    register-shopify-webhooks shopify-app-install reconcile-inventory-sync; do
+            supabase functions deploy "$fn" --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
+          done
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

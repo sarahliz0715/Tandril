@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
+import { getSecretKey } from '../_shared/supabaseKeys.ts';
 
 // Immediately restores prices for a running flash sale.
 // Called by the "End Sale Early" button in the ActiveFlashSalesPanel UI.
@@ -66,7 +67,7 @@ serve(async (req) => {
   try {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      getSecretKey()
     );
 
     let body: any = {};

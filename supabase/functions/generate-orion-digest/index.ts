@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getSecretKey, getSignedInUserId, isServiceRequest } from '../_shared/supabaseKeys.ts';
 
 // Called by pg_cron daily at 08:00 UTC.
 // Generates an AI business digest for every user with at least one connected platform.
@@ -14,8 +15,17 @@ serve(async (req) => {
 
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    getSecretKey()
   );
+
+  // Deployed with --no-verify-jwt. Our cron job sends the secret key on the apikey
+  // header and builds every seller's digest; a signed-in user (dashboard "refresh")
+  // only gets their own.
+  const isService = isServiceRequest(req);
+  const callerId = isService ? null : await getSignedInUserId(req, supabase);
+  if (!isService && !callerId) {
+    return new Response(JSON.stringify({ success: false, error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
+  }
   const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY');
   if (!anthropicKey) {
     return new Response(JSON.stringify({ success: false, error: 'ANTHROPIC_API_KEY not set' }), {
@@ -31,7 +41,8 @@ serve(async (req) => {
       .or('is_active.eq.true,status.eq.connected');
     if (usersErr) throw new Error(usersErr.message);
 
-    const userIds = [...new Set((userRows ?? []).map(r => r.user_id))];
+    let userIds = [...new Set((userRows ?? []).map(r => r.user_id))];
+    if (callerId) userIds = userIds.filter((id) => id === callerId);
     let generated = 0;
     let failed = 0;
 
