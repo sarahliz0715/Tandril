@@ -1,5 +1,5 @@
 # Tandril — Project Context for Claude
-**Last updated:** October 22, 2026 | **Repo:** private | **Owner:** Sarah Evenson
+**Last updated:** October 23, 2026 | **Repo:** private | **Owner:** Sarah Evenson
 
 ---
 
@@ -522,7 +522,7 @@ Real "Facebook Marketplace" (the peer-to-peer marketplace.facebook.com tab) has 
 | Meta Ads launch/pause/performance handlers | `smart-api/index.ts` (`draft_ad`/`launch_ad`/`pause_ad`/`get_ad_performance`) | L | ✅ Done (Aug 11) — not live-tested |
 | TikTok Ads launch edge function | `supabase/functions/tiktok-ads-launch/index.ts` | L | Not built |
 | TikTok Ads OAuth flow (Meta OAuth already exists — see above) | Extend `Platforms.jsx` + new auth edge function | M | Not built |
-| Ad performance sync cron | `supabase/functions/sync-ad-performance/index.ts` + `migrations/20260925000001_ad_performance_cron.sql` | M | ✅ Built Sept 25 — not live-tested. Every 6h: lifetime spend/impressions/clicks/reach (`date_preset=maximum`, now also used by `get_ad_performance`) + picks up pauses/archives done in Ads Manager (`effective_status` → `ad_campaigns.status`). Service-role bearer only. **The cron itself is NOT scheduled yet** — like every other cron file in `migrations/`, it has a `YOUR_SERVICE_ROLE_KEY` placeholder and must be run by hand in the SQL editor (or scheduled by copying an existing `cron.job` command's headers so the key never has to be typed out) after the function is deployed. |
+| Ad performance sync cron | `supabase/functions/sync-ad-performance/index.ts` + `migrations/20260925000001_ad_performance_cron.sql` | M | ✅ Built Sept 25 — not live-tested. Every 6h: lifetime spend/impressions/clicks/reach (`date_preset=maximum`, now also used by `get_ad_performance`) + picks up pauses/archives done in Ads Manager (`effective_status` → `ad_campaigns.status`). Service-role bearer only. **Corrected Oct 21, 2026 — the cron IS scheduled:** confirmed live via `cron.job` (`sync-ad-performance`, `0 */6 * * *`, `active: true`) — this entry previously said it wasn't, that was stale. A manual run that day returned `{"success":true,"synced":0,"message":"No launched campaigns."}`, consistent with zero rows in `ad_campaigns`/`platforms` (`meta_ads`/`instagram`) in production — **nobody has ever actually connected a Facebook/Meta/Instagram account on Tandril**, so none of this Meta/Instagram code (catalog sync, ad launch, Orion ad NL integration) has been exercised end-to-end yet. That's the real remaining gap here, not the cron. |
 | Campaigns UI page (currently just the existing Ads tab) | `pages/Campaigns.jsx` | L | Not built |
 | Orion natural-language integration ("launch a $20/day ad for X") | System prompt + tool routing in `smart-api/index.ts` | M | ✅ Done (Sept 25) — not live-tested |
 | Learning loop — performance back into Orion context | `orion_ad_learnings` table + system prompt injection | M | Not built |
