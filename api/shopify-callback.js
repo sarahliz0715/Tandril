@@ -179,14 +179,23 @@ export default async function handler(req, res) {
     // accounts and signs people in, so an unsigned or forged request must stop here.
     if (!verifyOAuthHmac(req.query, shopifyApiSecret)) throw new Error('HMAC verification failed');
 
-    // Exchange code for access token
-    const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ client_id: shopifyApiKey, client_secret: shopifyApiSecret, code }),
-    });
+    // Exchange code for access token. With SHOPIFY_EXPIRING_TOKENS=on (set in Vercel AND
+    // Supabase) Shopify returns an expiring token + refresh token, which shopify-app-install
+    // saves (see supabase/functions/_shared/shopifyToken.ts).
+    const expiring = (process.env.SHOPIFY_EXPIRING_TOKENS || '').trim().toLowerCase() === 'on';
+    const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, expiring
+      ? {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+          body: new URLSearchParams({ client_id: shopifyApiKey, client_secret: shopifyApiSecret, code, expiring: '1' }),
+        }
+      : {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client_id: shopifyApiKey, client_secret: shopifyApiSecret, code }),
+        });
     if (!tokenRes.ok) throw new Error('Token exchange failed: ' + (await tokenRes.text()));
-    const { access_token, scope } = await tokenRes.json();
+    const { access_token, scope, refresh_token, expires_in, refresh_token_expires_in } = await tokenRes.json();
     if (!access_token) throw new Error('No access token returned by Shopify');
 
     // Get shop owner email + display name
@@ -236,6 +245,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         user_id: userId, shop, shop_name: shopName, access_token, scope,
+        refresh_token, expires_in, refresh_token_expires_in,
         // Existing account: email the sign-in link instead of signing this browser in.
         ...(existingAccount ? { email_sign_in_link: { email: ownerEmail, redirect_to: `${origin}/Pricing` } } : {}),
       }),
