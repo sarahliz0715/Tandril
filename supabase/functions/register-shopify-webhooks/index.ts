@@ -92,7 +92,7 @@ serve(async (req) => {
 
       for (const wh of webhooks) {
         try {
-          const res = await fetch(`https://${shop}/admin/api/2024-01/webhooks.json`, {
+          const res = await fetch(`https://${shop}/admin/api/2026-01/webhooks.json`, {
             method:  'POST',
             headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
             body:    JSON.stringify({ webhook: { topic: wh.topic, address: wh.address, format: 'json' } }),

@@ -94,7 +94,7 @@ serve(async (req) => {
       // Token may not be encrypted (legacy rows) — use as-is
     }
 
-    const shopifyGraphQL = `https://${shop_domain}/admin/api/2025-10/graphql.json`;
+    const shopifyGraphQL = `https://${shop_domain}/admin/api/2026-01/graphql.json`;
 
     // =========================================================
     // ACTION: create — create a pending subscription and return

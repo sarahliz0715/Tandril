@@ -4,6 +4,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getPublishableKey } from '../_shared/supabaseKeys.ts';
+import { normalizeShopDomain } from '../_shared/shopifySecurity.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -53,15 +54,14 @@ serve(async (req) => {
       throw new Error('Missing store_name parameter');
     }
 
-    // Clean up store name (remove .myshopify.com if present). Lowercase
-    // before stripping the suffix, not after — otherwise a differently-cased
-    // ".MyShopify.Com" in the input wouldn't match the (case-sensitive)
-    // replace and would survive into the final domain. Shopify always
-    // returns the shop domain lowercase in the OAuth callback, so storing
-    // it as-typed here risks a case mismatch that makes the callback's
-    // oauth_states lookup silently miss.
-    const cleanStoreName = store_name.trim().toLowerCase().replace('.myshopify.com', '');
-    const shopDomain = cleanStoreName + '.myshopify.com';
+    // Lowercased "<handle>.myshopify.com" — Shopify always reports the shop
+    // lowercase in the callback, so storing it as-typed would make the
+    // oauth_states lookup miss. Anything that isn't a myshopify.com store
+    // address is rejected: it's used to build the authorize URL.
+    const shopDomain = normalizeShopDomain(store_name);
+    if (!shopDomain) {
+      throw new Error("Enter your store's Shopify address, e.g. my-store or my-store.myshopify.com (not a custom domain).");
+    }
 
     // Shopify OAuth configuration
     const shopifyApiKey = Deno.env.get('SHOPIFY_API_KEY');

@@ -7,6 +7,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getSecretKey } from '../_shared/supabaseKeys.ts';
+import { verifyShopifyWebhookHmac as verifyHmac } from '../_shared/shopifySecurity.ts';
 
 // --- Decryption helpers (mirrors shopify-billing/shopify-auth-exchange) ---
 const ALGORITHM = 'AES-GCM';
@@ -82,7 +83,7 @@ function tierFromPrice(amount: unknown): string | null {
 // resolution doesn't depend solely on the plan's display name.
 async function fetchSubscriptionPrice(shopDomain: string, accessToken: string, subscriptionGid: string): Promise<number | null> {
   try {
-    const res = await fetch(`https://${shopDomain}/admin/api/2025-10/graphql.json`, {
+    const res = await fetch(`https://${shopDomain}/admin/api/2026-01/graphql.json`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken },
       body: JSON.stringify({
@@ -119,17 +120,6 @@ const TIER_LIMITS: Record<string, { api_usage_limit: number; platforms_limit: nu
   enterprise:   { api_usage_limit: 10000, platforms_limit: 50 },
   free:         { api_usage_limit: 50,    platforms_limit: 2  },
 };
-
-async function verifyHmac(body: string, hmacHeader: string | null, secret: string): Promise<boolean> {
-  if (!hmacHeader) return false;
-  const key = await crypto.subtle.importKey(
-    'raw', new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-  );
-  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body));
-  const digest = btoa(String.fromCharCode(...new Uint8Array(sig)));
-  return digest === hmacHeader;
-}
 
 serve(async (req) => {
   if (req.method !== 'POST') {

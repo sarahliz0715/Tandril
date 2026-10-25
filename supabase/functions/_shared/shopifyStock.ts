@@ -7,7 +7,7 @@
 const cache = new Map<string, boolean>();
 
 async function gql(domain: string, token: string, query: string, variables: Record<string, any>) {
-  const res = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+  const res = await fetch(`https://${domain}/admin/api/2026-01/graphql.json`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
     body: JSON.stringify({ query, variables }),
@@ -64,7 +64,7 @@ export const DEFAULT_KEEP_STOCKED_AT = 5;
 // True when every stock level for this Shopify variant is held by a
 // fulfillment app, i.e. the product is made to order (e.g. Printful).
 export async function isMadeToOrderVariant(domain: string, token: string, variantId: string): Promise<boolean> {
-  const res = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+  const res = await fetch(`https://${domain}/admin/api/2026-01/graphql.json`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
     body: JSON.stringify({

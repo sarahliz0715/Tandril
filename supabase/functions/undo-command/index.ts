@@ -37,7 +37,7 @@ const corsHeaders = {
 };
 
 async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
-  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+  const response = await fetch(`https://${domain}/admin/api/2026-01/graphql.json`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -309,7 +309,7 @@ async function revertDiscounts(affectedResources: any[], platform: any): Promise
     if (resource.type === 'price_rule') {
       try {
         // Delete the price rule that was created (no GraphQL equivalent — using REST)
-        const res = await fetch(`https://${platform.shop_domain}/admin/api/2025-01/price_rules/${resource.id}.json`, {
+        const res = await fetch(`https://${platform.shop_domain}/admin/api/2026-01/price_rules/${resource.id}.json`, {
           method: 'DELETE',
           headers: {
             'X-Shopify-Access-Token': platform.access_token,

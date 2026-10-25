@@ -11,7 +11,7 @@
 // no SKU to tell them apart), so the caller can pass it straight to the seller.
 
 async function gql(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
-  const res = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+  const res = await fetch(`https://${domain}/admin/api/2026-01/graphql.json`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
     body: JSON.stringify({ query, variables }),

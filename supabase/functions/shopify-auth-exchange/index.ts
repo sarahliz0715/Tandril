@@ -9,6 +9,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getPublishableKey, getSecretKey, serviceHeaders } from '../_shared/supabaseKeys.ts';
+import { normalizeShopDomain } from '../_shared/shopifySecurity.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -67,10 +68,16 @@ serve(async (req) => {
       throw new Error('Unauthorized');
     }
 
-    const { code, state, shop } = await req.json();
+    const { code, state, shop: rawShop } = await req.json();
 
-    if (!code || !state || !shop) {
+    if (!code || !state || !rawShop) {
       throw new Error('Missing required parameters: code, state, shop');
+    }
+    // The code is exchanged at https://<shop>/admin/oauth/access_token with our
+    // client secret in the body, so shop must be a real myshopify.com store.
+    const shop = normalizeShopDomain(rawShop);
+    if (!shop) {
+      throw new Error('Invalid Shopify store address.');
     }
 
     console.log(`[Shopify Exchange] Processing for shop=${shop} user=${user.id}`);
@@ -143,7 +150,7 @@ serve(async (req) => {
 
     let shopName = shop;
     try {
-      const shopInfoResponse = await fetch(`https://${shop}/admin/api/2024-01/shop.json`, {
+      const shopInfoResponse = await fetch(`https://${shop}/admin/api/2026-01/shop.json`, {
         headers: { 'X-Shopify-Access-Token': access_token },
       });
       if (shopInfoResponse.ok) {
@@ -187,7 +194,7 @@ serve(async (req) => {
     ];
     for (const wh of webhooksToRegister) {
       try {
-        await fetch(`https://${shop}/admin/api/2024-01/webhooks.json`, {
+        await fetch(`https://${shop}/admin/api/2026-01/webhooks.json`, {
           method: 'POST',
           headers: { 'X-Shopify-Access-Token': access_token, 'Content-Type': 'application/json' },
           body: JSON.stringify({ webhook: { topic: wh.topic, address: wh.address, format: 'json' } }),

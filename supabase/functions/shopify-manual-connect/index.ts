@@ -17,6 +17,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getPublishableKey, getSecretKey, serviceHeaders } from '../_shared/supabaseKeys.ts';
+import { normalizeShopDomain } from '../_shared/shopifySecurity.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -80,16 +81,17 @@ serve(async (req) => {
       throw new Error('Missing required fields: shop_domain, access_token');
     }
 
-    shop_domain = shop_domain.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
-    if (!shop_domain.includes('.myshopify.com')) {
-      shop_domain = `${shop_domain}.myshopify.com`;
+    // The token is sent to https://<shop_domain>/..., so only real myshopify.com stores.
+    shop_domain = normalizeShopDomain(shop_domain);
+    if (!shop_domain) {
+      throw new Error("Enter your store's Shopify address, e.g. my-store or my-store.myshopify.com (not a custom domain).");
     }
     access_token = access_token.trim();
 
     console.log(`[Shopify Manual Connect] Verifying token for shop=${shop_domain} user=${user.id}`);
 
     // Verify the token actually works against this shop before saving anything
-    const shopInfoResponse = await fetch(`https://${shop_domain}/admin/api/2024-01/shop.json`, {
+    const shopInfoResponse = await fetch(`https://${shop_domain}/admin/api/2026-01/shop.json`, {
       headers: { 'X-Shopify-Access-Token': access_token },
     });
 
@@ -140,7 +142,7 @@ serve(async (req) => {
     try {
       const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/shopify-order-webhook`;
       await Promise.all(['orders/paid', 'orders/cancelled', 'refunds/create', 'inventory_levels/update'].map(topic =>
-        fetch(`https://${shop_domain}/admin/api/2024-01/webhooks.json`, {
+        fetch(`https://${shop_domain}/admin/api/2026-01/webhooks.json`, {
           method: 'POST',
           headers: { 'X-Shopify-Access-Token': access_token, 'Content-Type': 'application/json' },
           body: JSON.stringify({ webhook: { topic, address: webhookUrl, format: 'json' } }),
