@@ -8,6 +8,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getSecretKey, isServiceRequest } from '../_shared/supabaseKeys.ts';
+import { normalizeShopDomain } from '../_shared/shopifySecurity.ts';
 
 const ALGORITHM = 'AES-GCM';
 const KEY_LENGTH = 256;
@@ -48,9 +49,10 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
     }
 
-    const { user_id, shop, shop_name, access_token, scope } = await req.json();
+    const { user_id, shop: rawShop, shop_name, access_token, scope } = await req.json();
+    const shop = normalizeShopDomain(rawShop);
     if (!user_id || !shop || !access_token) {
-      return new Response(JSON.stringify({ error: 'Missing required fields: user_id, shop, access_token' }), { status: 400 });
+      return new Response(JSON.stringify({ error: 'Missing or invalid fields: user_id, shop, access_token' }), { status: 400 });
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
@@ -88,7 +90,7 @@ serve(async (req) => {
 
     for (const wh of webhooks) {
       try {
-        await fetch(`https://${shop}/admin/api/2024-01/webhooks.json`, {
+        await fetch(`https://${shop}/admin/api/2026-01/webhooks.json`, {
           method: 'POST',
           headers: { 'X-Shopify-Access-Token': access_token, 'Content-Type': 'application/json' },
           body: JSON.stringify({ webhook: { topic: wh.topic, address: wh.address, format: 'json' } }),

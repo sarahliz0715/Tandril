@@ -35,7 +35,7 @@ type CheckResult = { repaired?: string[] };
 
 // ─── Shopify ──────────────────────────────────────────────────────────────────
 
-const SHOPIFY_API = '2025-01';
+const SHOPIFY_API = '2026-01';
 // Shop-specific webhooks Tandril registers on connect (app/uninstalled and
 // app_subscriptions/update are app-level, declared in shopify.app.toml instead).
 const SHOPIFY_WEBHOOK_TOPICS = ['ORDERS_PAID', 'ORDERS_CANCELLED', 'REFUNDS_CREATE', 'INVENTORY_LEVELS_UPDATE'];

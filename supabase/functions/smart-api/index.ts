@@ -82,7 +82,7 @@ async function decrypt(encrypted: string): Promise<string> {
 }
 
 async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
-  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+  const response = await fetch(`https://${domain}/admin/api/2026-01/graphql.json`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -3216,7 +3216,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const targetProduct = await resolveShopifyProduct(shopDomain, accessToken, action);
       if (!action.image_data) throw new Error('No image data provided. Please re-upload the image and try again.');
 
-      const uploadRes = await fetch(`https://${shopDomain}/admin/api/2025-01/products/${targetProduct.id}/images.json`, {
+      const uploadRes = await fetch(`https://${shopDomain}/admin/api/2026-01/products/${targetProduct.id}/images.json`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken },
         body: JSON.stringify({
@@ -3242,21 +3242,21 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
 
       // Check if the metafield already exists so we can update rather than duplicate
       const listRes = await fetch(
-        `https://${shopDomain}/admin/api/2025-01/products/${targetProduct.id}/metafields.json?namespace=${namespace}&key=${key}`,
+        `https://${shopDomain}/admin/api/2026-01/products/${targetProduct.id}/metafields.json?namespace=${namespace}&key=${key}`,
         { headers: restHeaders }
       );
       const listData = await listRes.json();
       const existing = listData.metafields?.[0];
 
       if (existing) {
-        const updateRes = await fetch(`https://${shopDomain}/admin/api/2025-01/metafields/${existing.id}.json`, {
+        const updateRes = await fetch(`https://${shopDomain}/admin/api/2026-01/metafields/${existing.id}.json`, {
           method: 'PUT',
           headers: restHeaders,
           body: JSON.stringify({ metafield: { id: existing.id, value, type } }),
         });
         if (!updateRes.ok) throw new Error(`Shopify metafield update failed: ${await updateRes.text()}`);
       } else {
-        const createRes = await fetch(`https://${shopDomain}/admin/api/2025-01/products/${targetProduct.id}/metafields.json`, {
+        const createRes = await fetch(`https://${shopDomain}/admin/api/2026-01/products/${targetProduct.id}/metafields.json`, {
           method: 'POST',
           headers: restHeaders,
           body: JSON.stringify({ metafield: { namespace, key, value, type } }),
@@ -3280,12 +3280,12 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       if (!action.alt_text) throw new Error('alt_text is required for update_image_alt.');
       const restHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
 
-      const imagesRes = await fetch(`https://${shopDomain}/admin/api/2025-01/products/${targetProduct.id}/images.json`, { headers: restHeaders });
+      const imagesRes = await fetch(`https://${shopDomain}/admin/api/2026-01/products/${targetProduct.id}/images.json`, { headers: restHeaders });
       const imagesData = await imagesRes.json();
       const firstImage = imagesData.images?.[0];
       if (!firstImage) throw new Error(`Product "${targetProduct.title}" has no images.`);
 
-      const updateRes = await fetch(`https://${shopDomain}/admin/api/2025-01/products/${targetProduct.id}/images/${firstImage.id}.json`, {
+      const updateRes = await fetch(`https://${shopDomain}/admin/api/2026-01/products/${targetProduct.id}/images/${firstImage.id}.json`, {
         method: 'PUT',
         headers: restHeaders,
         body: JSON.stringify({ image: { id: firstImage.id, alt: action.alt_text } }),
@@ -3387,20 +3387,20 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
 
       const metafieldUpsert = async (key: string, value: string): Promise<string | null> => {
         const listRes = await fetch(
-          `https://${shopDomain}/admin/api/2025-01/products/${targetProduct.id}/metafields.json?namespace=global&key=${key}`,
+          `https://${shopDomain}/admin/api/2026-01/products/${targetProduct.id}/metafields.json?namespace=global&key=${key}`,
           { headers: seoRestHeaders }
         );
         const listData = await listRes.json();
         const existing = listData.metafields?.[0];
         if (existing) {
-          const r = await fetch(`https://${shopDomain}/admin/api/2025-01/metafields/${existing.id}.json`, {
+          const r = await fetch(`https://${shopDomain}/admin/api/2026-01/metafields/${existing.id}.json`, {
             method: 'PUT',
             headers: seoRestHeaders,
             body: JSON.stringify({ metafield: { id: existing.id, value, type: 'single_line_text_field' } }),
           });
           if (!r.ok) throw new Error(`SEO metafield update failed: ${await r.text()}`);
         } else {
-          const r = await fetch(`https://${shopDomain}/admin/api/2025-01/products/${targetProduct.id}/metafields.json`, {
+          const r = await fetch(`https://${shopDomain}/admin/api/2026-01/products/${targetProduct.id}/metafields.json`, {
             method: 'POST',
             headers: seoRestHeaders,
             body: JSON.stringify({ metafield: { namespace: 'global', key, value, type: 'single_line_text_field' } }),
@@ -4331,7 +4331,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
               }
             } catch {}
             const shopHeaders = { 'X-Shopify-Access-Token': tok, 'Content-Type': 'application/json' };
-            const oRes = await fetch(`https://${shopDomain}/admin/api/2025-01/orders.json?limit=250&status=any`, { headers: shopHeaders });
+            const oRes = await fetch(`https://${shopDomain}/admin/api/2026-01/orders.json?limit=250&status=any`, { headers: shopHeaders });
             if (oRes.ok) {
               const { orders: shopOrders } = await oRes.json();
               for (const o of (shopOrders || [])) {
@@ -4753,7 +4753,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
             line_items: (shopOrder.line_items || []).map((i: any) => ({ id: i.id })),
           },
         };
-        const fRes = await fetch(`https://${shopDomain}/admin/api/2025-01/orders/${orderId}/fulfillments.json`, {
+        const fRes = await fetch(`https://${shopDomain}/admin/api/2026-01/orders/${orderId}/fulfillments.json`, {
           method: 'POST', headers: shopH, body: JSON.stringify(fulfillBody),
         });
         if (!fRes.ok) throw new Error(`Shopify fulfillment failed: ${await fRes.text()}`);
@@ -6550,7 +6550,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       }
 
       const prRestHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
-      const prRes = await fetch(`https://${shopDomain}/admin/api/2025-01/price_rules.json`, {
+      const prRes = await fetch(`https://${shopDomain}/admin/api/2026-01/price_rules.json`, {
         method: 'POST',
         headers: prRestHeaders,
         body: JSON.stringify(priceRuleBody),
@@ -6559,7 +6559,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       const { price_rule: newRule } = await prRes.json();
 
       // Attach the discount code to the price rule
-      const codeRes = await fetch(`https://${shopDomain}/admin/api/2025-01/price_rules/${newRule.id}/discount_codes.json`, {
+      const codeRes = await fetch(`https://${shopDomain}/admin/api/2026-01/price_rules/${newRule.id}/discount_codes.json`, {
         method: 'POST',
         headers: prRestHeaders,
         body: JSON.stringify({ discount_code: { code: discountCode } }),
@@ -6586,11 +6586,11 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
 
       if (!priceRuleId && action.code) {
         // Look up price rule by scanning discount codes — Shopify doesn't have a direct lookup endpoint
-        const listRes = await fetch(`https://${shopDomain}/admin/api/2025-01/price_rules.json?limit=250`, { headers: delRestHeaders });
+        const listRes = await fetch(`https://${shopDomain}/admin/api/2026-01/price_rules.json?limit=250`, { headers: delRestHeaders });
         if (listRes.ok) {
           const { price_rules } = await listRes.json();
           for (const rule of (price_rules || [])) {
-            const codesRes = await fetch(`https://${shopDomain}/admin/api/2025-01/price_rules/${rule.id}/discount_codes.json`, { headers: delRestHeaders });
+            const codesRes = await fetch(`https://${shopDomain}/admin/api/2026-01/price_rules/${rule.id}/discount_codes.json`, { headers: delRestHeaders });
             if (codesRes.ok) {
               const { discount_codes } = await codesRes.json();
               const match = (discount_codes || []).find((c: any) => c.code.toUpperCase() === action.code.toUpperCase());
@@ -6601,7 +6601,7 @@ async function executeStoreAction(supabaseClient: any, userId: string, action: a
       }
       if (!priceRuleId) throw new Error('price_rule_id or code is required for shopify_delete_discount.');
 
-      const delRes = await fetch(`https://${shopDomain}/admin/api/2025-01/price_rules/${priceRuleId}.json`, { method: 'DELETE', headers: delRestHeaders });
+      const delRes = await fetch(`https://${shopDomain}/admin/api/2026-01/price_rules/${priceRuleId}.json`, { method: 'DELETE', headers: delRestHeaders });
       if (!delRes.ok && delRes.status !== 404) throw new Error(`Shopify delete discount failed: ${await delRes.text()}`);
       return { message: `Deleted Shopify discount${action.code ? ` code ${action.code}` : ''} (price rule ${priceRuleId}).` };
     }

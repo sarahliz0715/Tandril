@@ -117,7 +117,7 @@ export default async function handler(req, res) {
 
     // Query Shopify for active app subscriptions, including line-item price
     // so tier resolution doesn't depend solely on the plan's display name.
-    const gqlRes = await fetch(`https://${platform.shop_domain}/admin/api/2025-10/graphql.json`, {
+    const gqlRes = await fetch(`https://${platform.shop_domain}/admin/api/2026-01/graphql.json`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': token },
       body: JSON.stringify({

@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { isExternallyManagedLocation } from '../_shared/shopifyStock.ts';
 import { getSecretKey, serviceHeaders } from '../_shared/supabaseKeys.ts';
+import { verifyShopifyWebhookHmac as verifyShopifyHmac } from '../_shared/shopifySecurity.ts';
 
 // --- Inlined encryption helpers ---
 const ALGORITHM = 'AES-GCM';
@@ -34,7 +35,7 @@ function isEncrypted(value: string): boolean {
 // ─── GraphQL helpers ──────────────────────────────────────────────────────────
 
 async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
-  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+  const response = await fetch(`https://${domain}/admin/api/2026-01/graphql.json`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -57,14 +58,6 @@ function fromShopifyGid(gid: string): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-
-async function verifyShopifyHmac(body: string, hmacHeader: string, secret: string): Promise<boolean> {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
-  const computed = btoa(String.fromCharCode(...new Uint8Array(sig)));
-  return computed === hmacHeader;
-}
 
 // Sum "available" stock over the locations the store itself manages. Returns null when
 // every level belongs to a fulfillment app (e.g. Printful's 9999 = made to order), whose

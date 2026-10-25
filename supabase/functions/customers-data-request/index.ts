@@ -5,43 +5,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getSecretKey } from '../_shared/supabaseKeys.ts';
-
-// Verify Shopify HMAC signature
-async function verifyShopifyWebhook(
-  body: string,
-  hmacHeader: string | null,
-  secret: string
-): Promise<boolean> {
-  if (!hmacHeader) {
-    return false;
-  }
-
-  try {
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey(
-      "raw",
-      encoder.encode(secret),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"]
-    );
-
-    const signature = await crypto.subtle.sign(
-      "HMAC",
-      key,
-      encoder.encode(body)
-    );
-
-    const hashArray = Array.from(new Uint8Array(signature));
-    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    const hashBase64 = btoa(String.fromCharCode(...hashArray));
-
-    return hashBase64 === hmacHeader;
-  } catch (error) {
-    console.error('[HMAC Verification] Error:', error);
-    return false;
-  }
-}
+import { verifyShopifyWebhookHmac as verifyShopifyWebhook } from '../_shared/shopifySecurity.ts';
 
 serve(async (req) => {
   // Only accept POST requests

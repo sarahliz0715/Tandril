@@ -25,6 +25,52 @@ function serviceKey() {
   return (process.env.SUPABASE_SECRET_KEY || '').trim();
 }
 
+// Only real *.myshopify.com stores. `shop` comes straight from the query string, and the
+// install flow POSTs our client secret to https://<shop>/admin/oauth/access_token.
+// Same rule as supabase/functions/_shared/shopifySecurity.ts.
+function normalizeShopDomain(input) {
+  if (typeof input !== 'string') return null;
+  let s = input.trim().toLowerCase().replace(/^https?:\/\//, '').split(/[/?#]/)[0];
+  if (s && !s.includes('.')) s = `${s}.myshopify.com`;
+  return /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(s) ? s : null;
+}
+
+// Shopify signs every OAuth redirect: hex HMAC-SHA256 (client secret) of all other query
+// params, sorted, as key=value joined by &. Required — an unsigned request is not from Shopify.
+function verifyOAuthHmac(query, secret) {
+  const { hmac, signature, ...rest } = query;
+  if (typeof hmac !== 'string' || !secret) return false;
+  if (Object.values(rest).some((v) => typeof v !== 'string')) return false;
+  const keys = Object.keys(rest).sort();
+  // Shopify's own libraries sign the URL-encoded form; older examples use raw values. They
+  // only differ when a value (e.g. base64 `host`) has characters like "=", so accept either.
+  const messages = [
+    keys.map((k) => `${k}=${rest[k]}`).join('&'),
+    new URLSearchParams(keys.map((k) => [k, rest[k]])).toString(),
+  ];
+  const b = Buffer.from(hmac, 'utf8');
+  return messages.some((message) => {
+    const a = Buffer.from(crypto.createHmac('sha256', secret).update(message).digest('hex'), 'utf8');
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  });
+}
+
+// GoTrue's admin user list has no email filter (an ?email= param is silently ignored and
+// returns the first page of ALL users), so page through and match the address exactly.
+async function findUserIdByEmail(email) {
+  const target = email.trim().toLowerCase();
+  const perPage = 1000;
+  for (let page = 1; page <= 50; page++) {
+    const r = await supabaseFetch(`/auth/v1/admin/users?page=${page}&per_page=${perPage}`);
+    if (!r.ok) throw new Error(`User lookup failed: ${r.status}`);
+    const { users = [] } = await r.json();
+    const match = users.find((u) => (u.email || '').toLowerCase() === target);
+    if (match) return match.id;
+    if (users.length < perPage) return null;
+  }
+  throw new Error('User lookup did not finish');
+}
+
 async function supabaseFetch(path, options = {}) {
   const url = `${supabaseUrl()}${path}`;
   const res = await fetch(url, {
@@ -40,10 +86,11 @@ async function supabaseFetch(path, options = {}) {
 }
 
 export default async function handler(req, res) {
-  const { code, state, shop, hmac } = req.query;
+  const { code, state, hmac } = req.query;
+  const shop = normalizeShopDomain(req.query.shop);
   const origin = process.env.APP_URL || `https://${req.headers.host}`;
 
-  if (!code || !state || !shop) {
+  if (typeof code !== 'string' || typeof state !== 'string' || !shop) {
     const url = new URL('/Platforms', origin);
     url.searchParams.set('error', 'Shopify did not return required OAuth parameters');
     return res.redirect(302, url.toString());
@@ -128,16 +175,9 @@ export default async function handler(req, res) {
       throw new Error('SHOPIFY_API_KEY / SHOPIFY_API_SECRET not set in Vercel env');
     }
 
-    // Verify HMAC so we know this is genuinely from Shopify
-    if (hmac) {
-      const params = Object.entries(req.query)
-        .filter(([k]) => k !== 'hmac')
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([k, v]) => `${k}=${v}`)
-        .join('&');
-      const digest = crypto.createHmac('sha256', shopifyApiSecret).update(params).digest('hex');
-      if (digest !== hmac) throw new Error('HMAC verification failed');
-    }
+    // Verify HMAC so we know this is genuinely from Shopify. Mandatory: this path creates
+    // accounts and signs people in, so an unsigned or forged request must stop here.
+    if (!verifyOAuthHmac(req.query, shopifyApiSecret)) throw new Error('HMAC verification failed');
 
     // Exchange code for access token
     const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
@@ -153,7 +193,7 @@ export default async function handler(req, res) {
     let ownerEmail = null;
     let shopName   = shop;
     try {
-      const shopRes = await fetch(`https://${shop}/admin/api/2024-01/shop.json`, {
+      const shopRes = await fetch(`https://${shop}/admin/api/2026-01/shop.json`, {
         headers: { 'X-Shopify-Access-Token': access_token },
       });
       if (shopRes.ok) {
@@ -166,15 +206,8 @@ export default async function handler(req, res) {
     if (!ownerEmail) throw new Error('Could not retrieve shop owner email from Shopify');
 
     // Find or create Tandril user by email
-    let userId = null;
-    const listRes = await supabaseFetch(`/auth/v1/admin/users?email=${encodeURIComponent(ownerEmail)}`);
-    if (listRes.ok) {
-      const { users } = await listRes.json();
-      if (users?.length > 0) {
-        userId = users[0].id;
-        console.log('[shopify-callback] Found existing user:', userId);
-      }
-    }
+    let userId = await findUserIdByEmail(ownerEmail);
+    if (userId) console.log('[shopify-callback] Found existing user:', userId);
 
     if (!userId) {
       // Create new user — they'll receive a magic link to set a password

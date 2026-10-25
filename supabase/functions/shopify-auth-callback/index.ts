@@ -6,6 +6,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { encrypt } from '../_shared/encryption.ts';
 import { getSecretKey } from '../_shared/supabaseKeys.ts';
+import { normalizeShopDomain } from '../_shared/shopifySecurity.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -26,14 +27,15 @@ serve(async (req) => {
     // Parse query parameters
     const url = new URL(req.url);
     const code = url.searchParams.get('code');
-    const shop = url.searchParams.get('shop');
+    // Must be a real myshopify.com store: the code exchange below sends our client secret there.
+    const shop = normalizeShopDomain(url.searchParams.get('shop'));
     const state = url.searchParams.get('state');
     const hmac = url.searchParams.get('hmac');
 
     console.log('[Shopify Callback] Parameters:', { code: code?.substring(0, 10) + '...', shop, state: state?.substring(0, 10) + '...' });
 
     if (!code || !shop || !state) {
-      throw new Error('Missing required OAuth parameters');
+      throw new Error('Missing or invalid OAuth parameters');
     }
 
     // Create Supabase admin client (no user auth required for callback)
@@ -101,7 +103,7 @@ serve(async (req) => {
     }
 
     // Get shop information from Shopify
-    const shopInfoResponse = await fetch(`https://${shop}/admin/api/2025-10/shop.json`, {
+    const shopInfoResponse = await fetch(`https://${shop}/admin/api/2026-01/shop.json`, {
       headers: {
         'X-Shopify-Access-Token': access_token,
       },
@@ -154,7 +156,7 @@ serve(async (req) => {
     try {
       const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/shopify-order-webhook`;
       const whHeaders = { 'X-Shopify-Access-Token': access_token, 'Content-Type': 'application/json' };
-      const whBase = `https://${shop}/admin/api/2025-10/webhooks.json`;
+      const whBase = `https://${shop}/admin/api/2026-01/webhooks.json`;
       await Promise.all([
         fetch(whBase, { method: 'POST', headers: whHeaders, body: JSON.stringify({ webhook: { topic: 'orders/paid', address: webhookUrl, format: 'json' } }) }),
         fetch(whBase, { method: 'POST', headers: whHeaders, body: JSON.stringify({ webhook: { topic: 'orders/cancelled', address: webhookUrl, format: 'json' } }) }),

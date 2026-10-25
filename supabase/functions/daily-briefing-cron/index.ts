@@ -36,10 +36,10 @@ function isEncrypted(value: string): boolean {
   try { return atob(value).length > _ENC_IV_LENGTH; } catch { return false; }
 }
 
-// SHOPIFY_API_VERSION removed — now using GraphQL 2025-01
+// SHOPIFY_API_VERSION removed — now using GraphQL 2026-01
 
 async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
-  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+  const response = await fetch(`https://${domain}/admin/api/2026-01/graphql.json`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

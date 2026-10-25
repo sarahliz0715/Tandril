@@ -37,7 +37,7 @@ const corsHeaders = {
 };
 
 async function shopifyGraphQL(domain: string, token: string, query: string, variables: Record<string, any> = {}) {
-  const response = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+  const response = await fetch(`https://${domain}/admin/api/2026-01/graphql.json`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -392,7 +392,7 @@ async function applyDiscount(platform: any, parameters: any): Promise<any> {
     },
   };
 
-  const res = await fetch(`https://${platform.shop_domain}/admin/api/2025-01/price_rules.json`, {
+  const res = await fetch(`https://${platform.shop_domain}/admin/api/2026-01/price_rules.json`, {
     method: 'POST',
     headers: {
       'X-Shopify-Access-Token': platform.access_token,
@@ -466,7 +466,7 @@ async function updateSEO(platform: any, parameters: any): Promise<any> {
       }
 
       for (const metafield of metafields) {
-        const mfRes = await fetch(`https://${platform.shop_domain}/admin/api/2025-01/products/${productId}/metafields.json`, {
+        const mfRes = await fetch(`https://${platform.shop_domain}/admin/api/2026-01/products/${productId}/metafields.json`, {
           method: 'POST',
           headers: {
             'X-Shopify-Access-Token': platform.access_token,
