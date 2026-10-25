@@ -7,6 +7,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { encrypt } from '../_shared/encryption.ts';
 import { getSecretKey } from '../_shared/supabaseKeys.ts';
 import { normalizeShopDomain } from '../_shared/shopifySecurity.ts';
+import { exchangeShopifyCode, isExpiringToken, saveShopifyToken } from '../_shared/shopifyToken.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -69,33 +70,8 @@ serve(async (req) => {
       throw new Error('Invalid or expired OAuth state');
     }
 
-    // Exchange authorization code for access token
-    const shopifyApiKey = Deno.env.get('SHOPIFY_API_KEY');
-    const shopifyApiSecret = Deno.env.get('SHOPIFY_API_SECRET');
-
-    if (!shopifyApiKey || !shopifyApiSecret) {
-      throw new Error('Shopify API credentials not configured');
-    }
-
-    const tokenUrl = `https://${shop}/admin/oauth/access_token`;
-    const tokenResponse = await fetch(tokenUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        client_id: shopifyApiKey,
-        client_secret: shopifyApiSecret,
-        code,
-      }),
-    });
-
-    if (!tokenResponse.ok) {
-      const errorText = await tokenResponse.text();
-      throw new Error(`Failed to exchange code for token: ${errorText}`);
-    }
-
-    const tokenData = await tokenResponse.json();
+    // Exchange authorization code for access token (expiring when SHOPIFY_EXPIRING_TOKENS is on)
+    const tokenData = await exchangeShopifyCode(shop, code);
     const { access_token, scope } = tokenData;
 
     if (!access_token) {
@@ -141,6 +117,9 @@ serve(async (req) => {
       console.error('[Shopify Callback] Error storing platform:', platformError);
       throw new Error('Failed to store platform credentials');
     }
+
+    // Expiring token: store its refresh token too, or the connection dies in 60 minutes.
+    if (isExpiringToken(tokenData)) await saveShopifyToken(supabaseClient, platform.id, tokenData);
 
     // Delete the used OAuth state
     if (oauthState) {

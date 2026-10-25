@@ -9,6 +9,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getSecretKey, isServiceRequest } from '../_shared/supabaseKeys.ts';
 import { normalizeShopDomain } from '../_shared/shopifySecurity.ts';
+import { isExpiringToken, saveShopifyToken } from '../_shared/shopifyToken.ts';
 
 const ALGORITHM = 'AES-GCM';
 const KEY_LENGTH = 256;
@@ -94,7 +95,10 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
     }
 
-    const { user_id, shop: rawShop, shop_name, access_token, scope, email_sign_in_link } = await req.json();
+    const {
+      user_id, shop: rawShop, shop_name, access_token, scope, email_sign_in_link,
+      refresh_token, expires_in, refresh_token_expires_in,
+    } = await req.json();
     const shop = normalizeShopDomain(rawShop);
     if (!user_id || !shop || !access_token) {
       return new Response(JSON.stringify({ error: 'Missing or invalid fields: user_id, shop, access_token' }), { status: 400 });
@@ -105,7 +109,7 @@ serve(async (req) => {
 
     const encryptedToken = await encrypt(access_token);
 
-    const { error: upsertError } = await adminClient
+    const { data: platformRow, error: upsertError } = await adminClient
       .from('platforms')
       .upsert({
         user_id,
@@ -117,9 +121,16 @@ serve(async (req) => {
         is_active: true,
         status: 'connected', // clears a 'needs_reconnect' flag on reconnect
         last_synced_at: new Date().toISOString(),
-      }, { onConflict: 'user_id,shop_domain' });
+      }, { onConflict: 'user_id,shop_domain' })
+      .select('id')
+      .single();
 
     if (upsertError) throw new Error('Platform upsert failed: ' + upsertError.message);
+
+    // Expiring token (api/shopify-callback.js asked for one): store its refresh token too,
+    // or the connection dies in 60 minutes.
+    const tokenData = { access_token, scope, refresh_token, expires_in, refresh_token_expires_in };
+    if (isExpiringToken(tokenData)) await saveShopifyToken(adminClient, platformRow.id, tokenData);
 
     console.log(`[shopify-app-install] Platform upserted for user=${user_id} shop=${shop}`);
 

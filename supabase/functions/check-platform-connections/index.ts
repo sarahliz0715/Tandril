@@ -22,7 +22,7 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { decrypt, isEncrypted } from '../_shared/encryption.ts';
+import { getShopifyAccessToken } from '../_shared/shopifyToken.ts';
 import { isAuthFailure, markNeedsReconnect, markHealthy } from '../_shared/platformHealth.ts';
 import { reconnectEmailDue, sendReconnectEmail, PLATFORM_LABELS } from '../_shared/connectionAlerts.ts';
 import { getEtsyAccessToken } from '../_shared/etsyAuth.ts';
@@ -52,11 +52,12 @@ async function shopifyGraphQL(shop: string, token: string, query: string, variab
   return json.data;
 }
 
-async function checkShopify(_supabase: any, platform: any): Promise<CheckResult> {
+async function checkShopify(supabase: any, platform: any): Promise<CheckResult> {
   const shop = platform.shop_domain;
-  let token = platform.access_token;
-  if (!token) throw new Error('401 no access token stored');
-  if (isEncrypted(token)) token = await decrypt(token);
+  if (!platform.access_token) throw new Error('401 no access token stored');
+  // Renews an expiring token first if it's about to lapse, so a late refresh never looks
+  // like a dead login. Non-expiring tokens come back as they are.
+  const token = await getShopifyAccessToken(supabase, platform.id);
   await shopifyGraphQL(shop, token, '{ shop { name } }');
 
   // Login works — make sure the sync webhooks are still registered.

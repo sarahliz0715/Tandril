@@ -10,6 +10,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getPublishableKey, getSecretKey, serviceHeaders } from '../_shared/supabaseKeys.ts';
 import { normalizeShopDomain } from '../_shared/shopifySecurity.ts';
+import { exchangeShopifyCode, isExpiringToken, saveShopifyToken } from '../_shared/shopifyToken.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -123,30 +124,10 @@ serve(async (req) => {
       throw new Error('This connection attempt expired. Please restart the Shopify connect flow.');
     }
 
-    const shopifyApiKey = Deno.env.get('SHOPIFY_API_KEY');
-    const shopifyApiSecret = Deno.env.get('SHOPIFY_API_SECRET');
-
-    if (!shopifyApiKey || !shopifyApiSecret) {
-      throw new Error('Shopify API credentials not configured');
-    }
-
-    const tokenResponse = await fetch(`https://${shop}/admin/oauth/access_token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_id: shopifyApiKey,
-        client_secret: shopifyApiSecret,
-        code,
-      }),
-    });
-
-    if (!tokenResponse.ok) {
-      const errorText = await tokenResponse.text();
-      throw new Error(`Failed to exchange code for token: ${errorText}`);
-    }
-
-    const { access_token, scope } = await tokenResponse.json();
-    if (!access_token) throw new Error('No access token received from Shopify');
+    // Expiring token (with refresh token) when SHOPIFY_EXPIRING_TOKENS is on, otherwise the
+    // classic non-expiring one. See _shared/shopifyToken.ts.
+    const tokenData = await exchangeShopifyCode(shop, code);
+    const { access_token, scope } = tokenData;
 
     let shopName = shop;
     try {
@@ -181,6 +162,11 @@ serve(async (req) => {
       console.error('[Shopify Exchange] Platform upsert failed:', platformError);
       throw new Error(`Failed to store platform: ${platformError.message}`);
     }
+
+    // Expiring token: store its refresh token too, or the connection dies in 60 minutes.
+    // (A non-expiring token needs nothing more; refresh-shopify-tokens drops any refresh
+    // token left over from an earlier expiring connection.)
+    if (isExpiringToken(tokenData)) await saveShopifyToken(adminClient, platform.id, tokenData);
 
     // Register webhooks for orders, subscription changes, and uninstall
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
