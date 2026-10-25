@@ -207,6 +207,7 @@ export default async function handler(req, res) {
 
     // Find or create Tandril user by email
     let userId = await findUserIdByEmail(ownerEmail);
+    const existingAccount = Boolean(userId);
     if (userId) console.log('[shopify-callback] Found existing user:', userId);
 
     if (!userId) {
@@ -233,13 +234,31 @@ export default async function handler(req, res) {
         'Content-Type': 'application/json',
         'apikey': serviceKey(),
       },
-      body: JSON.stringify({ user_id: userId, shop, shop_name: shopName, access_token, scope }),
+      body: JSON.stringify({
+        user_id: userId, shop, shop_name: shopName, access_token, scope,
+        // Existing account: email the sign-in link instead of signing this browser in.
+        ...(existingAccount ? { email_sign_in_link: { email: ownerEmail, redirect_to: `${origin}/Pricing` } } : {}),
+      }),
     });
+    let installBody = null;
     if (!installRes.ok) {
       console.warn('[shopify-callback] shopify-app-install returned', installRes.status, await installRes.text());
+    } else {
+      installBody = await installRes.json().catch(() => null);
     }
 
-    // Generate magic link → auto-signs the user in and sends them to /Pricing
+    // The store's email is chosen by whoever owns the Shopify store, so it doesn't prove they
+    // own a Tandril account with that address. Only the inbox owner gets in, via the emailed link.
+    if (existingAccount) {
+      const loginUrl = new URL('/Login', origin);
+      loginUrl.searchParams.set('shopify_installed', '1');
+      loginUrl.searchParams.set('email_sent', installBody?.sign_in_email_sent ? '1' : '0');
+      console.log('[shopify-callback] App Store install for an existing account — sign-in link emailed, not auto-signed-in');
+      return res.redirect(302, loginUrl.toString());
+    }
+
+    // Brand-new account (just created above for this store): generate magic link →
+    // auto-signs the user in and sends them to /Pricing
     const mlRes = await supabaseFetch('/auth/v1/admin/generate_link', {
       method: 'POST',
       body: JSON.stringify({

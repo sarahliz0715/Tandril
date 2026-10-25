@@ -25,6 +25,9 @@ export default function Login() {
   // Get redirect URL from query params
   const params = new URLSearchParams(location.search);
   const redirectUrl = params.get('redirect') || '/Dashboard';
+  // Set by api/shopify-callback.js after an App Store install for an existing account.
+  const shopifyInstalled = params.get('shopify_installed') === '1';
+  const signInEmailSent = params.get('email_sent') === '1';
 
   // If already have a valid session (e.g. coming from Shopify), skip login
   useEffect(() => {
@@ -106,6 +109,16 @@ export default function Login() {
 
           <CardContent>
             <form onSubmit={handleEmailLogin} className="space-y-4">
+              {shopifyInstalled && (
+                <Alert>
+                  <AlertDescription>
+                    Tandril is now connected to your Shopify store.{' '}
+                    {signInEmailSent
+                      ? "For your security, we've emailed a sign-in link to your store's email address. Open it to continue, or sign in below."
+                      : 'Sign in below to continue.'}
+                  </AlertDescription>
+                </Alert>
+              )}
               {error && (
                 <Alert variant="destructive">
                   <AlertDescription>{error}</AlertDescription>
